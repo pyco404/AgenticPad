@@ -5,6 +5,7 @@ import type { Db } from "./client.js";
 import { record } from "./ledger.js";
 import { createAgent, type CreateAgentInput } from "./runner.js";
 import { agents, chainOps, rentals, type RentalPaymentStatus } from "./schema.js";
+import { packPolicy } from "../agents/policy.js";
 
 /**
  * Renting on the deposit flow: the fee and the first deposit, as one
@@ -32,6 +33,8 @@ export type RentalChain = {
     salt: string;
     fee: number;
     deposit: number;
+    /** The agent's table, packed (packPolicy), for the owner to commit on chain as they rent. */
+    table: bigint;
   }): Promise<PreparedWithdrawal>;
   submitRental(raw: Uint8Array, lastValidBlockHeight: number): Promise<string>;
   blockHeightPassed(lastValidBlockHeight: number): Promise<boolean>;
@@ -96,6 +99,9 @@ export async function prepareRental(
     salt: agent.salt,
     fee: input.fee,
     deposit: input.deposit,
+    // The table exactly as stored: the agent row is what plays, so it is what
+    // the owner commits to.
+    table: packPolicy(agent.policyTable!),
   });
   const preparedTx = prepared.transaction
     .serialize({ requireAllSignatures: false, verifySignatures: false })

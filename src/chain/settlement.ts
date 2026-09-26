@@ -63,6 +63,9 @@ export const pdas = {
   exitConfig: () => PublicKey.findProgramAddressSync([Buffer.from("exit_config")], PROGRAM_ID)[0],
   exit: (agentId: string) =>
     PublicKey.findProgramAddressSync([Buffer.from("exit"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
+  /** The strategy table the agent's owner signed at rent. */
+  strategy: (agentId: string) =>
+    PublicKey.findProgramAddressSync([Buffer.from("strategy"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
 };
 
 /** What opening a vault needs: the id, and the owner and salt it was derived from (src/agent-id.ts). */
@@ -235,6 +238,12 @@ export class ChainClient {
     fee: number;
     /** Base units to move from the owner's wallet into the new vault. */
     deposit: number;
+    /**
+     * The agent's strategy table, packed (packPolicy). Committed on chain in
+     * the same transaction, under the owner's signature, so what the agent
+     * plays is fixed by its owner before it plays anything.
+     */
+    table: bigint;
   }): Promise<PreparedWithdrawal> {
     const owner = new PublicKey(input.owner);
     const salt = Array.from(Buffer.from(input.salt, "hex"));
@@ -254,13 +263,15 @@ export class ChainClient {
       })
       .instruction();
     const fund = await this.depositInstruction({ agentId: input.agentId, depositor: owner, amount: input.deposit });
+    // After the vault opens, because it checks the owner the vault recorded.
+    const commit = await this.commitStrategyInstruction({ agentId: input.agentId, owner, table: input.table });
 
     const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash("confirmed");
     const transaction = new Transaction({ feePayer: this.signer.publicKey, blockhash, lastValidBlockHeight })
       // The owner may not have an account for the stake token yet if they were
       // sent tokens by some other route; opening it here is idempotent.
       .add(createAssociatedTokenAccountIdempotentInstruction(this.signer.publicKey, source, owner, this.mint))
-      .add(fee, open, fund);
+      .add(fee, open, fund, commit);
     transaction.partialSign(this.signer);
     return { transaction, lastValidBlockHeight };
   }
@@ -534,6 +545,27 @@ export class ChainClient {
   }
 
   /** The owner recorded on chain for an agent, or null if none has been. */
+  /** The owner-signed strategy commitment. Needs the owner's signature on the transaction it goes in. */
+  async commitStrategyInstruction(input: { agentId: string; owner: PublicKey; table: bigint }): Promise<TransactionInstruction> {
+    return this.program.methods
+      .commitStrategy(uuidBytes(input.agentId), new BN(input.table.toString()))
+      .accountsPartial({
+        settler: this.signer.publicKey,
+        config: pdas.config(),
+        owner: input.owner,
+        agentOwner: pdas.owner(input.agentId),
+        strategy: pdas.strategy(input.agentId),
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+  }
+
+  /** The packed table an agent's owner committed at rent, or null for an agent from before tables were committed. */
+  async strategyOf(agentId: string): Promise<{ table: bigint; slot: number } | null> {
+    const record = await this.program.account.strategy.fetchNullable(pdas.strategy(agentId), "confirmed");
+    return record ? { table: BigInt(record.table.toString()), slot: record.slot.toNumber() } : null;
+  }
+
   async ownerOf(agentId: string): Promise<string | null> {
     const record = await this.program.account.agentOwner.fetchNullable(pdas.owner(agentId), "confirmed");
     return record ? record.owner.toBase58() : null;

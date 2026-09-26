@@ -67,6 +67,13 @@ pub const OUTFLOW_SEED: &[u8] = b"outflow";
 pub const RENTAL_SEED: &[u8] = b"rental";
 pub const EXIT_SEED: &[u8] = b"exit";
 pub const EXIT_CONFIG_SEED: &[u8] = b"exit_config";
+pub const STRATEGY_SEED: &[u8] = b"strategy";
+
+/// A strategy table's shape: six situations, five edges, one action per cell.
+pub const STRATEGY_SITUATIONS: u32 = 6;
+pub const STRATEGY_EDGES: u32 = 5;
+/// The last two situations face a raise, where only fold (0) and call (1) exist.
+pub const STRATEGY_FIRST_FACING_RAISE: u32 = 4;
 /// Mixed into every agent id, so an id can't be confused with any other hash.
 pub const AGENT_ID_DOMAIN: &[u8] = b"oxude-agent-v1";
 /// A rate-limit window: about ten minutes of slots.
@@ -588,6 +595,29 @@ pub mod oxude_settlement {
     /// a drained vault: the reconciler alarms, correctly, and never stops. So
     /// the record outlives the claim by as long as the server had to settle in
     /// the first place.
+    /// Records an agent's strategy table, signed by its owner, once.
+    ///
+    /// This is the half of a match the settler cannot make up: what each side
+    /// plays. The owner's signature is checked against the recorded owner, so
+    /// the table is the owner's word, not the server's; and the record is a PDA
+    /// that can be created once, so it cannot be swapped for one that loses
+    /// on purpose. Nothing reads it yet - a co-signer replaying matches will -
+    /// but it has to exist from rent time, because it is only evidence if it
+    /// was fixed before the matches it describes.
+    ///
+    /// The settler pays the rent, as for everything else in a rental, so an
+    /// owner needs no SOL. Its signature adds nothing to what is recorded.
+    pub fn commit_strategy(ctx: Context<CommitStrategy>, agent_id: [u8; 16], table: u64) -> Result<()> {
+        require!(strategy_valid(table), OxudeError::InvalidStrategy);
+        let record = &mut ctx.accounts.strategy;
+        record.agent_id = agent_id;
+        record.table = table;
+        record.slot = Clock::get()?.slot;
+        record.bump = ctx.bumps.strategy;
+        emit!(StrategyCommitted { agent_id, table });
+        Ok(())
+    }
+
     pub fn close_exit(ctx: Context<CloseExit>, _agent_id: [u8; 16]) -> Result<()> {
         let exit = &ctx.accounts.exit;
         if exit.claimed_slot > 0 {
@@ -689,6 +719,22 @@ pub fn exit_payout(asked: u64, held: u64, min_stake: u64) -> u64 {
     }
 }
 
+/// Whether a packed table is one the game can play: 30 cells of two bits, in
+/// situation-major order, each fold (0), call (1) or raise (2) - and only fold
+/// or call when facing a raise, where there is no re-raise. The four bits
+/// above the table must be clear, so one table has exactly one encoding.
+pub fn strategy_valid(table: u64) -> bool {
+    let cells = STRATEGY_SITUATIONS * STRATEGY_EDGES;
+    if table >> (2 * cells) != 0 {
+        return false;
+    }
+    (0..cells).all(|i| {
+        let action = (table >> (2 * i)) & 0b11;
+        let facing_raise = i / STRATEGY_EDGES >= STRATEGY_FIRST_FACING_RAISE;
+        action <= if facing_raise { 1 } else { 2 }
+    })
+}
+
 pub fn charge(window_start: u64, spent: u64, slot: u64, amount: u64, cap: u64) -> Option<(u64, u64)> {
     let (start, spent) = if slot >= window_start.saturating_add(WINDOW_SLOTS) { (slot, 0) } else { (window_start, spent) };
     let spent = spent.checked_add(amount)?;
@@ -756,6 +802,17 @@ pub struct Withdrawal {
     pub owner: Pubkey,
     pub amount: u64,
     pub remaining: u64,
+    pub slot: u64,
+    pub bump: u8,
+}
+
+/// One per owned agent: the strategy table its owner signed at rent. Never changes.
+#[account]
+#[derive(InitSpace)]
+pub struct Strategy {
+    pub agent_id: [u8; 16],
+    /// Packed as `strategy_valid` describes.
+    pub table: u64,
     pub slot: u64,
     pub bump: u8,
 }
@@ -1097,6 +1154,28 @@ pub struct ClaimExit<'info> {
 
 #[derive(Accounts)]
 #[instruction(agent_id: [u8; 16])]
+pub struct CommitStrategy<'info> {
+    #[account(mut)]
+    pub settler: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = settler @ OxudeError::NotSettler)]
+    pub config: Account<'info, Config>,
+    /// The owner's signature is the point: it is what makes the table theirs.
+    pub owner: Signer<'info>,
+    #[account(seeds = [OWNER_SEED, agent_id.as_ref()], bump = agent_owner.bump, has_one = owner @ OxudeError::NotOwner)]
+    pub agent_owner: Account<'info, AgentOwner>,
+    #[account(
+        init,
+        payer = settler,
+        space = 8 + Strategy::INIT_SPACE,
+        seeds = [STRATEGY_SEED, agent_id.as_ref()],
+        bump
+    )]
+    pub strategy: Account<'info, Strategy>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(agent_id: [u8; 16])]
 pub struct CloseExit<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -1110,6 +1189,12 @@ pub struct CloseExit<'info> {
         has_one = owner @ OxudeError::NotOwner
     )]
     pub exit: Account<'info, Exit>,
+}
+
+#[event]
+pub struct StrategyCommitted {
+    pub agent_id: [u8; 16],
+    pub table: u64,
 }
 
 #[event]
@@ -1256,11 +1341,47 @@ pub enum OxudeError {
     ExitWindowTooShort,
     #[msg("The exit window cannot be more than halved in one step")]
     ExitWindowShrinkTooFast,
+    #[msg("Not a strategy table the game can play")]
+    InvalidStrategy,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Packs actions in situation-major order, as the server does.
+    fn pack(cells: &[u64]) -> u64 {
+        cells.iter().enumerate().fold(0, |t, (i, a)| t | (a << (2 * i)))
+    }
+
+    #[test]
+    fn a_strategy_table_is_thirty_playable_cells_and_nothing_else() {
+        // All fold, all call, and raise wherever raising exists: all playable.
+        assert!(strategy_valid(0));
+        assert!(strategy_valid(pack(&[1; 30])));
+        let mut raising = [2u64; 30];
+        for cell in &mut raising[20..] {
+            *cell = 1;
+        }
+        assert!(strategy_valid(pack(&raising)));
+
+        // A raise facing a raise: there is no re-raise.
+        let mut reraise = [1u64; 30];
+        reraise[20] = 2;
+        assert!(!strategy_valid(pack(&reraise)));
+        reraise[20] = 1;
+        reraise[29] = 2;
+        assert!(!strategy_valid(pack(&reraise)));
+
+        // A cell value that is no action at all.
+        let mut three = [0u64; 30];
+        three[7] = 3;
+        assert!(!strategy_valid(pack(&three)));
+
+        // Anything above the thirtieth cell: one table, one encoding.
+        assert!(!strategy_valid(1u64 << 60));
+        assert!(!strategy_valid(1u64 << 63));
+    }
 
     #[test]
     fn the_exit_window_grows_freely_and_shrinks_by_halves() {

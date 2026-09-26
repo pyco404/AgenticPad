@@ -93,3 +93,44 @@ export function policyFromAgent(agent: Agent, view: Omit<View, "myEdge" | "oppAc
 export function describePolicy(policy: Policy): string {
   return SITUATIONS.map((s) => `${s}: ${EDGE_KEYS.map((k) => policy[s][k]![0]).join(" ")}`).join("\n");
 }
+
+/** An action as the program stores it: two bits. */
+const ACTION_CODES: Record<Action, bigint> = { fold: 0n, call: 1n, raise: 2n };
+const CODE_ACTIONS: Action[] = ["fold", "call", "raise"];
+
+/**
+ * A table as the settlement program records it: 30 cells of two bits in a
+ * u64, situation-major in SITUATIONS order and edge-minor in EDGE_KEYS order,
+ * fold 0 / call 1 / raise 2. Must agree with `strategy_valid` in the program,
+ * which checks the same layout; test/policy-pack.test.ts holds the two to it.
+ */
+export function packPolicy(policy: Policy): bigint {
+  const table = validatePolicy(policy);
+  let packed = 0n;
+  let i = 0n;
+  for (const situation of SITUATIONS) {
+    for (const key of EDGE_KEYS) {
+      packed |= ACTION_CODES[table[situation][key]!] << (2n * i);
+      i++;
+    }
+  }
+  return packed;
+}
+
+/** The reverse of packPolicy, for reading a table back off chain. */
+export function unpackPolicy(packed: bigint): Policy {
+  const rows = {} as Record<Situation, Record<string, Action>>;
+  let i = 0n;
+  for (const situation of SITUATIONS) {
+    rows[situation] = {};
+    for (const key of EDGE_KEYS) {
+      const code = Number((packed >> (2n * i)) & 3n);
+      const action = CODE_ACTIONS[code];
+      if (!action) throw new InvalidPolicyError(`cell ${i} holds ${code}, which is no action`);
+      rows[situation][key] = action;
+      i++;
+    }
+  }
+  if (packed >> (2n * i) !== 0n) throw new InvalidPolicyError("bits set above the table");
+  return validatePolicy(rows);
+}

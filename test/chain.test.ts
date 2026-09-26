@@ -4,7 +4,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction } from "@solana/web3.js";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, sendAndConfirmTransaction, Transaction } from "@solana/web3.js";
 import {
   AuthorityType,
   createMint,
@@ -20,6 +20,8 @@ import BN from "bn.js";
 import { ChainClient, DEVNET_CHIP_RATE, PROGRAM_ID, pdas, STAKE_DECIMALS } from "../src/chain/settlement.js";
 import { uuidBytes } from "../src/chain/common.js";
 import { agentIdFor, newAgentId } from "../src/agent-id.js";
+import { packPolicy, unpackPolicy } from "../src/agents/policy.js";
+import { snapshotPreset } from "../src/db/runner.js";
 import { EventParser } from "@coral-xyz/anchor";
 
 // The settlement program on a local validator, loaded at genesis. Needs
@@ -99,6 +101,13 @@ async function refusal(call: () => Promise<unknown>): Promise<string> {
   } catch (error) {
     return String(error);
   }
+}
+
+/** Sends with the settler paying, as every server-built transaction does, plus whoever else must sign. */
+async function sendWith(tx: Transaction, signers: Keypair[]): Promise<string> {
+  tx.feePayer = settler.publicKey;
+  tx.recentBlockhash = (await connection.getLatestBlockhash("confirmed")).blockhash;
+  return sendAndConfirmTransaction(connection, tx, [settler, ...signers], { commitment: "confirmed" });
 }
 
 async function airdrop(to: Keypair, sol: number) {
@@ -669,10 +678,12 @@ describe.skipIf(!RUN)("settlement program", () => {
   });
 
   describe("renting, as one transaction", () => {
+    const ANCHOR_TABLE = packPolicy(snapshotPreset("Anchor"));
+
     /** Builds the rental, adds the owner's signature to the settler's, sends. */
     async function rent(
       owner: Keypair,
-      input: { deposit: number; fee?: number; rentalId?: string; agentId?: string; salt?: string },
+      input: { deposit: number; fee?: number; rentalId?: string; agentId?: string; salt?: string; table?: bigint },
     ) {
       const made = newAgentId(owner.publicKey.toBase58());
       const prepared = await chain.prepareRental({
@@ -682,6 +693,7 @@ describe.skipIf(!RUN)("settlement program", () => {
         salt: input.salt ?? made.salt,
         fee: input.fee ?? RENT,
         deposit: input.deposit,
+        table: input.table ?? ANCHOR_TABLE,
       });
       prepared.transaction.partialSign(owner);
       const signature = await chain.submitRental(prepared.transaction.serialize(), prepared.lastValidBlockHeight);
@@ -741,6 +753,7 @@ describe.skipIf(!RUN)("settlement program", () => {
         salt: made.salt,
         fee: RENT,
         deposit: 1_000 * CHIP,
+        table: ANCHOR_TABLE,
       });
       // The settler has signed; nobody else has. The network will not take it.
       await expect(
@@ -758,6 +771,69 @@ describe.skipIf(!RUN)("settlement program", () => {
       // transaction fails - including the fee and the deposit.
       await expect(rent(owner, { deposit: 1_000 * CHIP, rentalId })).rejects.toThrow();
       expect(await chain.tokenBalance(owner.publicKey.toBase58())).toBe(spent);
+    });
+
+    it("commits the owner's strategy table with the rental, readable back exactly", async () => {
+      const owner = await walletWith(3_000 * CHIP);
+      const mirage = packPolicy(snapshotPreset("Mirage"));
+      const { agent } = await rent(owner, { deposit: 1_000 * CHIP, table: mirage });
+      const committed = await chain.strategyOf(agent);
+      expect(committed?.table).toBe(mirage);
+      expect(unpackPolicy(committed!.table)).toEqual(snapshotPreset("Mirage"));
+    });
+
+    it("refuses a table the game cannot play, and then charges nothing", async () => {
+      const owner = await walletWith(3_000 * CHIP);
+      const before = await chain.tokenBalance(owner.publicKey.toBase58());
+      const made = newAgentId(owner.publicKey.toBase58());
+      // A raise facing a raise (cell 20), where there is no re-raise.
+      const reraise = ANCHOR_TABLE | (2n << 40n);
+      expect(
+        await refusal(() => rent(owner, { deposit: 500 * CHIP, agentId: made.id, salt: made.salt, table: reraise })),
+      ).toMatch(/InvalidStrategy/);
+      // Bits above the thirtieth cell: one table, one encoding.
+      expect(
+        await refusal(() => rent(owner, { deposit: 500 * CHIP, agentId: made.id, salt: made.salt, table: ANCHOR_TABLE | (1n << 60n) })),
+      ).toMatch(/InvalidStrategy/);
+      // The commitment travels with the rental, so a bad one stops all of it.
+      expect(await chain.tokenBalance(owner.publicKey.toBase58())).toBe(before);
+      expect(await chain.vaultBalance(made.id)).toBeNull();
+    });
+
+    it("fixes the table for good: it cannot be committed again", async () => {
+      const owner = await walletWith(3_000 * CHIP);
+      const { agent } = await rent(owner, { deposit: 1_000 * CHIP });
+      // The owner themselves, trying to swap in another table after renting.
+      const again = await chain.commitStrategyInstruction({
+        agentId: agent,
+        owner: owner.publicKey,
+        table: packPolicy(snapshotPreset("Bully")),
+      });
+      const tx = new Transaction().add(again);
+      expect(await refusal(() => sendWith(tx, [owner]))).toMatch(/already in use/);
+      expect((await chain.strategyOf(agent))?.table).toBe(ANCHOR_TABLE);
+    });
+
+    it("takes a table only under the recorded owner's signature, never the settler's alone", async () => {
+      // An owned vault with no table yet, as every agent rented before this has.
+      const owner = Keypair.generate();
+      const made = newAgentId(owner.publicKey.toBase58());
+      await chain.openVault({ agentId: made.id, owner: owner.publicKey.toBase58(), salt: made.salt });
+      expect(await chain.strategyOf(made.id)).toBeNull();
+
+      // Someone else signing as the owner: the program checks the recorded one.
+      const stranger = Keypair.generate();
+      const forged = await chain.commitStrategyInstruction({ agentId: made.id, owner: stranger.publicKey, table: ANCHOR_TABLE });
+      expect(await refusal(() => sendWith(new Transaction().add(forged), [stranger]))).toMatch(/NotOwner/);
+
+      // The settler naming the real owner without their signature: not signed, not sent.
+      const unsigned = await chain.commitStrategyInstruction({ agentId: made.id, owner: owner.publicKey, table: ANCHOR_TABLE });
+      expect(await refusal(() => sendWith(new Transaction().add(unsigned), []))).not.toBe("");
+      expect(await chain.strategyOf(made.id)).toBeNull();
+
+      // The owner's own signature: taken.
+      await sendWith(new Transaction().add(unsigned), [owner]);
+      expect((await chain.strategyOf(made.id))?.table).toBe(ANCHOR_TABLE);
     });
 
     it("refuses an agent id that is not this owner's", async () => {

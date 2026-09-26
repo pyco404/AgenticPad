@@ -159,20 +159,6 @@ export type OxudeSettlement = {
     },
     {
       "name": "closeExit",
-      "docs": [
-        "Clears an exit and returns its rent to the owner.",
-        "",
-        "Before a claim this is a cancel, and needs no wait: changing your mind",
-        "costs nobody anything.",
-        "",
-        "After a claim it waits one window, and that wait is",
-        "load-bearing. A claimed exit is the only evidence on chain that the",
-        "vault is legitimately smaller than the server's ledger. Erase it before",
-        "the server has read it and the shortfall becomes indistinguishable from",
-        "a drained vault: the reconciler alarms, correctly, and never stops. So",
-        "the record outlives the claim by as long as the server had to settle in",
-        "the first place."
-      ],
       "discriminator": [
         239,
         55,
@@ -246,6 +232,148 @@ export type OxudeSettlement = {
               16
             ]
           }
+        }
+      ]
+    },
+    {
+      "name": "commitStrategy",
+      "docs": [
+        "Clears an exit and returns its rent to the owner.",
+        "",
+        "Before a claim this is a cancel, and needs no wait: changing your mind",
+        "costs nobody anything.",
+        "",
+        "After a claim it waits one window, and that wait is",
+        "load-bearing. A claimed exit is the only evidence on chain that the",
+        "vault is legitimately smaller than the server's ledger. Erase it before",
+        "the server has read it and the shortfall becomes indistinguishable from",
+        "a drained vault: the reconciler alarms, correctly, and never stops. So",
+        "the record outlives the claim by as long as the server had to settle in",
+        "the first place.",
+        "Records an agent's strategy table, signed by its owner, once.",
+        "",
+        "This is the half of a match the settler cannot make up: what each side",
+        "plays. The owner's signature is checked against the recorded owner, so",
+        "the table is the owner's word, not the server's; and the record is a PDA",
+        "that can be created once, so it cannot be swapped for one that loses",
+        "on purpose. Nothing reads it yet - a co-signer replaying matches will -",
+        "but it has to exist from rent time, because it is only evidence if it",
+        "was fixed before the matches it describes.",
+        "",
+        "The settler pays the rent, as for everything else in a rental, so an",
+        "owner needs no SOL. Its signature adds nothing to what is recorded."
+      ],
+      "discriminator": [
+        147,
+        224,
+        22,
+        201,
+        80,
+        62,
+        57,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "settler",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "docs": [
+            "The owner's signature is the point: it is what makes the table theirs."
+          ],
+          "signer": true,
+          "relations": [
+            "agentOwner"
+          ]
+        },
+        {
+          "name": "agentOwner",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  119,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agentId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agentId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "agentId",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "table",
+          "type": "u64"
         }
       ]
     },
@@ -1819,6 +1947,19 @@ export type OxudeSettlement = {
       ]
     },
     {
+      "name": "strategy",
+      "discriminator": [
+        174,
+        110,
+        39,
+        119,
+        82,
+        106,
+        169,
+        102
+      ]
+    },
+    {
       "name": "withdrawal",
       "discriminator": [
         10,
@@ -1961,6 +2102,19 @@ export type OxudeSettlement = {
         157,
         170,
         61
+      ]
+    },
+    {
+      "name": "strategyCommitted",
+      "discriminator": [
+        69,
+        158,
+        192,
+        125,
+        110,
+        35,
+        43,
+        161
       ]
     },
     {
@@ -2130,6 +2284,11 @@ export type OxudeSettlement = {
       "code": 6027,
       "name": "exitWindowShrinkTooFast",
       "msg": "The exit window cannot be more than halved in one step"
+    },
+    {
+      "code": 6028,
+      "name": "invalidStrategy",
+      "msg": "Not a strategy table the game can play"
     }
   ],
   "types": [
@@ -2648,6 +2807,62 @@ export type OxudeSettlement = {
           {
             "name": "settler",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "strategy",
+      "docs": [
+        "One per owned agent: the strategy table its owner signed at rent. Never changes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "table",
+            "docs": [
+              "Packed as `strategy_valid` describes."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "strategyCommitted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "table",
+            "type": "u64"
           }
         ]
       }
