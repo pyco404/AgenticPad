@@ -25,3 +25,6 @@ demo/
 
 # local scratch scripts, never shipped
 scratch-tmp/
+
+# personal Claude Code settings
+.claude/settings.local.json
