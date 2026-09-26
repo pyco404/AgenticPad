@@ -294,12 +294,16 @@ if (depositFlow) {
   const sweepMs = Number(process.env["RENTAL_SWEEP_MS"] ?? 60_000);
   const sweep = async () => {
     try {
-      const { confirmed, expired } = await sweepRentals(db, depositFlow!.chain);
+      const { confirmed, expired, unread } = await sweepRentals(db, depositFlow!.chain);
       if (confirmed.length) console.log(`rentals: ${confirmed.length} landed after a lost confirmation`);
       if (expired.length) console.log(`rentals: ${expired.length} never landed, agents retired`);
+      // Left as they were for the next pass. Said, so that one which never
+      // becomes readable is visible rather than silently waiting forever.
+      for (const u of unread) console.warn(`rentals: ${u.id.slice(0, 8)} not decided this pass: ${u.why}`);
       const tops = await sweepDeposits(db, depositFlow!.chain);
       if (tops.confirmed.length) console.log(`deposits: ${tops.confirmed.length} landed after a lost confirmation`);
       if (tops.expired.length) console.log(`deposits: ${tops.expired.length} never landed`);
+      for (const u of tops.unread) console.warn(`deposits: ${u.id.slice(0, 8)} not decided this pass: ${u.why}`);
       // Money that reached a vault by some other route than this server. It is
       // the agent's either way, and refusing to count it would strand it.
       if (chain && depositClient) {

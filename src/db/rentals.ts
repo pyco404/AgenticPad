@@ -247,7 +247,15 @@ export async function rejectRental(
   return "expired";
 }
 
-export type SweepResult = { confirmed: string[]; expired: string[] };
+/**
+ * `unread` is rentals this pass could not decide because a read failed - most
+ * often an RPC answering 429. They are left exactly as they were and the next
+ * pass tries again; one of them is never a reason to stop on the rest.
+ */
+export type SweepResult = { confirmed: string[]; expired: string[]; unread: { id: string; why: string }[] };
+
+/** An error as a short line, for a sweep's report. */
+export const why = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200);
 
 /**
  * Resolves every rental still waiting on a transaction that can no longer land.
@@ -270,17 +278,24 @@ export async function sweepRentals(db: Db, chain: RentalChain, now = new Date())
         sql`(${rentals.status} = 'submitted' or ${rentals.createdAt} < ${stale.toISOString()})`,
       ),
     );
-  const result: SweepResult = { confirmed: [], expired: [] };
+  const result: SweepResult = { confirmed: [], expired: [], unread: [] };
   for (const r of waiting) {
-    const landed = (await chain.vaultBalance(r.agentId)) !== null;
-    if (landed) {
-      await confirmRental(db, r.id, r.signature);
-      result.confirmed.push(r.id);
-      continue;
+    // Each rental on its own. A read that fails - and Solana's public RPC
+    // throttles often - decides nothing about this one, and must not stop the
+    // pass before it reaches the others.
+    try {
+      const landed = (await chain.vaultBalance(r.agentId)) !== null;
+      if (landed) {
+        await confirmRental(db, r.id, r.signature);
+        result.confirmed.push(r.id);
+        continue;
+      }
+      if (r.lastValidBlockHeight > 0 && !(await chain.blockHeightPassed(r.lastValidBlockHeight))) continue;
+      await expireRental(db, r.id, r.status === "submitted" ? "the transaction never landed" : "never signed");
+      result.expired.push(r.id);
+    } catch (error) {
+      result.unread.push({ id: r.id, why: why(error) });
     }
-    if (r.lastValidBlockHeight > 0 && !(await chain.blockHeightPassed(r.lastValidBlockHeight))) continue;
-    await expireRental(db, r.id, r.status === "submitted" ? "the transaction never landed" : "never signed");
-    result.expired.push(r.id);
   }
   return result;
 }

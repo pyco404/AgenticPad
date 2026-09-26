@@ -15,7 +15,8 @@ import {
   PREPARED_GRACE_MS,
   type RentalChain,
 } from "../src/db/rentals.js";
-import { agents, chainOps, rentals } from "../src/db/schema.js";
+import { agents, chainOps, deposits, rentals } from "../src/db/schema.js";
+import { sweepDeposits, type DepositChain } from "../src/db/deposits.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
 import { eq } from "drizzle-orm";
 import { someWallet } from "./helpers.js";
@@ -67,7 +68,10 @@ class FakeChain implements RentalChain {
   async blockHeightPassed(h: number) {
     return this.height > h;
   }
+  /** Agents whose vault read fails, as a throttled RPC does. Not the same as absent. */
+  unreadable = new Set<string>();
   async vaultBalance(agentId: string) {
+    if (this.unreadable.has(agentId)) throw new Error("429 Too Many Requests");
     return this.vaults.get(agentId) ?? null;
   }
 }
@@ -222,6 +226,72 @@ describe("renting on the deposit flow", () => {
       expect(await balanceOf(db, p.agent.id)).toBe(DEPOSIT);
       const [row] = await db.select().from(agents).where(eq(agents.id, p.agent.id));
       expect(row!.retiredAt).toBeNull();
+    });
+
+    it("carries on past a rental whose vault it cannot read, and decides it on a later pass", async () => {
+      // Solana's public RPC answers 429 often. One throttled read must leave
+      // that rental alone - not expire it, not stop the pass - and the rest
+      // must still be decided.
+      const db = await fresh();
+      const chain = new FakeChain();
+      chain.sendFails = true;
+      const first = await rent(db, chain, Keypair.generate());
+      const second = await rent(db, chain, Keypair.generate());
+      for (const p of [first, second]) {
+        await submitRental(db, chain, { rentalId: p.rentalId, ownerId: p.ownerId, signedTx: p.signedTx });
+      }
+      chain.height += 1_000;
+      chain.unreadable.add(first.agent.id);
+
+      const swept = await sweepRentals(db, chain);
+      expect(swept.expired).toEqual([second.rentalId]);
+      expect(swept.unread.map((u) => u.id)).toEqual([first.rentalId]);
+      expect(swept.unread[0]!.why).toMatch(/429/);
+      // Left exactly as it was: an unreadable vault is not an absent one.
+      const [waiting] = await db.select().from(rentals).where(eq(rentals.id, first.rentalId));
+      expect(waiting!.status).toBe("submitted");
+      const [agent] = await db.select().from(agents).where(eq(agents.id, first.agent.id));
+      expect(agent!.retiredAt).toBeNull();
+
+      chain.unreadable.clear();
+      const next = await sweepRentals(db, chain);
+      expect(next.expired).toEqual([first.rentalId]);
+      expect(next.unread).toEqual([]);
+    });
+
+    it("carries on past a top-up whose vault it cannot read", async () => {
+      const db = await fresh();
+      const chain = new FakeChain();
+      const owners = [Keypair.generate(), Keypair.generate()];
+      const rented = [];
+      for (const owner of owners) {
+        const p = await rent(db, chain, owner);
+        await submitRental(db, chain, { rentalId: p.rentalId, ownerId: p.ownerId, signedTx: p.signedTx });
+        rented.push(p);
+      }
+      // Two top-ups, both submitted, and both landed on chain with the
+      // confirmation lost: the sweep is what credits them.
+      const topUp = 500;
+      const ids = [];
+      for (const p of rented) {
+        const [row] = await db
+          .insert(deposits)
+          .values({ agentId: p.agent.id, ownerId: p.ownerId, amount: topUp, preparedTx: "", lastValidBlockHeight: 0, status: "submitted" })
+          .returning();
+        chain.vaults.set(p.agent.id, DEPOSIT + topUp);
+        ids.push(row!.id);
+      }
+      chain.unreadable.add(rented[0]!.agent.id);
+
+      const swept = await sweepDeposits(db, chain as unknown as DepositChain);
+      expect(swept.confirmed).toEqual([ids[1]]);
+      expect(swept.unread.map((u) => u.id)).toEqual([ids[0]]);
+      expect(await balanceOf(db, rented[1]!.agent.id)).toBe(DEPOSIT + topUp);
+      expect(await balanceOf(db, rented[0]!.agent.id)).toBe(DEPOSIT);
+
+      chain.unreadable.clear();
+      expect((await sweepDeposits(db, chain as unknown as DepositChain)).confirmed).toEqual([ids[0]]);
+      expect(await balanceOf(db, rented[0]!.agent.id)).toBe(DEPOSIT + topUp);
     });
 
     it("gives an unsigned rental a while before giving up on it", async () => {

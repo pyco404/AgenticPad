@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import type { PreparedWithdrawal } from "../chain/common.js";
 import type { Db } from "./client.js";
 import { balanceOf, record } from "./ledger.js";
+import { why } from "./rentals.js";
 import { agents, chainOps, deposits, rentals, type AgentRow, type RentalPaymentStatus } from "./schema.js";
 
 /**
@@ -174,7 +175,8 @@ export async function expireDeposit(db: Db, depositId: string, why: string): Pro
     .where(and(eq(deposits.id, depositId), inArray(deposits.status, ["prepared", "submitted"])));
 }
 
-export type DepositSweep = { confirmed: string[]; expired: string[] };
+/** `unread`: top-ups a failed read left undecided this pass. The next pass tries again. */
+export type DepositSweep = { confirmed: string[]; expired: string[]; unread: { id: string; why: string }[] };
 
 /**
  * Resolves top-ups whose transaction can no longer land.
@@ -186,18 +188,24 @@ export type DepositSweep = { confirmed: string[]; expired: string[] };
  */
 export async function sweepDeposits(db: Db, chain: DepositChain): Promise<DepositSweep> {
   const waiting = await db.select().from(deposits).where(eq(deposits.status, "submitted"));
-  const result: DepositSweep = { confirmed: [], expired: [] };
+  const result: DepositSweep = { confirmed: [], expired: [], unread: [] };
   for (const d of waiting) {
-    const onChain = await chain.vaultBalance(d.agentId);
-    const ledger = await balanceOf(db, d.agentId);
-    if (onChain !== null && onChain - ledger >= d.amount) {
-      await confirmDeposit(db, d.id, d.signature);
-      result.confirmed.push(d.id);
-      continue;
+    // One at a time, as the rental sweep does: a throttled read leaves this
+    // top-up for the next pass and moves on to the rest.
+    try {
+      const onChain = await chain.vaultBalance(d.agentId);
+      const ledger = await balanceOf(db, d.agentId);
+      if (onChain !== null && onChain - ledger >= d.amount) {
+        await confirmDeposit(db, d.id, d.signature);
+        result.confirmed.push(d.id);
+        continue;
+      }
+      if (!(await chain.blockHeightPassed(d.lastValidBlockHeight))) continue;
+      await expireDeposit(db, d.id, "the transaction never landed");
+      result.expired.push(d.id);
+    } catch (error) {
+      result.unread.push({ id: d.id, why: why(error) });
     }
-    if (!(await chain.blockHeightPassed(d.lastValidBlockHeight))) continue;
-    await expireDeposit(db, d.id, "the transaction never landed");
-    result.expired.push(d.id);
   }
   return result;
 }
