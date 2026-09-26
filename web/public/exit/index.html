@@ -83,6 +83,23 @@
       </section>
     </main>
 
+    <script>
+      // Not a module, so it runs even when the module below cannot: if exit.mjs
+      // fails to load, nothing in that script runs and "Connect wallet" would
+      // silently do nothing. By DOMContentLoaded the module has run or failed.
+      document.addEventListener("DOMContentLoaded", function () {
+        if (window.exitPageReady) return;
+        var who = document.getElementById("who");
+        var fail = function () {
+          who.className = "err";
+          who.textContent =
+            "This page's code (exit.mjs) did not load, so it cannot reach your wallet. " +
+            "Try reloading, or open /exit/ with a trailing slash. The browser console says why.";
+        };
+        fail();
+        document.getElementById("connect").onclick = fail;
+      });
+    </script>
     <script type="module">
       import {
         PROGRAM_ID, pdas, requestExitIx, claimExitIx, closeExitIx, buildMessage,
@@ -90,6 +107,7 @@
         base58Encode, base58Decode, associatedTokenAddress,
       } from "./exit.mjs";
 
+      window.exitPageReady = true;
       const $ = (id) => document.getElementById(id);
       const state = { wallet: null, agents: [], chosen: null, config: null, window: null };
 
@@ -131,13 +149,16 @@
         try {
           const provider = window.phantom?.solana ?? window.solana ?? window.solflare;
           if (!provider) throw new Error("No Solana wallet extension found in this browser.");
+          $("who").className = "muted";
+          $("who").textContent = "Asking your wallet…";
           const { publicKey } = await provider.connect();
           state.wallet = publicKey.toString();
           $("who").textContent = `${state.wallet.slice(0, 4)}…${state.wallet.slice(-4)}`;
           await loadAgents();
         } catch (e) {
+          // Wallets reject with plain objects as often as Errors; say something either way.
           $("who").className = "err";
-          $("who").textContent = e.message;
+          $("who").textContent = `Could not connect: ${e?.message || String(e) || "the wallet gave no reason"}`;
         }
       };
 
