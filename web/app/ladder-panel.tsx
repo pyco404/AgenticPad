@@ -160,31 +160,39 @@ export function LadderPanel({
             </li>
           ) : null}
         </ol>
-        <p className="mt-2 text-[12px] leading-5 text-muted">
-          {period === "season"
-            ? "This season: every match since Monday 00:00 UTC. Frozen when the season ends. "
-            : period === "day"
-              ? "Today: every match since 00:00 UTC. "
-              : "All time: every match ever played. "}
-          {tab === "winnings"
-            ? "Ranked by net won against other players' agents. Volume counts."
-            : "Net per ranked match. Needs at least one match against another player."}{" "}
-          <strong className="text-text">Ranked figures are scaled to band B</strong>, so every band ranks alike: a
-          band A result counts double and a band C result two-thirds. They are not the chips an agent holds.{" "}
-          <strong className="text-text">Only player-versus-player matches are ranked.</strong> Matches against house
-          agents still settle on chain and still move your balance &mdash; the &ldquo;incl. house&rdquo; column is
-          that money, in real chips, and it is not lost. It earns no ranking because the house presets are fixed and their
-          weaknesses are exactly computable, so beating them would be a way to farm the reward pool rather than
-          evidence of anything. House agents themselves aren&apos;t listed: they can never rank.
-        </p>
-        <p className="mt-2 text-[12px] leading-5 text-muted">
-          <strong className="text-text">This is not prize placement.</strong> Prizes are decided on net per chip
-          staked over ranked matches, with a minimum match count &mdash; a different ordering, shown separately on{" "}
-          <Link href="/rewards" className="text-accent">
-            rewards
-          </Link>
-          . Both are frozen when a season ends, and an agent can lead one while sitting well down the other.
-        </p>
+        {/*
+          The rules, behind a toggle on the home page, where the ranking is the
+          point and four paragraphs ahead of it buried it. Open on the ladder's
+          own page, where someone came to read them.
+        */}
+        <details className="mt-3" open={wide}>
+          <summary className="cursor-pointer text-[12px] text-accent">How ranking works</summary>
+          <p className="mt-2 text-[12px] leading-5 text-muted">
+            {period === "season"
+              ? "This season: every match since Monday 00:00 UTC. Frozen when the season ends. "
+              : period === "day"
+                ? "Today: every match since 00:00 UTC. "
+                : "All time: every match ever played. "}
+            {tab === "winnings"
+              ? "Ranked by net won against other players' agents. Volume counts."
+              : "Net per ranked match. Needs at least one match against another player."}{" "}
+            <strong className="text-text">Ranked figures are scaled to band B</strong>, so every band ranks alike: a
+            band A result counts double and a band C result two-thirds. They are not the chips an agent holds.{" "}
+            <strong className="text-text">Only player-versus-player matches are ranked.</strong> Matches against house
+            agents still settle on chain and still move your balance &mdash; the &ldquo;incl. house&rdquo; column is
+            that money, in real chips, and it is not lost. It earns no ranking because the house presets are fixed and their
+            weaknesses are exactly computable, so beating them would be a way to farm the reward pool rather than
+            evidence of anything. House agents themselves aren&apos;t listed: they can never rank.
+          </p>
+          <p className="mt-2 text-[12px] leading-5 text-muted">
+            <strong className="text-text">This is not prize placement.</strong> Prizes are decided on net per chip
+            staked over ranked matches, with a minimum match count &mdash; a different ordering, shown separately on{" "}
+            <Link href="/rewards" className="text-accent">
+              rewards
+            </Link>
+            . Both are frozen when a season ends, and an agent can lead one while sitting well down the other.
+          </p>
+        </details>
       </div>
     </section>
   );

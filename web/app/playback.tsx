@@ -54,7 +54,7 @@ export function PlayingRow({ arrival, playMs }: { arrival: Arrival; playMs: numb
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 text-[13px]">
-          <span className="min-w-0 flex-1 truncate">
+          <span className="min-w-0 flex-1 break-words">
             {names.A}
             <span className="text-muted"> vs </span>
             {names.B}

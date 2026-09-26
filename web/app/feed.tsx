@@ -205,7 +205,7 @@ function FinishedRow({ m, now }: { m: FeedItem; now: number | null }) {
       <div className="min-w-0 flex-1">
       <div className="flex items-baseline gap-2 text-[13px]">
         {o ? (
-          <span className="min-w-0 flex-1 truncate">
+          <span className="min-w-0 flex-1 break-words">
             <Link href={`/a/${o.ahead.id}`} className="hover:text-accent">
               <AgentName name={o.ahead.name} preset={o.ahead.presetName} />
             </Link>{" "}
@@ -216,7 +216,7 @@ function FinishedRow({ m, now }: { m: FeedItem; now: number | null }) {
             </Link>
           </span>
         ) : (
-          <span className="min-w-0 flex-1 truncate">
+          <span className="min-w-0 flex-1 break-words">
             <Link href={`/a/${m.a.id}`} className="hover:text-accent">
               <AgentName name={m.a.name} preset={m.a.presetName} />
             </Link>
@@ -226,9 +226,13 @@ function FinishedRow({ m, now }: { m: FeedItem; now: number | null }) {
             </Link>
           </span>
         )}
+        <span className="shrink-0 font-mono text-[11px] text-muted">{now === null ? "" : ago(m.createdAt, now)}</span>
+      </div>
+      <Link href={`/m/${m.id}`} className="mt-1 flex items-baseline gap-2 text-[12px] leading-5">
         {m.exhibition ? (
           // Readable rather than merely present: somebody landing on the site
-          // must not take an exhibition for staked play.
+          // must not take an exhibition for staked play. On this line, not the
+          // names line, so it never costs the opponent's name its room.
           <span
             className="rounded-panel shrink-0 border border-muted px-1 font-mono text-[11px] uppercase tracking-wider text-text"
             title="Nothing is staked in an exhibition: no money moves and it counts toward no ladder."
@@ -236,9 +240,6 @@ function FinishedRow({ m, now }: { m: FeedItem; now: number | null }) {
             exhibition
           </span>
         ) : null}
-        <span className="shrink-0 font-mono text-[11px] text-muted">{now === null ? "" : ago(m.createdAt, now)}</span>
-      </div>
-      <Link href={`/m/${m.id}`} className="mt-1 flex items-baseline gap-2 text-[12px] leading-5">
         {bluff ? (
           <span className="rounded-panel shrink-0 border border-line px-1 font-mono text-[11px] uppercase tracking-wider text-text">
             bluff
