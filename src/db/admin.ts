@@ -1,7 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { agents, chainOps, deposits, matches, rentals, withdrawals } from "./schema.js";
-import { chips, DEVNET_CHIP_RATE } from "../chips.js";
+import { chipRate, chips, DEVNET_CHIP_RATE } from "../chips.js";
 
 /**
  * The numbers an operator needs, read from where they already live.
@@ -21,6 +21,8 @@ export type OpTrouble = {
   agentId: string | null;
   agentName: string | null;
   amount: number;
+  /** The same amount in chips, converted at its agent's own rate. */
+  amountChips: number;
   attempts: number;
   lastError: string | null;
   ageMs: number;
@@ -54,6 +56,7 @@ export async function troubledOps(db: Db, stuckAfterMs = 15 * 60_000, now = new 
       lastError: chainOps.lastError,
       createdAt: chainOps.createdAt,
       name: agents.name,
+      funding: agents.funding,
     })
     .from(chainOps)
     .leftJoin(agents, eq(agents.id, sql`coalesce(${chainOps.agentId}, ${chainOps.fromAgent})`))
@@ -71,6 +74,7 @@ export async function troubledOps(db: Db, stuckAfterMs = 15 * 60_000, now = new 
     agentId: r.agentId ?? r.fromAgent,
     agentName: r.name,
     amount: Number(r.amount),
+    amountChips: chips(Number(r.amount), chipRate(r.funding ?? "seed")),
     attempts: r.attempts,
     lastError: r.lastError,
     ageMs: now.getTime() - r.createdAt.getTime(),
@@ -97,6 +101,7 @@ export async function oldestPending(db: Db, now = new Date()): Promise<OpTrouble
       lastError: chainOps.lastError,
       createdAt: chainOps.createdAt,
       name: agents.name,
+      funding: agents.funding,
     })
     .from(chainOps)
     .leftJoin(agents, eq(agents.id, sql`coalesce(${chainOps.agentId}, ${chainOps.fromAgent})`))
@@ -112,6 +117,7 @@ export async function oldestPending(db: Db, now = new Date()): Promise<OpTrouble
     agentId: r.agentId ?? r.fromAgent,
     agentName: r.name,
     amount: Number(r.amount),
+    amountChips: chips(Number(r.amount), chipRate(r.funding ?? "seed")),
     attempts: r.attempts,
     lastError: r.lastError,
     ageMs: now.getTime() - r.createdAt.getTime(),
@@ -121,7 +127,14 @@ export async function oldestPending(db: Db, now = new Date()): Promise<OpTrouble
 
 export type Volume = {
   agents: { active: number; retired: number; house: number };
-  deposits: { confirmed: number; chips: number; pending: number };
+  /**
+   * Money in from owners' wallets, both ways it arrives. The `deposits` table
+   * holds only **top-ups**; the deposit an owner makes when they rent is part
+   * of the rental transaction and lives in `rentals.deposit`. Counting only the
+   * table read "0 chips" on a server that had taken 1,800 - and an operator
+   * checking whether money was arriving would have believed it.
+   */
+  deposits: { confirmed: number; chips: number; pending: number; atRentChips: number; topUpChips: number };
   withdrawals: { confirmed: number; chips: number; pending: number };
   rentals: { confirmed: number; burnedChips: number; pending: number };
   matches: { staked: number; ranked: number; exhibitions: number; last24h: number };
@@ -165,6 +178,7 @@ export async function volume(db: Db, now = new Date()): Promise<Volume> {
     .select({
       confirmed: sql<number>`count(*) filter (where ${rentals.status} = 'confirmed')::int`,
       fee: sql<number>`coalesce(sum(${rentals.fee}) filter (where ${rentals.status} = 'confirmed'), 0)::bigint`,
+      deposited: sql<number>`coalesce(sum(${rentals.deposit}) filter (where ${rentals.status} = 'confirmed'), 0)::bigint`,
       pending: sql<number>`count(*) filter (where ${rentals.status} in ('prepared', 'submitted'))::int`,
     })
     .from(rentals);
@@ -179,12 +193,17 @@ export async function volume(db: Db, now = new Date()): Promise<Volume> {
     .from(matches);
 
   const rate = DEVNET_CHIP_RATE;
+  const atRent = Number(r?.deposited ?? 0);
+  const topUps = Number(d?.amount ?? 0);
   return {
     agents: { active: Number(a?.active ?? 0), retired: Number(a?.retired ?? 0), house: Number(a?.house ?? 0) },
     deposits: {
-      confirmed: Number(d?.confirmed ?? 0),
-      chips: chips(Number(d?.amount ?? 0), rate),
+      // Both routes, because "has money come in?" does not care which.
+      confirmed: Number(d?.confirmed ?? 0) + Number(r?.confirmed ?? 0),
+      chips: chips(atRent + topUps, rate),
       pending: Number(d?.pending ?? 0),
+      atRentChips: chips(atRent, rate),
+      topUpChips: chips(topUps, rate),
     },
     withdrawals: {
       confirmed: Number(w?.confirmed ?? 0),

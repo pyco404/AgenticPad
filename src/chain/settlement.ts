@@ -7,6 +7,8 @@ import {
   getAccount,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
+  TokenAccountNotFoundError,
+  TokenInvalidAccountOwnerError,
 } from "@solana/spl-token";
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { uuidBytes, uuidFromBytes, type PreparedWithdrawal } from "./common.js";
@@ -492,12 +494,24 @@ export class ChainClient {
       .rpc();
   }
 
+  /**
+   * What a vault holds, or null if it does not exist.
+   *
+   * Null means **absent**, and nothing else. A read that fails throws, because
+   * the two are different facts and the caller acts differently on each: an
+   * absent vault where the ledger credits money is a shortfall worth waking
+   * somebody for, and an RPC that answered 429 is a Tuesday. Collapsing them
+   * into null had the drift alarm reporting healthy vaults as drained every
+   * time the endpoint throttled, which is how an alarm teaches people to
+   * ignore it.
+   */
   async vaultBalance(agentId: string): Promise<number | null> {
     try {
       const account = await getAccount(this.connection, pdas.vault(agentId), "confirmed");
       return Number(account.amount);
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof TokenAccountNotFoundError || error instanceof TokenInvalidAccountOwnerError) return null;
+      throw error;
     }
   }
 

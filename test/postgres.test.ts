@@ -10,6 +10,9 @@ import { chainOps, rentals } from "../src/db/schema.js";
 import { seasonStatement } from "../src/db/statement.js";
 import { seasonAt } from "../src/season.js";
 import { someWallet } from "./helpers.js";
+import { volume } from "../src/db/admin.js";
+import { solvency } from "../src/chain/worker.js";
+import { FakeChain } from "./fake-chain.js";
 
 /**
  * The suite runs on PGlite; production runs on node-postgres. They do not agree
@@ -165,6 +168,48 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     expect(s.play.netAcrossAllSides).toBe(0);
     expect(s.play.rankedStaked).toBeGreaterThan(0);
     expect(Number.isSafeInteger(s.play.rankedStaked)).toBe(true);
+    await close();
+  });
+
+  it("reads the admin page's money-in total as a number, rental deposits included", async () => {
+    // volume() sums rentals.deposit with raw SQL: the deposit made at rent
+    // time, which the deposits table (top-ups only) never sees.
+    const { db, close } = await fresh();
+    const owner = someWallet();
+    const a = await createAgent(db, { name: "Vol", presetName: "Anchor", ownerId: owner });
+    const deposit = baseUnits(500_000, DEVNET_CHIP_RATE);
+    expect(deposit).toBeGreaterThan(2_147_483_647);
+    await db.insert(rentals).values({
+      agentId: a.id,
+      ownerId: owner,
+      fee: 0,
+      deposit,
+      salt: "pg-vol",
+      preparedTx: "x",
+      lastValidBlockHeight: 1,
+      status: "confirmed",
+    });
+
+    const v = await volume(db);
+    expect(typeof v.deposits.atRentChips).toBe("number");
+    expect(v.deposits.atRentChips).toBe(500_000);
+    expect(v.deposits.chips).toBe(500_000);
+    expect(v.deposits.confirmed).toBe(1);
+    await close();
+  });
+
+  it("reads settlements in flight as numbers, one per flow", async () => {
+    // solvency() sums pending settlements per flow with raw SQL and a group by.
+    const { db, close } = await fresh();
+    const a = await createAgent(db, { name: "Fly-A", presetName: "Bully", ownerId: someWallet() });
+    const b = await createAgent(db, { name: "Fly-B", presetName: "Anchor", ownerId: someWallet() });
+    // Played and not drained: the settlement sits in the outbox.
+    await runMatch(db, a.id, b.id, { seed: 5 });
+
+    const sums = await solvency(db, new FakeChain());
+    expect(Object.keys(sums.inFlight)).toEqual(["seed"]);
+    expect(typeof sums.inFlight.seed).toBe("number");
+    expect(sums.inFlight.seed).toBeGreaterThan(0);
     await close();
   });
 

@@ -241,7 +241,7 @@ describe("the worker", () => {
     await drainChainOps(d, chain);
     chain.vaults.set(a.id, STARTING_BALANCE - 7);
     const check = await reconcile(d, chain);
-    expect(check.mismatches).toEqual([{ agentId: a.id, name: "A", ledger: STARTING_BALANCE, chain: STARTING_BALANCE - 7 }]);
+    expect(check.mismatches).toEqual([{ agentId: a.id, name: "A", ledger: STARTING_BALANCE, chain: STARTING_BALANCE - 7, funding: "seed" }]);
     await c();
   });
 });

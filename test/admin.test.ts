@@ -5,9 +5,9 @@ import { createHash } from "node:crypto";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
 import { createAgent, runMatch } from "../src/db/runner.js";
-import { chainOps } from "../src/db/schema.js";
+import { chainOps, rentals } from "../src/db/schema.js";
 import { troubledOps, oldestPending, volume } from "../src/db/admin.js";
-import { solvency } from "../src/chain/worker.js";
+import { reconcile, solvency } from "../src/chain/worker.js";
 import { drainChainOps } from "../src/chain/worker.js";
 import { FakeChain } from "./fake-chain.js";
 import { someWallet } from "./helpers.js";
@@ -130,9 +130,11 @@ describe("what it reports", () => {
     const sums = await solvency(d, chain);
     expect(sums.counted).toBe(2);
     expect(sums.unreachable).toBe(0);
-    expect(sums.difference).toBe(0);
-    expect(sums.ledger).toBe(sums.chain);
-    expect(sums.inFlight).toBe(0);
+    expect(sums.inFlight).toEqual({});
+    // Per flow, never summed: the two programs hold different mints.
+    expect(Object.keys(sums.byFlow)).toEqual(["seed"]);
+    expect(sums.byFlow.seed!.difference).toBe(0);
+    expect(sums.byFlow.seed!.ledger).toBe(sums.byFlow.seed!.chain);
     await close();
   });
 
@@ -145,8 +147,8 @@ describe("what it reports", () => {
 
     chain.vaults.set(a.id, (chain.vaults.get(a.id) ?? 0) - 250);
     const sums = await solvency(d, chain);
-    expect(sums.difference).toBe(-250);
-    expect(sums.chain).toBeLessThan(sums.ledger);
+    expect(sums.byFlow.seed!.difference).toBe(-250);
+    expect(sums.byFlow.seed!.chain).toBeLessThan(sums.byFlow.seed!.ledger);
     await close();
   });
 
@@ -162,10 +164,12 @@ describe("what it reports", () => {
 
     const sums = await solvency(d, chain);
     expect(sums.counted).toBe(2);
-    expect(sums.inFlight).toBeGreaterThan(0);
+    // Only the flow it belongs to: never a figure across both mints.
+    expect(Object.keys(sums.inFlight)).toEqual(["seed"]);
+    expect(sums.inFlight.seed).toBeGreaterThan(0);
     // The settlement has moved the ledger but not the vaults, so the totals
     // still agree: it takes from one and gives to the other.
-    expect(sums.difference).toBe(0);
+    expect(sums.byFlow.seed!.difference).toBe(0);
     await close();
   });
 
@@ -207,5 +211,93 @@ describe("what it reports", () => {
     expect(v.matches.last24h).toBe(4);
     expect(v.deposits.confirmed).toBe(0);
     await close();
+  });
+});
+
+describe("a vault that could not be read", () => {
+  const fresh = async () => {
+    const c = await connect();
+    await migrate(c.db);
+    return c;
+  };
+
+  it("is not a disagreement, because it says nothing about the money", async () => {
+    // This is the bug that had the drift alarm reporting healthy vaults as
+    // drained: the read failed, the failure became null, and null read as
+    // "no vault". On a server with 493 rate-limit errors in its log that made
+    // the alarm permanent, and an alarm that is usually wrong is ignored.
+    const { db: d, close } = await fresh();
+    const chain = new FakeChain();
+    const a = await createAgent(d, { name: "Throttled", presetName: "Anchor", ownerId: someWallet() });
+    await drainChainOps(d, chain, { limit: 200 });
+    chain.unreadable.add(a.id);
+
+    const check = await reconcile(d, chain);
+    expect(check.mismatches).toEqual([]);
+    expect(check.unverified).toHaveLength(1);
+    expect(check.unverified[0]).toMatchObject({ agentId: a.id, name: "Throttled", ledger: 900 });
+    expect(check.unverified[0]!.why).toMatch(/429/);
+    await close();
+  });
+
+  it("still reports a vault that genuinely is not there", async () => {
+    const { db: d, close } = await fresh();
+    const chain = new FakeChain();
+    const a = await createAgent(d, { name: "Missing", presetName: "Anchor", ownerId: someWallet() });
+    await drainChainOps(d, chain, { limit: 200 });
+    chain.vaults.delete(a.id);
+
+    const check = await reconcile(d, chain);
+    expect(check.unverified).toEqual([]);
+    expect(check.mismatches).toHaveLength(1);
+    expect(check.mismatches[0]).toMatchObject({ name: "Missing", chain: null });
+    await close();
+  });
+
+  it("is left out of the solvency total, and counted as left out", async () => {
+    const { db: d, close } = await fresh();
+    const chain = new FakeChain();
+    const a = await createAgent(d, { name: "Ua", presetName: "Anchor", ownerId: someWallet() });
+    await createAgent(d, { name: "Ub", presetName: "Anchor", ownerId: someWallet() });
+    await drainChainOps(d, chain, { limit: 200 });
+    chain.unreadable.add(a.id);
+
+    const sums = await solvency(d, chain);
+    expect(sums.counted).toBe(1);
+    expect(sums.unreachable).toBe(1);
+    expect(sums.byFlow.seed!.difference).toBe(0);
+    await close();
+  });
+});
+
+describe("money in from owners' wallets", () => {
+  it("counts the deposit made at rent time, not only later top-ups", async () => {
+    // The deposits table holds top-ups only. The deposit an owner makes when
+    // they rent is part of the rental transaction, so counting the table alone
+    // read "0 chips" on a server that had taken 1,800 - and an operator
+    // checking whether money was arriving would have believed it.
+    const c = await connect();
+    await migrate(c.db);
+    const d = c.db;
+    const owner = someWallet();
+    const agent = await createAgent(d, { name: "Renter", presetName: "Anchor", ownerId: owner, funding: "deposit" });
+    await d.insert(rentals).values({
+      agentId: agent.id,
+      ownerId: owner,
+      fee: 200_000_000,
+      deposit: 900_000_000,
+      salt: "s",
+      preparedTx: "x",
+      lastValidBlockHeight: 1,
+      status: "confirmed",
+    });
+
+    const v = await volume(d);
+    expect(v.deposits.atRentChips).toBe(900);
+    expect(v.deposits.topUpChips).toBe(0);
+    expect(v.deposits.chips).toBe(900);
+    expect(v.deposits.confirmed).toBe(1);
+    expect(v.rentals.burnedChips).toBe(200);
+    await c.close();
   });
 });

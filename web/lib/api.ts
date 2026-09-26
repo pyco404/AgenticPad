@@ -499,6 +499,7 @@ export type OpTrouble = {
   agentId: string | null;
   agentName: string | null;
   amount: number;
+  amountChips: number;
   attempts: number;
   lastError: string | null;
   ageMs: number;
@@ -521,23 +522,33 @@ export type AdminHealth = {
   books: {
     reconcile: {
       checked: number;
-      mismatches: { agentId: string; name: string; ledger: number; chain: number | null }[];
-      surpluses: { agentId: string; name: string; ledger: number; chain: number; surplus: number }[];
-      explained: { agentId: string; name: string; claimed: number; claimedSlot: number }[];
+      /** A vault that genuinely disagrees with the ledger. */
+      mismatches: { agentId: string; name: string; ledgerChips: number; chainChips: number | null; funding: string }[];
+      surpluses: { agentId: string; name: string; surplusChips: number; funding: string }[];
+      explained: { agentId: string; name: string; claimedChips: number; claimedSlot: number }[];
+      /**
+       * Vaults this pass could not read. Reported apart from disagreements on
+       * purpose: an RPC that throttled says nothing about the money.
+       */
+      unverified: { agentId: string; name: string; ledgerChips: number; why: string; funding: string }[];
     };
+    /**
+     * Per funding flow, and never summed: the seed and deposit programs hold
+     * different mints, so one total across both would add two currencies.
+     */
     solvency: {
-      ledger: number;
-      chain: number;
-      difference: number;
       counted: number;
       unreachable: number;
-      inFlight: number;
+      /** Settlements queued and not yet on chain, per flow, in that flow's chips. */
+      inFlightChips: Record<string, number>;
+      byFlow: Record<string, { ledgerChips: number; chainChips: number; differenceChips: number; counted: number }>;
     };
   } | null;
   ops: { failed: OpTrouble[]; stuck: OpTrouble[] };
   volume: {
     agents: { active: number; retired: number; house: number };
-    deposits: { confirmed: number; chips: number; pending: number };
+    /** Both routes money arrives by: at rent time, and as a later top-up. */
+    deposits: { confirmed: number; chips: number; pending: number; atRentChips: number; topUpChips: number };
     withdrawals: { confirmed: number; chips: number; pending: number };
     rentals: { confirmed: number; burnedChips: number; pending: number };
     matches: { staked: number; ranked: number; exhibitions: number; last24h: number };

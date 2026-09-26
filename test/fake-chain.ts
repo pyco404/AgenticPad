@@ -53,7 +53,10 @@ export class FakeChain implements ChainPort {
   async settlementSignature(matchId: string) {
     return this.settled.has(matchId) ? `sig-settle-${matchId}` : null;
   }
+  /** Agents whose vault read fails, as a throttled RPC does. Not the same as absent. */
+  unreadable = new Set<string>();
   async vaultBalance(agentId: string) {
+    if (this.unreadable.has(agentId)) throw new Error("429 Too Many Requests");
     return this.vaults.get(agentId) ?? null;
   }
   owners = new Map<string, string>();

@@ -17,9 +17,15 @@ import { useWallet } from "@/app/wallet-context";
  * own arithmetic is a second implementation that can disagree with the first.
  */
 
-const BASE = 1e6;
-const chips = (baseUnits: number) => (baseUnits / BASE).toLocaleString("en-US", { maximumFractionDigits: 2 });
-const num = (n: number) => n.toLocaleString("en-US");
+/**
+ * Figures arrive in chips already, converted per flow by the server.
+ *
+ * They used to arrive in base units and this divided by a million, which is
+ * right for a deposit agent and wrong for a seed one - whose chip is one base
+ * unit. A seed balance of 186 rendered as "0", which read as an empty vault
+ * rather than as this function being wrong.
+ */
+const num = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
 function duration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -84,7 +90,7 @@ function Ops({ title, ops, empty }: { title: string; ops: OpTrouble[]; empty: st
                 <td className="py-1 pr-3 font-mono text-muted">{o.seq}</td>
                 <td className="py-1 pr-3">{o.kind}</td>
                 <td className="py-1 pr-3">{o.agentName ?? o.agentId?.slice(0, 8) ?? "—"}</td>
-                <td className="py-1 pr-3 text-right font-mono">{chips(o.amount)}</td>
+                <td className="py-1 pr-3 text-right font-mono">{num(o.amountChips)}</td>
                 <td className="py-1 pr-3 text-right font-mono">{o.attempts}</td>
                 <td className="py-1 pr-3 text-right font-mono text-muted">{duration(o.ageMs)}</td>
                 <td className="py-1 text-muted">{o.lastError ?? "—"}</td>
@@ -143,7 +149,7 @@ export function AdminPanel() {
 
   const { settlement, settlers, books, ops, volume } = health;
   const lagBad = settlement.stalled;
-  const short = books !== null && books.solvency.difference < 0;
+  const short = books !== null && Object.values(books.solvency.byFlow).some((f) => f.differenceChips < 0);
   const mism = books?.reconcile.mismatches ?? [];
 
   return (
@@ -158,27 +164,41 @@ export function AdminPanel() {
           <Row label="Vaults" value="not reachable" sub="no settlement program is configured on this server" />
         ) : (
           <>
-            <Row
-              label="Ledger says players own"
-              value={`${chips(books.solvency.ledger)} chips`}
-            />
-            <Row label="Vaults actually hold" value={`${chips(books.solvency.chain)} chips`} />
-            <Row
-              label="Difference"
-              value={`${books.solvency.difference >= 0 ? "+" : "−"}${chips(Math.abs(books.solvency.difference))}`}
-              tone={books.solvency.difference === 0 ? "good" : "bad"}
-              sub={books.solvency.difference === 0 ? "the books add up" : "vaults hold less than the ledger says"}
-            />
+            {/*
+              Per flow, never added together: the seed and deposit programs hold
+              different mints, so a combined figure would be two currencies in
+              one number.
+            */}
+            {Object.entries(books.solvency.byFlow).map(([flow, f]) => (
+              <Row
+                key={flow}
+                label={`${flow}: ledger ${num(f.ledgerChips)} · vaults ${num(f.chainChips)}`}
+                value={`${f.differenceChips >= 0 ? "+" : "−"}${num(Math.abs(f.differenceChips))}`}
+                tone={f.differenceChips === 0 ? "good" : "bad"}
+                sub={f.differenceChips === 0 ? `${f.counted} vaults, they add up` : "vaults hold less than the ledger says"}
+              />
+            ))}
+            {Object.keys(books.solvency.byFlow).length === 0 ? (
+              <Row label="Vaults" value="none counted" />
+            ) : null}
             <Row
               label="Counted"
               value={`${books.solvency.counted} vaults`}
-              sub={books.solvency.unreachable > 0 ? `${books.solvency.unreachable} unreachable` : undefined}
+              sub={books.solvency.unreachable > 0 ? `${books.solvency.unreachable} could not be read` : undefined}
             />
-            <Row
-              label="Queued, not yet on chain"
-              value={`${chips(books.solvency.inFlight)} chips`}
-              sub="moves no total: taken from one balance, given to another"
-            />
+            {/* One row per flow, in its own chips: a figure across both would add two mints. */}
+            {Object.keys(books.solvency.inFlightChips).length === 0 ? (
+              <Row label="Queued, not yet on chain" value="nothing" />
+            ) : (
+              Object.entries(books.solvency.inFlightChips).map(([flow, amount]) => (
+                <Row
+                  key={flow}
+                  label={`${flow}: queued, not yet on chain`}
+                  value={`${num(amount)} chips`}
+                  sub="moves no total: taken from one balance, given to another"
+                />
+              ))
+            )}
           </>
         )}
       </Card>
@@ -212,7 +232,7 @@ export function AdminPanel() {
                 <Row
                   key={m.agentId}
                   label={m.name}
-                  value={`ledger ${chips(m.ledger)} · chain ${m.chain === null ? "unreadable" : chips(m.chain)}`}
+                  value={`ledger ${num(m.ledgerChips)} · vault ${m.chainChips === null ? "does not exist" : num(m.chainChips)}`}
                   tone="bad"
                   sub={m.agentId.slice(0, 8)}
                 />
@@ -228,6 +248,22 @@ export function AdminPanel() {
             {books.reconcile.surpluses.length > 0 ? (
               <Row label="Holding more than the ledger says" value={num(books.reconcile.surpluses.length)} />
             ) : null}
+            {/*
+              Vaults this pass could not read. Kept apart from disagreements on
+              purpose: a throttled RPC says nothing about the money, and
+              counting it as a shortfall is how the alarm above stops meaning
+              anything.
+            */}
+            {books.reconcile.unverified.length > 0
+              ? books.reconcile.unverified.map((u) => (
+                  <Row
+                    key={u.agentId}
+                    label={`${u.name} — could not read its vault`}
+                    value={`ledger ${num(u.ledgerChips)}`}
+                    sub={u.why}
+                  />
+                ))
+              : null}
           </>
         )}
       </Card>

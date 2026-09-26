@@ -245,6 +245,14 @@ const health = rpc
         settlers.push({ flow: name, address: address.toBase58(), sol, floorSol: SETTLER_SOL_FLOOR, low: sol < SETTLER_SOL_FLOOR });
       }
 
+      // Chips, per flow, computed here because the server knows each agent's
+      // rate and a page cannot. A seed agent's chip is one base unit and a
+      // deposit agent's is a million; dividing everything by a million turned
+      // a seed balance of 186 into "0" on the page, which read as an empty
+      // vault rather than a display bug.
+      const { chipRate } = await import("../src/chips.js");
+      const inChips = (amount: number, funding: "seed" | "deposit") => amount / chipRate(funding);
+
       return {
         at: now,
         settlement: {
@@ -254,7 +262,58 @@ const health = rpc
           oldest,
         },
         settlers,
-        books,
+        books: books
+          ? {
+              reconcile: {
+                checked: books.reconcile.checked,
+                mismatches: books.reconcile.mismatches.map((m) => ({
+                  ...m,
+                  ledgerChips: inChips(m.ledger, m.funding),
+                  // Null now means the vault genuinely is not there, not that
+                  // it could not be read: unreadable has its own bucket.
+                  chainChips: m.chain === null ? null : inChips(m.chain, m.funding),
+                })),
+                surpluses: books.reconcile.surpluses.map((x) => ({
+                  ...x,
+                  ledgerChips: inChips(x.ledger, x.funding),
+                  chainChips: inChips(x.chain, x.funding),
+                  surplusChips: inChips(x.surplus, x.funding),
+                })),
+                explained: books.reconcile.explained.map((x) => ({
+                  ...x,
+                  claimedChips: inChips(x.claimed, x.funding),
+                })),
+                // Vaults this pass could not read. Not disagreements: an RPC
+                // that throttled says nothing about the money either way.
+                unverified: books.reconcile.unverified.map((x) => ({
+                  ...x,
+                  ledgerChips: inChips(x.ledger, x.funding),
+                })),
+              },
+              solvency: {
+                counted: books.solvency.counted,
+                unreachable: books.solvency.unreachable,
+                // Per flow, in that flow's chips: summing across flows would add two mints.
+                inFlightChips: Object.fromEntries(
+                  Object.entries(books.solvency.inFlight).map(([flow, amount]) => [
+                    flow,
+                    inChips(amount!, flow as "seed" | "deposit"),
+                  ]),
+                ),
+                byFlow: Object.fromEntries(
+                  Object.entries(books.solvency.byFlow).map(([flow, f]) => [
+                    flow,
+                    {
+                      ...f,
+                      ledgerChips: f!.ledger / f!.chipRate,
+                      chainChips: f!.chain / f!.chipRate,
+                      differenceChips: f!.difference / f!.chipRate,
+                    },
+                  ]),
+                ),
+              },
+            }
+          : null,
         ops,
         volume: vol,
       };

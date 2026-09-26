@@ -4,7 +4,7 @@ import type { SeedOpenVaultInput } from "./seed-settlement.js";
 import type { ChainExit } from "./settlement.js";
 import { balancesOf, record } from "../db/ledger.js";
 import { agents, chainOps, deposits, exits, rentals, withdrawals, type ChainOpRow } from "../db/schema.js";
-import type { Funding } from "../chips.js";
+import { chipRate, type Funding } from "../chips.js";
 import { expireWithdrawal, markWithdrawn } from "../db/withdrawals.js";
 import { ingestExits, type ExitPass } from "../db/exits.js";
 
@@ -404,7 +404,12 @@ export async function drainChainOps(
   return result;
 }
 
-export type Mismatch = { agentId: string; name: string; ledger: number; chain: number | null };
+/**
+ * A vault that genuinely disagrees with the ledger. `chain: null` means there
+ * is no vault there at all - not that this pass could not read one, which is
+ * `Unverified` and a different problem.
+ */
+export type Mismatch = { agentId: string; name: string; ledger: number; chain: number | null; funding: Funding };
 
 /**
  * A vault holding more than the ledger says. Not a disagreement: a vault is an
@@ -420,6 +425,21 @@ export type Mismatch = { agentId: string; name: string; ledger: number; chain: n
  * moves first and the ledger follows - the one place in this system where that
  * is the correct order rather than a bug.
  */
+/**
+ * A vault this pass could not read, which is not the same as one that is wrong.
+ *
+ * An RPC that throttles, times out or 502s tells us nothing about the money.
+ * Reporting that as a disagreement is how the drift alarm ends up firing about
+ * healthy vaults, and an alarm that is usually wrong is an alarm nobody reads.
+ */
+export type Unverified = {
+  agentId: string;
+  name: string;
+  ledger: number;
+  why: string;
+  funding: Funding;
+};
+
 export type Explained = {
   agentId: string;
   name: string;
@@ -449,7 +469,13 @@ export type Surplus = {
 export async function reconcile(
   db: Db,
   chain: ChainPort | ChainPorts,
-): Promise<{ checked: number; mismatches: Mismatch[]; surpluses: Surplus[]; explained: Explained[] }> {
+): Promise<{
+  checked: number;
+  mismatches: Mismatch[];
+  surpluses: Surplus[];
+  explained: Explained[];
+  unverified: Unverified[];
+}> {
   const ports = portsOf(chain);
   const involved = await db
     .select({ id: agents.id, name: agents.name, funding: agents.funding })
@@ -468,13 +494,28 @@ export async function reconcile(
   const mismatches: Mismatch[] = [];
   const surpluses: Surplus[] = [];
   const explained: Explained[] = [];
+  const unverified: Unverified[] = [];
   for (const agent of involved) {
     const port = ports[agent.funding];
     // An agent whose program this server cannot reach is not a disagreement:
     // nothing has been compared, so nothing can be said about it.
     if (!port) continue;
-    const onChain = await port.vaultBalance(agent.id);
     const ledger = balances.get(agent.id) ?? 0;
+    let onChain: number | null;
+    try {
+      onChain = await port.vaultBalance(agent.id);
+    } catch (error) {
+      // Could not read it. Says nothing about the money either way, so it is
+      // reported as exactly that rather than counted as a disagreement.
+      unverified.push({
+        agentId: agent.id,
+        name: agent.name,
+        ledger,
+        why: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+        funding: agent.funding,
+      });
+      continue;
+    }
     if (onChain === ledger) continue;
     // More on chain than in the ledger is money that arrived: the ledger is
     // behind, not wrong. Less is the serious direction - the ledger says an
@@ -514,7 +555,7 @@ export async function reconcile(
       // exit explained all of it is how this design would hide the very bug it
       // exists to expose, so what is reported is what the exit does not cover.
       if (unexplained > 0) {
-        mismatches.push({ agentId: agent.id, name: agent.name, ledger: ledger - claim.claimedAmount, chain: onChain });
+        mismatches.push({ agentId: agent.id, name: agent.name, ledger: ledger - claim.claimedAmount, chain: onChain, funding: agent.funding });
         continue;
       }
       // Less short than the claim accounts for: money arrived after it.
@@ -528,9 +569,9 @@ export async function reconcile(
       });
       continue;
     }
-    mismatches.push({ agentId: agent.id, name: agent.name, ledger, chain: onChain });
+    mismatches.push({ agentId: agent.id, name: agent.name, ledger, chain: onChain, funding: agent.funding });
   }
-  return { checked: involved.length, mismatches, surpluses, explained };
+  return { checked: involved.length, mismatches, surpluses, explained, unverified };
 }
 
 /**
@@ -587,14 +628,26 @@ export function checkExitWindow(windowSlots: number, passIntervalMs: number, slo
   };
 }
 
-export type Solvency = {
-  /** Base units the ledger says players own, across every agent with a vault. */
+export type FlowSolvency = {
+  /** Base units the ledger says players own in this flow's agents. */
   ledger: number;
-  /** Base units those vaults actually hold. Null for a flow this server cannot reach. */
+  /** Base units those vaults actually hold. */
   chain: number;
   /** chain - ledger. Negative is the direction that matters. */
   difference: number;
-  /** Agents counted, and agents skipped because their program is unreachable. */
+  counted: number;
+  /** Base units in one chip for this flow, so a reader can put it in chips. */
+  chipRate: number;
+};
+
+export type Solvency = {
+  /**
+   * Per flow, and deliberately never summed. The seed program and the deposit
+   * program hold *different mints*, so one total across both would be adding
+   * two currencies - a number that looks authoritative and means nothing.
+   */
+  byFlow: Partial<Record<Funding, FlowSolvency>>;
+  /** Agents counted, and agents left out because their vault could not be read. */
   counted: number;
   unreachable: number;
   /**
@@ -603,8 +656,13 @@ export type Solvency = {
    * the vaults still hold the old amounts - so it moves no total, and the
    * difference above should not be read as explained by it. It is here because
    * an operator looking at a non-zero difference will ask.
+   *
+   * Per flow, like `byFlow` and for the same reason: a seed settlement and a
+   * deposit settlement are amounts of different mints. Kept apart from
+   * `byFlow` because a flow can have settlements queued while none of its
+   * vaults could be read this pass.
    */
-  inFlight: number;
+  inFlight: Partial<Record<Funding, number>>;
 };
 
 /**
@@ -634,8 +692,7 @@ export async function solvency(db: Db, chain: ChainPort | ChainPorts): Promise<S
     withVaults.map((a) => a.id),
   );
 
-  let ledger = 0;
-  let onChain = 0;
+  const byFlow: Partial<Record<Funding, FlowSolvency>> = {};
   let counted = 0;
   let unreachable = 0;
   for (const agent of withVaults) {
@@ -644,29 +701,50 @@ export async function solvency(db: Db, chain: ChainPort | ChainPorts): Promise<S
       unreachable++;
       continue;
     }
-    const vault = await port.vaultBalance(agent.id);
+    // Absent or unreadable both mean "not counted here". They are different
+    // facts and reconcile reports them differently, but a total can only leave
+    // them out either way - and must say how many it left out, or it looks
+    // like a total of everything.
+    let vault: number | null;
+    try {
+      vault = await port.vaultBalance(agent.id);
+    } catch {
+      unreachable++;
+      continue;
+    }
     if (vault === null) {
       unreachable++;
       continue;
     }
-    ledger += balances.get(agent.id) ?? 0;
-    onChain += vault;
+    const flow = (byFlow[agent.funding] ??= {
+      ledger: 0,
+      chain: 0,
+      difference: 0,
+      counted: 0,
+      chipRate: chipRate(agent.funding),
+    });
+    flow.ledger += balances.get(agent.id) ?? 0;
+    flow.chain += vault;
+    flow.counted++;
     counted++;
   }
+  for (const flow of Object.values(byFlow)) flow.difference = flow.chain - flow.ledger;
 
-  const [flight] = await db
-    .select({ amount: sql<number>`coalesce(sum(${chainOps.amount}) filter (where ${chainOps.kind} = 'settle'), 0)::bigint` })
+  // A settlement's flow is its agents': both sides of a match are on one
+  // program, so the paying side is enough to say which mint moves.
+  const flights = await db
+    .select({
+      funding: agents.funding,
+      amount: sql<number>`coalesce(sum(${chainOps.amount}), 0)::bigint`,
+    })
     .from(chainOps)
-    .where(eq(chainOps.status, "pending"));
+    .innerJoin(agents, eq(agents.id, sql`coalesce(${chainOps.agentId}, ${chainOps.fromAgent})`))
+    .where(and(eq(chainOps.status, "pending"), eq(chainOps.kind, "settle")))
+    .groupBy(agents.funding);
+  const inFlight: Partial<Record<Funding, number>> = {};
+  for (const f of flights) inFlight[f.funding] = Number(f.amount);
 
-  return {
-    ledger,
-    chain: onChain,
-    difference: onChain - ledger,
-    counted,
-    unreachable,
-    inFlight: Number(flight?.amount ?? 0),
-  };
+  return { byFlow, counted, unreachable, inFlight };
 }
 
 /**
