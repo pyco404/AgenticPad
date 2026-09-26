@@ -52,6 +52,8 @@
         <h2>1 · Network</h2>
         <label class="muted" for="rpc">RPC endpoint</label>
         <input id="rpc" value="https://api.devnet.solana.com" spellcheck="false" />
+        <label class="muted" for="wallet" id="wallet-label" hidden>Wallet</label>
+        <select id="wallet" hidden></select>
         <button id="connect">Connect wallet</button>
         <span id="who" class="muted"></span>
       </section>
@@ -102,14 +104,68 @@
     </script>
     <script type="module">
       import {
-        PROGRAM_ID, pdas, requestExitIx, claimExitIx, closeExitIx, buildMessage,
+        PROGRAM_ID, pdas, requestExitIx, claimExitIx, closeExitIx, buildMessage, unsignedTransaction,
         decodeExit, decodeAgentOwner, decodeConfig, decodeTokenAmount, decodeExitConfig,
         base58Encode, base58Decode, associatedTokenAddress,
       } from "./exit.mjs";
 
       window.exitPageReady = true;
       const $ = (id) => document.getElementById(id);
-      const state = { wallet: null, agents: [], chosen: null, config: null, window: null };
+      const state = { wallet: null, provider: null, agents: [], chosen: null, config: null, window: null };
+
+      /**
+       * The Solana wallets this browser has injected, each named for what it
+       * says it is.
+       *
+       * Not `window.solana` on trust: it is a global any extension can claim,
+       * and a multi-chain wallet (TronLink is one) sitting on it will connect
+       * and then choke on Solana transaction bytes - "Reached end of buffer
+       * unexpectedly" - which looks like this page being wrong. So each
+       * candidate is taken only when it identifies itself, and the one the
+       * owner connected is the one that signs.
+       */
+      function solanaWallets() {
+        const found = [];
+        const add = (name, provider) => {
+          if (provider && typeof provider.connect === "function" && !found.some((w) => w.provider === provider)) {
+            found.push({ name, provider });
+          }
+        };
+        if (window.phantom?.solana?.isPhantom) add("Phantom", window.phantom.solana);
+        if (window.solflare?.isSolflare) add("Solflare", window.solflare);
+        if (window.backpack?.isBackpack) add("Backpack", window.backpack);
+        // Last, and only when it says which wallet it is.
+        const s = window.solana;
+        if (s?.isPhantom) add("Phantom", s);
+        else if (s?.isSolflare) add("Solflare", s);
+        else if (s?.isBackpack) add("Backpack", s);
+        return found;
+      }
+
+      /** Shows the choice only when there is one to make. */
+      function offerWallets() {
+        const wallets = solanaWallets();
+        const many = wallets.length > 1;
+        // Rebuilding the list resets the choice, so carry it across by name:
+        // this runs again on every connect, after the owner has picked.
+        const before = $("wallet").selectedOptions[0]?.text;
+        $("wallet").hidden = !many;
+        $("wallet-label").hidden = !many;
+        $("wallet").innerHTML = wallets.map((w, i) => `<option value="${i}">${w.name}</option>`).join("");
+        const keep = wallets.findIndex((w) => w.name === before);
+        if (keep >= 0) $("wallet").value = String(keep);
+        return wallets;
+      }
+      // Extensions inject at different moments; ask again once the page has settled.
+      offerWallets();
+      window.addEventListener("load", offerWallets);
+
+      /** Full error to the console, readable text to the page. */
+      const report = (where, e) => {
+        console.error(`[exit] ${where} failed:`, e);
+        if (e && typeof e === "object") console.error(`[exit] ${where} error fields:`, { ...e, message: e.message, code: e.code, name: e.name, stack: e.stack });
+        return e?.message || String(e) || "the wallet gave no reason";
+      };
 
       const rpc = async (method, params) => {
         const res = await fetch($("rpc").value.trim(), {
@@ -133,32 +189,50 @@
         $("status").textContent = message;
       };
 
-      /** Phantom and Solflare both take a base58 message on `request`. */
+      /**
+       * Phantom and Solflare take a base58 *transaction* on `request`, under the
+       * name `message`. Handing them the bare message is what failed with
+       * "Reached end of buffer unexpectedly": see unsignedTransaction.
+       */
       async function signAndSend(instructions) {
         const { blockhash } = (await rpc("getLatestBlockhash", [{ commitment: "confirmed" }])).value;
         const message = buildMessage({ payer: state.wallet, instructions, recentBlockhash: blockhash });
-        const provider = window.phantom?.solana ?? window.solana ?? window.solflare;
+        // The wallet that was connected, never a fresh guess: signing with a
+        // different provider from the one that connected is how a wrong one
+        // gets handed the bytes.
+        const provider = state.provider;
+        if (!provider) throw new Error("Connect a wallet first.");
+        console.info(`[exit] asking ${state.providerName} to sign and send`);
         const result = await provider.request({
           method: "signAndSendTransaction",
-          params: { message: base58Encode(message) },
+          params: { message: base58Encode(unsignedTransaction(message)) },
         });
         return result?.signature ?? result;
       }
 
       $("connect").onclick = async () => {
         try {
-          const provider = window.phantom?.solana ?? window.solana ?? window.solflare;
-          if (!provider) throw new Error("No Solana wallet extension found in this browser.");
+          const wallets = offerWallets();
+          if (!wallets.length) {
+            const others = ["tronLink", "tronWeb", "ethereum"].filter((k) => window[k]);
+            throw new Error(
+              "No Solana wallet found in this browser" +
+                (others.length ? ` (found ${others.join(", ")}, which are not Solana wallets)` : "") + ".",
+            );
+          }
+          const picked = wallets[Number($("wallet").value) || 0];
           $("who").className = "muted";
-          $("who").textContent = "Asking your wallet…";
-          const { publicKey } = await provider.connect();
+          $("who").textContent = `Asking ${picked.name}…`;
+          const { publicKey } = await picked.provider.connect();
+          state.provider = picked.provider;
+          state.providerName = picked.name;
           state.wallet = publicKey.toString();
-          $("who").textContent = `${state.wallet.slice(0, 4)}…${state.wallet.slice(-4)}`;
+          $("who").textContent = `${picked.name} · ${state.wallet.slice(0, 4)}…${state.wallet.slice(-4)}`;
           await loadAgents();
         } catch (e) {
           // Wallets reject with plain objects as often as Errors; say something either way.
           $("who").className = "err";
-          $("who").textContent = `Could not connect: ${e?.message || String(e) || "the wallet gave no reason"}`;
+          $("who").textContent = `Could not connect: ${report("connect", e)}`;
         }
       };
 
@@ -245,7 +319,7 @@
             say(`Sent: ${signature}`, "ok");
             setTimeout(() => void showAgent(state.chosen), 2500);
           } catch (e) {
-            say(e.message ?? String(e), "err");
+            say(`${what} failed: ${report(what, e)} (full error in the browser console)`, "err");
           }
         };
         const owner = state.wallet;

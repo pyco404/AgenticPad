@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import bs58 from "bs58";
-import { Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { Keypair, PublicKey, Transaction, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { PROGRAM_ID, pdas as realPdas } from "../src/chain/settlement.js";
 import * as exitPage from "../web/public/exit/exit.mjs";
@@ -115,6 +115,23 @@ describe("the transaction the wallet is asked to sign", () => {
       .add(asLibrary(ix))
       .serializeMessage();
     expect(Buffer.from(mine).toString("hex")).toBe(theirs.toString("hex"));
+  });
+
+  it("hands the wallet a whole unsigned transaction, byte for byte the library's", async () => {
+    // A wallet decodes what it is given as a transaction. The bare message,
+    // decoded that way, ran out of bytes: "Reached end of buffer unexpectedly".
+    const owner = Keypair.generate().publicKey.toBase58();
+    const ix = await exitPage.requestExitIx({ owner, agentId: randomUUID(), amount: 300_000_000 });
+    const message = exitPage.buildMessage({ payer: owner, instructions: [ix], recentBlockhash: blockhash });
+
+    const mine = exitPage.unsignedTransaction(message);
+    const theirs = new Transaction({ feePayer: new PublicKey(owner), recentBlockhash: blockhash })
+      .add(asLibrary(ix))
+      .serialize({ requireAllSignatures: false, verifySignatures: false });
+    expect(Buffer.from(mine).toString("hex")).toBe(theirs.toString("hex"));
+    // And it decodes the way a wallet decodes it, which the bare message does not reliably.
+    expect(() => VersionedTransaction.deserialize(mine)).not.toThrow();
+    expect(Transaction.from(Buffer.from(mine)).serializeMessage().toString("hex")).toBe(Buffer.from(message).toString("hex"));
   });
 
   it("serializes byte for byte the same for a claim and a close", async () => {

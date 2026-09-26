@@ -298,6 +298,23 @@ export function buildMessage({ payer, instructions, recentBlockhash }) {
   ]);
 }
 
+/**
+ * A message as a whole unsigned transaction: the signature count, an empty
+ * 64-byte slot for each signer, then the message. The wire format, and what a
+ * wallet decodes when it is handed a transaction.
+ *
+ * The page used to hand the wallet the bare message. Phantom reads its input as
+ * a transaction, so it took the message's first byte as a signature count,
+ * skipped 64 bytes as a signature, and began decoding a message in the middle
+ * of an account key - which fails, depending on that key's bytes, with
+ * "Reached end of buffer unexpectedly" or an unsupported "version". The same
+ * key every time for one wallet, so the same failure every time.
+ */
+export function unsignedTransaction(message) {
+  const signers = message[0];
+  return concat([compactU16(signers), new Uint8Array(64 * signers), message]);
+}
+
 // ---------------------------------------------------------------- instructions
 
 const ro = (pubkey) => ({ pubkey, signer: false, writable: false });

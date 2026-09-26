@@ -34,6 +34,8 @@ export function requestExitIx(input: { owner: string; agentId: string; amount: n
 export function claimExitIx(input: { owner: string; agentId: string; destination: string }): Promise<Instruction>;
 export function closeExitIx(input: { owner: string; agentId: string }): Promise<Instruction>;
 export function buildMessage(input: { payer: string; instructions: Instruction[]; recentBlockhash: string }): Uint8Array;
+/** The message as a whole unsigned transaction, in the wire format a wallet decodes. */
+export function unsignedTransaction(message: Uint8Array): Uint8Array;
 
 export function decodeExit(data: Uint8Array): {
   agentId: string;
