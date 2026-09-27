@@ -3,7 +3,8 @@ import { eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
 import { agentEvents, agents, chainOps, matches, withdrawals, bandByName, outflowBudget } from "../src/db/schema.js";
 import { record } from "../src/db/ledger.js";
-import { createAgent, hasOutflowRoom, pickOpponent, setBand } from "../src/db/runner.js";
+import { createAgent, hasBudgetRoom, hasOutflowRoom, lossBudgetOn, lostToday, pickOpponent, setBand } from "../src/db/runner.js";
+import { utcDay } from "../src/chain/common.js";
 import { autoplayStatus, checkAgent, dueAgents, isHold, markSeen, setAutoplay, sinceYouLeft, stopAgent, tick } from "../src/db/autoplay.js";
 import { someWallet } from "./helpers.js";
 import { SEED_CHIP_RATE } from "../src/chips.js";
@@ -512,6 +513,75 @@ describe("agent events", () => {
     await setBand(db, row.id, owner, "A");
     await setBand(db, row.id, owner, "A");
     expect(await eventsOf(db, row.id)).toEqual(["owner band B -> A"]);
+    await close();
+  });
+});
+
+describe("autoplay: the owner's daily loss budget", () => {
+  // Mirrors the program's LossBudget: the ledger declines a pairing the chain
+  // would refuse, so a match it records is always one the chain will take.
+  const worst = bandByName("B").worstMatch;
+  const budgeted = async (db: Awaited<ReturnType<typeof fresh>>["db"], name: string, perDay: number) => {
+    const row = await createAgent(db, { name, presetName: "Anchor", ownerId: someWallet() });
+    await db.update(agents).set({ lossBudget: perDay, lossBudgetNext: perDay }).where(eq(agents.id, row.id));
+    return row;
+  };
+
+  it("counts net loss today from the settlements themselves, wins included", async () => {
+    const { db, close } = await fresh();
+    const me = await budgeted(db, "Counted", 100);
+    const other = await createAgent(db, { name: "Other", presetName: "Hammer", ownerId: someWallet() });
+    await db.insert(chainOps).values([
+      { kind: "settle", fromAgent: me.id, toAgent: other.id, amount: 70 },
+      { kind: "settle", fromAgent: other.id, toAgent: me.id, amount: 20 },
+      // Refused by the chain: never charged there, so not here either.
+      { kind: "settle", fromAgent: me.id, toAgent: other.id, amount: 500, status: "failed" },
+      // Yesterday's: its own day's bucket, not today's.
+      { kind: "settle", fromAgent: me.id, toAgent: other.id, amount: 500, createdAt: new Date(Date.now() - 86_400_000) },
+    ]);
+    expect(await lostToday(db, me.id)).toBe(50);
+    // 50 lost, and a full loss is 40: 90 fits in 100, 50 + 40 + 11 would not.
+    expect(await hasBudgetRoom(db, me.id, worst)).toBe(true);
+    await db.insert(chainOps).values({ kind: "settle", fromAgent: me.id, toAgent: other.id, amount: 11 });
+    expect(await hasBudgetRoom(db, me.id, worst)).toBe(false);
+    await close();
+  });
+
+  it("an agent with no budget always has room, as before", async () => {
+    const { db, close } = await fresh();
+    const row = await createAgent(db, { name: "Unbudgeted", presetName: "Anchor", ownerId: someWallet() });
+    await db.insert(chainOps).values({ kind: "settle", fromAgent: row.id, amount: 5_000 });
+    expect(await hasBudgetRoom(db, row.id, worst)).toBe(true);
+    await close();
+  });
+
+  it("applies a cut from its day, and the old limit before it", () => {
+    const today = utcDay(new Date());
+    const row = { lossBudget: 500, lossBudgetNext: 100, lossBudgetNextFromDay: today + 1 };
+    expect(lossBudgetOn(row, today)).toBe(500);
+    expect(lossBudgetOn(row, today + 1)).toBe(100);
+    expect(lossBudgetOn({ lossBudget: null, lossBudgetNext: null, lossBudgetNextFromDay: null }, today)).toBeNull();
+  });
+
+  it("leaves an opponent at its limit out of matchmaking", async () => {
+    const { db, close } = await fresh();
+    const me = await createAgent(db, { name: "Me", presetName: "Anchor", ownerId: someWallet() });
+    const limited = await budgeted(db, "AtLimit", 30);
+    const open = await createAgent(db, { name: "Open", presetName: "Mirage", ownerId: someWallet() });
+    // A full loss is 40, more than AtLimit's whole day: it cannot be paired.
+    for (let i = 0; i < 10; i++) {
+      const pick = await pickOpponent(db, me.id, { minCandidates: 1 });
+      expect(pick.opponentId).toBe(open.id);
+    }
+    expect(limited.id).not.toBe(open.id);
+    await close();
+  });
+
+  it("refuses to play an agent that has reached its own limit, and says when it can again", async () => {
+    const { db, close } = await fresh();
+    const me = await budgeted(db, "Spent", 30);
+    await createAgent(db, { name: "Opp", presetName: "Mirage", ownerId: someWallet() });
+    await expect(pickOpponent(db, me.id, { minCandidates: 1 })).rejects.toThrow(/daily loss limit.*00:00 UTC/);
     await close();
   });
 });

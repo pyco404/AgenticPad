@@ -41,6 +41,7 @@ import { balanceOf, balancesOf, record, retireIfBroke, settle, stakeBetween, Sta
 import { isExiting } from "./exits.js";
 import { recordEvent } from "./events.js";
 import { baseUnits, chips, rateOf, type Funding } from "../chips.js";
+import { utcDay } from "../chain/common.js";
 import { rentalEndFor, rentalOpen, rentalOpenSql } from "./rental.js";
 import { seasonAt } from "../season.js";
 import { bandFactor, standings, type Standing } from "./standings.js";
@@ -650,6 +651,74 @@ const committedOutflow = (agentId: unknown) => sql<number>`coalesce((
 ), 0)`;
 
 /**
+ * An agent's net loss on one UTC day, in base units, as SQL: what it has lost
+ * in settlements dated that day less what it has won. Built from the settle
+ * ops themselves - pending and confirmed, not failed - because those are
+ * exactly what the program will charge to that day's bucket, whenever they land.
+ */
+const netLossOn = (agentId: unknown, day: number) => {
+  const start = new Date(day * 86_400_000).toISOString();
+  const end = new Date((day + 1) * 86_400_000).toISOString();
+  return sql<number>`coalesce((
+    select sum(case when ${chainOps.fromAgent} = ${agentId} then ${chainOps.amount} else -${chainOps.amount} end)::bigint
+    from ${chainOps}
+    where ${chainOps.kind} = 'settle'
+      and ${chainOps.status} <> 'failed'
+      and (${chainOps.fromAgent} = ${agentId} or ${chainOps.toAgent} = ${agentId})
+      and ${chainOps.createdAt} >= ${start} and ${chainOps.createdAt} < ${end}
+  ), 0)`;
+};
+
+/**
+ * The owner's loss budget that applies on `day`, in base units, or null when
+ * the agent has none. Mirrors `limit_for` in the program: a cut applies from
+ * its day, and before it the old limit stands.
+ */
+export function lossBudgetOn(
+  row: Pick<AgentRow, "lossBudget" | "lossBudgetNext" | "lossBudgetNextFromDay">,
+  day: number,
+): number | null {
+  if (row.lossBudget === null) return null;
+  if (row.lossBudgetNextFromDay !== null && row.lossBudgetNext !== null && day >= row.lossBudgetNextFromDay) {
+    return row.lossBudgetNext;
+  }
+  return row.lossBudget;
+}
+
+/** Whether losing `worst` more base units today would stay inside the budget. Null budget: always. */
+const withinBudget = (budget: number | null, lostToday: number, worst: number) =>
+  budget === null || Number(lostToday) + worst <= budget;
+
+/**
+ * Whether this agent can lose `worstMatch` today without passing its owner's
+ * daily loss budget. The program refuses a settlement that would, so the ledger
+ * declines the pairing first - otherwise a match the ledger had recorded would
+ * be one the chain would never take.
+ */
+export async function hasBudgetRoom(db: Db, agentId: string, worstMatch: number, now = new Date()): Promise<boolean> {
+  const today = utcDay(now);
+  const [row] = await db
+    .select({
+      funding: agents.funding,
+      lossBudget: agents.lossBudget,
+      lossBudgetNext: agents.lossBudgetNext,
+      lossBudgetNextFromDay: agents.lossBudgetNextFromDay,
+      lost: netLossOn(agentId, today),
+    })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1);
+  if (!row) return false;
+  return withinBudget(lossBudgetOn(row, today), Number(row.lost), baseUnits(worstMatch, rateOf(row)));
+}
+
+/** What an agent has lost, net, today, in base units. For the owner's view. */
+export async function lostToday(db: Db, agentId: string, now = new Date()): Promise<number> {
+  const [row] = await db.select({ lost: netLossOn(agentId, utcDay(now)) }).from(agents).where(eq(agents.id, agentId)).limit(1);
+  return Number(row?.lost ?? 0);
+}
+
+/**
  * Whether this agent could lose `worstMatch` without pushing its vault past
  * what the chain will let it pay out in one window.
  *
@@ -720,6 +789,10 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
       // units a chip of its balance is.
       funding: agents.funding,
       spent: committedOutflow(agents.id),
+      lossBudget: agents.lossBudget,
+      lossBudgetNext: agents.lossBudgetNext,
+      lossBudgetNextFromDay: agents.lossBudgetNextFromDay,
+      lostToday: netLossOn(agents.id, utcDay(new Date())),
     })
     .from(agents)
     .innerJoin(solvent, eq(solvent.agentId, agents.id))
@@ -746,13 +819,25 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   // Drop anyone whose vault could not pay a full loss inside the chain's
   // window. Both sides are checked: this agent can lose too, and its own vault
   // is under exactly the same cap.
+  // And anyone whose owner's daily loss budget could not take a full loss: the
+  // program would refuse that settlement, so the ledger must not make it.
+  const today = utcDay(new Date());
   const candidates = all.filter((c) => {
     const rate = rateOf(c);
-    return Number(c.spent) + baseUnits(worstMatch, rate) <= outflowBudget(Number(c.balance), rate);
+    const worst = baseUnits(worstMatch, rate);
+    return (
+      Number(c.spent) + worst <= outflowBudget(Number(c.balance), rate) &&
+      withinBudget(lossBudgetOn(c, today), Number(c.lostToday), worst)
+    );
   });
   if (!(await hasOutflowRoom(db, agentId, worstMatch))) {
     throw new StakeError(
       `${me.name} has settled as much as its vault can pay out in one window. It plays again within fifteen minutes.`,
+    );
+  }
+  if (!(await hasBudgetRoom(db, agentId, worstMatch))) {
+    throw new StakeError(
+      `${me.name} has reached its owner's daily loss limit. It plays again after 00:00 UTC, or sooner if the limit is raised.`,
     );
   }
 

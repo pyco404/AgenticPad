@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import pg from "pg";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { balanceOf, balancesOf, record } from "../src/db/ledger.js";
-import { createAgent, hasOutflowRoom, leaderboard, playableBands, publicAgent, runMatch } from "../src/db/runner.js";
+import { createAgent, hasBudgetRoom, hasOutflowRoom, leaderboard, lostToday, playableBands, publicAgent, runMatch } from "../src/db/runner.js";
 import { liveCounters } from "../src/db/feed.js";
 import { faucetStatus } from "../src/db/faucet.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
@@ -210,6 +210,25 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     expect(Object.keys(sums.inFlight)).toEqual(["seed"]);
     expect(typeof sums.inFlight.seed).toBe("number");
     expect(sums.inFlight.seed).toBeGreaterThan(0);
+    await close();
+  });
+
+  it("reads a day's net loss as a number, for the owner's loss budget", async () => {
+    // netLossOn sums settle ops with raw SQL: losses in, wins out, one UTC day.
+    const { db, close } = await fresh();
+    const a = await createAgent(db, { name: "Budget-A", presetName: "Anchor", ownerId: someWallet() });
+    const b = await createAgent(db, { name: "Budget-B", presetName: "Bully", ownerId: someWallet() });
+    const big = baseUnits(3_000, DEVNET_CHIP_RATE);
+    expect(big).toBeGreaterThan(2_147_483_647);
+    await db.insert(chainOps).values([
+      { kind: "settle", fromAgent: a.id, toAgent: b.id, amount: big },
+      { kind: "settle", fromAgent: b.id, toAgent: a.id, amount: baseUnits(1_000, DEVNET_CHIP_RATE) },
+    ]);
+    const lost = await lostToday(db, a.id);
+    expect(typeof lost).toBe("number");
+    expect(lost).toBe(baseUnits(2_000, DEVNET_CHIP_RATE));
+    expect(await lostToday(db, b.id)).toBe(-baseUnits(2_000, DEVNET_CHIP_RATE));
+    expect(typeof (await hasBudgetRoom(db, a.id, 40))).toBe("boolean");
     await close();
   });
 
