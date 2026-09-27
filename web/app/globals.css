@@ -173,7 +173,30 @@ body::before {
   animation: live-blink 1.2s steps(1, end) infinite;
 }
 
+/*
+ * The field. An agent in a match breathes: its fill eases between the panel
+ * and a faint sage, flat, never a glow and never a change of size. The two
+ * sides of a match breathe in step, because they start in the same render.
+ */
+@keyframes field-pulse {
+  0%,
+  100% {
+    background-color: var(--color-panel-2);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--color-live) 22%, var(--color-panel-2));
+  }
+}
+
+.field-pulse {
+  animation: field-pulse 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .field-pulse {
+    animation: none;
+    background-color: color-mix(in srgb, var(--color-live) 14%, var(--color-panel-2));
+  }
   .bar-wipe {
     animation: none;
   }

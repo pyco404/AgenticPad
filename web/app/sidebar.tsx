@@ -11,6 +11,7 @@ import { REWARDS_LINKED } from "./site-header";
 const NAV = [
   { href: "/", label: "Home" },
   { href: "/live", label: "Live" },
+  { href: "/field", label: "Field" },
   { href: "/ladder", label: "Ladder" },
   { href: "/games", label: "Games" },
   // Announces the token before it exists; NEXT_PUBLIC_SHOW_REWARDS=false hides it without a code change.
@@ -23,6 +24,7 @@ function sectionOf(path: string): string | null {
   if (path === "/") return "/";
   if (path.startsWith("/m/") || path.startsWith("/live")) return "/live";
   if (path.startsWith("/a/") || path.startsWith("/ladder")) return "/ladder";
+  if (path.startsWith("/field")) return "/field";
   if (path.startsWith("/games")) return "/games";
   if (path.startsWith("/rewards")) return "/rewards";
   if (path.startsWith("/about")) return "/about";
