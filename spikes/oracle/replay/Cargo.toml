@@ -1,0 +1,17 @@
+[package]
+name = "replay_spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# A measurement, not a product: how many compute units replaying one match costs
+# on chain. See ../README.md. Not part of the settlement program.
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+solana-program = "=2.3.0"
+
+[dev-dependencies]
+serde_json = "1"

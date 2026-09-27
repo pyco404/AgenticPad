@@ -1,0 +1,150 @@
+//! One match, replayed exactly as src/engine.ts plays it, in integer arithmetic.
+//!
+//! Inputs: both agents' packed tables (the u64 `commit_strategy` stores), the
+//! match seed, and the band's stakes. Output: each side's net. Parity with the
+//! TypeScript engine is checked in the tests below against cases it generated.
+
+use solana_program::{account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, log, msg, pubkey::Pubkey};
+
+const FOLD: u8 = 0;
+const CALL: u8 = 1;
+const RAISE: u8 = 2;
+const SEAT_A: usize = 0;
+const SEAT_B: usize = 1;
+
+/// mulberry32, returning the raw 32-bit word. JS divides it by 2^32; every
+/// comparison below is done on the word instead, exactly.
+struct Rng(u32);
+impl Rng {
+    fn next(&mut self) -> u32 {
+        self.0 = self.0.wrapping_add(0x6d2b_79f5);
+        let mut t = self.0;
+        t = (t ^ (t >> 15)).wrapping_mul(t | 1);
+        t ^= t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 61));
+        t ^ (t >> 14)
+    }
+    /// floor(rng() * 5): which of the five edges.
+    fn edge(&mut self) -> u64 {
+        (u64::from(self.next()) * 5) >> 32
+    }
+}
+
+/// The cell for a situation and an edge, as packPolicy lays them out.
+fn action(table: u64, situation: u64, edge: u64) -> u8 {
+    ((table >> (2 * (situation * 5 + edge))) & 3) as u8
+}
+
+/// Situation index in SITUATIONS order: lead, leadUnderPressure, vsCall,
+/// vsCallUnderPressure, vsRaise, vsRaiseUnderPressure.
+fn situation(opp_action: Option<u8>, pressured: bool) -> u64 {
+    let base = match opp_action {
+        Some(RAISE) => 4,
+        Some(CALL) => 2,
+        _ => 0,
+    };
+    base + u64::from(pressured)
+}
+
+pub struct Stakes {
+    pub ante: i64,
+    pub base_bet: i64,
+    pub raised_bet: i64,
+}
+
+/// Nets for A and B, and how many rounds were played.
+pub fn replay(tables: [u64; 2], seed: u32, stakes: &Stakes) -> ([i64; 2], u8) {
+    let mut rng = Rng(seed);
+    // Alternating turns: a fair coin for who leads round one.
+    let mut leader = if rng.next() < (1u32 << 31) { SEAT_A } else { SEAT_B };
+    let mut nets = [0i64; 2];
+    let mut won = [0u8; 2];
+    let mut raised_last = [false; 2];
+    let mut round = 1u8;
+    while round <= 3 && won[SEAT_A] < 2 && won[SEAT_B] < 2 {
+        let edges = [rng.edge(), rng.edge()];
+        let responder = 1 - leader;
+        let ask = |seat: usize, opp: Option<u8>| action(tables[seat], situation(opp, raised_last[1 - seat]), edges[seat]);
+
+        let mut acts = [CALL; 2];
+        let first = ask(leader, None);
+        if first == FOLD {
+            acts[leader] = FOLD;
+        } else {
+            let mut reply = ask(responder, Some(first));
+            if first == RAISE && reply == RAISE {
+                reply = CALL; // one raise per round
+            }
+            if first == CALL && reply == RAISE {
+                let answer = if ask(leader, Some(RAISE)) == FOLD { FOLD } else { CALL };
+                acts[leader] = answer;
+                acts[responder] = RAISE;
+            } else {
+                acts[leader] = first;
+                acts[responder] = reply;
+            }
+        }
+
+        let (winner, bet) = if acts[SEAT_A] == FOLD && acts[SEAT_B] == FOLD {
+            (None, 0)
+        } else if acts[SEAT_A] == FOLD || acts[SEAT_B] == FOLD {
+            (Some(if acts[SEAT_A] == FOLD { SEAT_B } else { SEAT_A }), stakes.ante)
+        } else {
+            let bet = if acts[SEAT_A] == RAISE || acts[SEAT_B] == RAISE { stakes.raised_bet } else { stakes.base_bet };
+            // pWin = (50 + pctA - pctB) / 100, with pct = 30 + 10 * edge.
+            let k = 50 + 10 * edges[SEAT_A] - 10 * edges[SEAT_B];
+            let roll = u64::from(rng.next());
+            (Some(if roll * 100 < k << 32 { SEAT_A } else { SEAT_B }), bet)
+        };
+        if let Some(w) = winner {
+            nets[w] += bet;
+            nets[1 - w] -= bet;
+            won[w] += 1;
+        }
+        raised_last = [acts[SEAT_A] == RAISE, acts[SEAT_B] == RAISE];
+        leader = responder;
+        round += 1;
+    }
+    (nets, round - 1)
+}
+
+entrypoint!(process);
+
+/// Data: table A (u64 LE), table B (u64 LE), seed (u32 LE), then ante, base
+/// bet, raised bet (u16 LE each). Logs compute units either side of the replay.
+fn process(_program: &Pubkey, _accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+    let u64_at = |i: usize| u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
+    let u16_at = |i: usize| i64::from(u16::from_le_bytes(data[i..i + 2].try_into().unwrap()));
+    let tables = [u64_at(0), u64_at(8)];
+    let seed = u32::from_le_bytes(data[16..20].try_into().unwrap());
+    let stakes = Stakes { ante: u16_at(20), base_bet: u16_at(22), raised_bet: u16_at(24) };
+    log::sol_log_compute_units();
+    let (nets, rounds) = replay(tables, seed, &stakes);
+    log::sol_log_compute_units();
+    msg!("nets {} {} rounds {}", nets[SEAT_A], nets[SEAT_B], rounds);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Cases generated by ../parity.mts from the TypeScript engine itself.
+    #[test]
+    fn replays_every_generated_match_exactly_as_the_engine_played_it() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../parity.json"))
+            .expect("run ../parity.mts first");
+        let cases: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap();
+        let stakes = Stakes { ante: 4, base_bet: 10, raised_bet: 20 };
+        for c in &cases {
+            let tables = [c["a"].as_str().unwrap().parse().unwrap(), c["b"].as_str().unwrap().parse().unwrap()];
+            let (nets, rounds) = replay(tables, c["seed"].as_u64().unwrap() as u32, &stakes);
+            assert_eq!(
+                (nets[SEAT_A], nets[SEAT_B], rounds as u64),
+                (c["netA"].as_i64().unwrap(), c["netB"].as_i64().unwrap(), c["rounds"].as_u64().unwrap()),
+                "seed {}",
+                c["seed"]
+            );
+        }
+        assert!(cases.len() >= 10_000);
+    }
+}

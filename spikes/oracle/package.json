@@ -1,0 +1,14 @@
+{
+  "name": "oracle-spike",
+  "private": true,
+  "type": "module",
+  "description": "Measurements only (see README.md). Kept out of the app's dependencies on purpose.",
+  "dependencies": {
+    "@coral-xyz/anchor": "0.32.1",
+    "@orao-network/solana-vrf": "0.8.0",
+    "@orao-network/solana-vrf-cb": "0.4.0",
+    "@solana/web3.js": "1.99.0",
+    "@switchboard-xyz/on-demand": "3.10.6",
+    "tsx": "4.23.15"
+  }
+}
