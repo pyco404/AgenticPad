@@ -119,6 +119,18 @@ export const agents = pgTable(
     autoplayWaitingSince: timestamp("autoplay_waiting_since", { withTimezone: true }),
     /** When the owner last looked at this agent, for the "since you left" summary. */
     ownerLastSeenAt: timestamp("owner_last_seen_at", { withTimezone: true }),
+    /**
+     * The owner's daily loss budget, in base units, mirrored from the program's
+     * LossBudget account. Null for an agent without one (house, seed, and
+     * deposit agents rented before budgets). `lossBudget` is in force now;
+     * `lossBudgetNext` applies from UTC day `lossBudgetNextFromDay` when that is
+     * set - a cut, which waits for the next day so nothing already agreed is
+     * stranded. The ledger stops pairing an agent before it reaches this, so
+     * the program's check is never what stops it.
+     */
+    lossBudget: bigint("loss_budget", { mode: "number" }),
+    lossBudgetNext: bigint("loss_budget_next", { mode: "number" }),
+    lossBudgetNextFromDay: integer("loss_budget_next_from_day"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     retiredAt: timestamp("retired_at", { withTimezone: true }),
     /** Why it retired: ran out, withdrawn in full, or its rental lapsed. Null while it plays. */
