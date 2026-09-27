@@ -118,6 +118,7 @@ beforeAll(async () => {
     // This file rents many agents from one address; the rent limits have a
     // file of their own (test/rate-limits.test.ts).
     rentRateLimit: { limit: 1000, windowMs: 60_000 },
+    fieldCacheMs: 0,
     rentAddressRateLimit: { limit: 1000, windowMs: 60_000 },
   }));
 });
@@ -509,6 +510,31 @@ describe("sharing and the roster", () => {
     for (const a of all.agents) expect(a.trueRating).toBeUndefined();
 
     expect((await api("/roster?band=5-500", { owner: null })).status).toBe(400);
+  });
+
+  it("GET /field lists everyone in play by band, and keeps the just-retired a moment", async () => {
+    const before = await readBody(await api("/field", { owner: null }));
+    expect(typeof before.at).toBe("string");
+    const [first] = before.agents as Json[];
+    expect(first).toBeDefined();
+    expect(["A", "B", "C"]).toContain(first!.band);
+    expect(first!.retiredAt).toBeNull();
+    expect(typeof first!.house).toBe("boolean");
+    expect(JSON.stringify(before)).not.toContain("ownerId");
+
+    const [row] = await db.select().from(agents).where(eq(agents.id, first!.id));
+    try {
+      // Retired just now: still on the field, marked, so a watcher sees it go.
+      await db.update(agents).set({ retiredAt: new Date() }).where(eq(agents.id, first!.id));
+      const just = (await readBody(await api("/field", { owner: null }))).agents.find((a: Json) => a.id === first!.id);
+      expect(just?.retiredAt).toEqual(expect.any(String));
+      // Retired long ago: gone.
+      await db.update(agents).set({ retiredAt: new Date(Date.now() - 10 * 60_000) }).where(eq(agents.id, first!.id));
+      const later = await readBody(await api("/field", { owner: null }));
+      expect(later.agents.some((a: Json) => a.id === first!.id)).toBe(false);
+    } finally {
+      await db.update(agents).set({ retiredAt: row!.retiredAt }).where(eq(agents.id, first!.id));
+    }
   });
 });
 

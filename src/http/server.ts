@@ -21,6 +21,7 @@ import {
   runMatch,
   type LadderTab,
   bandCounts,
+  field,
   lossBudgetOn,
   lostToday,
 } from "../db/runner.js";
@@ -168,6 +169,8 @@ export type AppOptions = {
   character?: CharacterDeps;
   /** The live stream's pacing and limits. Tests shorten the poll. */
   live?: LiveOptions;
+  /** How long one read of /field is served to everyone. Default 2 s; tests set 0. */
+  fieldCacheMs?: number;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -290,6 +293,7 @@ export function createApp(options: AppOptions): Server {
     ["GET", /^\/stats$/, getStats],
     ["GET", /^\/presets$/, getPresets],
     ["GET", /^\/roster$/, getRoster],
+    ["GET", /^\/field$/, getField],
     ["GET", /^\/season$/, getSeason],
     ["GET", /^\/prizes$/, getPrizes],
     ["GET", /^\/statement$/, getStatement],
@@ -863,6 +867,26 @@ export function createApp(options: AppOptions): Server {
       throw new HttpError(400, "season must be a Monday, as YYYY-MM-DD");
     }
     return { statement: await seasonStatement(db, season.key) };
+  }
+
+  /**
+   * Everyone on the field, for the live board. Polled by every open board, so
+   * one read is shared for a moment rather than made per watcher. Who is in a
+   * match is not here: the live stream says that, the moment it happens.
+   */
+  const fieldCacheMs = options.fieldCacheMs ?? 2000;
+  let fieldCache: { at: number; value: Promise<{ agents: Awaited<ReturnType<typeof field>>; at: string }> } | null = null;
+  async function getField() {
+    const now = (options.now ?? Date.now)();
+    if (!fieldCache || now - fieldCache.at >= fieldCacheMs) {
+      const value = field(db, new Date(now)).then((agents) => ({ agents, at: new Date(now).toISOString() }));
+      fieldCache = { at: now, value };
+      // A failed read is not served to the next caller.
+      value.catch(() => {
+        if (fieldCache?.value === value) fieldCache = null;
+      });
+    }
+    return fieldCache.value;
   }
 
   async function getSeason() {

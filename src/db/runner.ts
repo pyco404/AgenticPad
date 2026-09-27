@@ -1147,6 +1147,34 @@ export async function roster(db: Db, options: { band?: BandName; limit?: number 
   return rows.map(listedInChips);
 }
 
+/** How long a retired agent stays on the field, dimmed, before it leaves. */
+export const FIELD_RETIRED_MS = 60_000;
+
+/**
+ * Everyone on the field: every agent in play, house included, by band, and the
+ * ones that retired in the last minute so a watcher sees them go rather than
+ * vanish. Public, and only what the feed already shows of an agent. No limit
+ * and no balance: this is who is here, not how they are doing, so it stays one
+ * cheap read however many agents there are.
+ */
+export async function field(db: Db, now: Date = new Date()) {
+  const since = new Date(now.getTime() - FIELD_RETIRED_MS);
+  const rows = await db
+    .select({
+      id: agents.id,
+      name: agents.name,
+      mark: agents.mark,
+      presetName: agents.presetName,
+      band: agents.band,
+      house: sql<boolean>`${agents.ownerId} is null`,
+      retiredAt: agents.retiredAt,
+    })
+    .from(agents)
+    .where(or(and(isNull(agents.retiredAt), rentalOpenSql()), gt(agents.retiredAt, since)))
+    .orderBy(agents.createdAt, agents.id);
+  return rows.map((r) => ({ ...r, retiredAt: r.retiredAt?.toISOString() ?? null }));
+}
+
 /** Active agents in each stake band, so a newcomer can be pointed at the busiest. */
 export async function bandCounts(db: Db): Promise<Record<BandName, number>> {
   const rows = await db
