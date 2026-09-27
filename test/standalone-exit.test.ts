@@ -4,7 +4,38 @@ import bs58 from "bs58";
 import { Keypair, PublicKey, Transaction, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { PROGRAM_ID, pdas as realPdas } from "../src/chain/settlement.js";
-import * as exitPage from "../web/public/exit/exit.mjs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { inlined } from "../scripts/inline-exit.js";
+
+// The page carries exit.mjs inside its own script, so that a copy saved to disk
+// works opened directly (a browser won't load a module from file://). These
+// tests run against *that* copy - the code the page actually executes - loaded
+// out of index.html, and the first check below holds it to exit.mjs exactly.
+const PAGE = readFileSync(new URL("../web/public/exit/index.html", import.meta.url), "utf8");
+const LIBRARY = readFileSync(new URL("../web/public/exit/exit.mjs", import.meta.url), "utf8");
+const scratch = mkdtempSync(join(tmpdir(), "oxude-exit-"));
+writeFileSync(join(scratch, "inlined.mjs"), inlined(PAGE));
+const exitPage = (await import(pathToFileURL(join(scratch, "inlined.mjs")).href)) as typeof import("../web/public/exit/exit.mjs");
+
+describe("the page's own copy of the library", () => {
+  it("is exit.mjs, byte for byte", () => {
+    // If this fails: npm run exit:inline
+    expect(inlined(PAGE)).toBe(LIBRARY);
+  });
+
+  it("parses as one module with the page's script, so no name in one shadows the other", () => {
+    // The library and the page share a scope. A top-level name defined in both
+    // is an early error that stops the whole script - the page would do nothing.
+    const script = PAGE.slice(PAGE.indexOf('<script type="module">') + '<script type="module">'.length, PAGE.lastIndexOf("</script>"));
+    const file = join(scratch, "page-script.mjs");
+    writeFileSync(file, script);
+    expect(() => execFileSync(process.execPath, ["--check", file], { stdio: "pipe" })).not.toThrow();
+  });
+});
 
 /**
  * The standalone exit page owes nothing to this repo at runtime: no npm, no

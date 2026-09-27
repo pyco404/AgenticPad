@@ -1,15 +1,32 @@
 # The standalone exit
 
-Two files. No npm, no CDN, no build step, no server of ours.
+No npm, no CDN, no build step, no server of ours.
 
 ```
-index.html   the page
-exit.mjs     the Solana bits, written out rather than imported
+index.html   the page, carrying the library in its own script
+exit.mjs     the library: the Solana bits, written out rather than imported
 ```
 
-Open `index.html` from a file:// URL, or host the folder anywhere. It needs a
-Solana RPC endpoint and a wallet extension, and nothing else. If oxude.xyz is
-down, or gone, this still works.
+`index.html` is the whole page: save that one file and open it from disk, or
+host it anywhere. It needs a Solana RPC endpoint and a wallet extension, and
+nothing else. If oxude.xyz is down, or gone, this still works. It is also
+published from this folder to https://pyco404.github.io/oxude/
+(`.github/workflows/exit-pages.yml`), a different provider from the one behind
+oxude.xyz.
+
+The page carries `exit.mjs` inside its own script rather than importing it,
+because a browser will not load a module from a `file://` URL. `exit.mjs` is
+the source - the web app's exit panel imports it - and
+`scripts/inline-exit.ts` copies it into the page between two marker lines:
+
+```bash
+npm run exit:inline            # after any change to exit.mjs
+npm run exit:inline -- --check # what the tests enforce
+```
+
+`test/standalone-exit.test.ts` runs its checks against the copy inside
+`index.html`, the code the page actually executes, and fails if that copy is
+not `exit.mjs` byte for byte.
 
 ## Why it repeats code the repo already has
 
