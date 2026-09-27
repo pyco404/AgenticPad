@@ -558,6 +558,7 @@ export async function playableBands(
   db: Db,
   agentId: string,
   ownerId: string | null,
+  funding: Funding,
 ): Promise<{ band: BandName; count: number }[]> {
   // Joined rather than correlated: a subquery grouped by agent is the pattern
   // the rest of this file uses, and it is the one that actually correlates.
@@ -576,6 +577,10 @@ export async function playableBands(
         isNull(agents.retiredAt),
         rentalOpenSql(),
         ownerId === null ? sql`true` : or(isNull(agents.ownerId), ne(agents.ownerId, ownerId)),
+        // Only agents under the same program, as pickOpponent requires. Counting
+        // the other program's agents named bands full of opponents this agent
+        // could never be paired with - "try B" from C, "try C" from B.
+        eq(agents.funding, funding),
       ),
     );
   return STAKE_BANDS.map((b) => ({
@@ -875,14 +880,16 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   if (!preset) {
     // Nobody here. Point at a band that does have opponents rather than leaving
     // the owner to guess which one to try.
-    const elsewhere = await playableBands(db, agentId, me.ownerId);
+    const elsewhere = await playableBands(db, agentId, me.ownerId, me.funding);
     const best = elsewhere.filter((b) => b.band !== band && b.count > 0).sort((x, y) => y.count - x.count)[0];
     throw new StakeError(
       best
         ? `no opponent in the ${band} band right now. Band ${best.band} has ${best.count} ${
             best.count === 1 ? "agent" : "agents"
           } ready to play - move there, or try again later.`
-        : `no opponent in the ${band} band right now, and no other band has one either. Try again later.`,
+        : me.funding === "deposit"
+          ? `no opponent for ${me.name} yet: it plays only other agents you fund yourself, and no other one is ready in any band. Try again later.`
+          : `no opponent in the ${band} band right now, and no other band has one either. Try again later.`,
     );
   }
   const pick: OpponentPick = {

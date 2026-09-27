@@ -95,7 +95,7 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     // 32-bit cast raised "integer out of range" on a balance this size.
     const other = await createAgent(db, { name: "Opponent", presetName: "Bully" });
     await record(db, [{ agentId: other.id, amount: big, reason: "adjustment" }]);
-    const bands = await playableBands(db, agent.id, owner);
+    const bands = await playableBands(db, agent.id, owner, "seed");
     expect(bands.find((b) => b.band === "B")?.count).toBe(1);
 
     const view = await publicAgent(db, agent.id);

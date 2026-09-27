@@ -240,7 +240,7 @@ describe("settlement", () => {
 
     // Counting is per band and respects the cover rule: an agent too poor for
     // its own band is not offered as a reason to go there.
-    const counts = await playableBands(d, lonely.id, null);
+    const counts = await playableBands(d, lonely.id, null, "seed");
     expect(counts.find((x) => x.band === "B")?.count).toBe(3);
     expect(counts.find((x) => x.band === "A")?.count).toBe(1);
     expect(counts.find((x) => x.band === "C")?.count).toBe(0);
@@ -456,9 +456,28 @@ describe("lists that show many agents at once", () => {
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, pauper.id));
     await record(db, [{ agentId: pauper.id, amount: 30 - 900, reason: "adjustment" }]);
 
-    const counts = await playableBands(db, me.id, null);
+    // Counted from a deposit agent's side: only its own program's agents count.
+    await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, me.id));
+    const counts = await playableBands(db, me.id, null, "deposit");
     const bandB = counts.find((c) => c.band === "B")!;
     expect(bandB.count).toBe(1);
+  });
+
+  it("never names a band whose agents are all under the other program", async () => {
+    // Korarwick, 2026-09-27: the first deposit agent to play was told "try C"
+    // from B and "try B" from C, because the count included seed agents that
+    // pickOpponent will never pair it with.
+    const { db } = await connect();
+    await migrate(db);
+    const me = await createAgent(db, { name: "Funded", presetName: "Anchor", ownerId: someWallet() });
+    await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, me.id));
+    await record(db, [{ agentId: me.id, amount: baseUnits(900, DEVNET_CHIP_RATE) - 900, reason: "deposit" }]);
+    for (const band of ["A", "B", "C"] as const) {
+      await createAgent(db, { name: `Seeded ${band}`, presetName: "Bully", ownerId: someWallet(), band });
+    }
+    const counts = await playableBands(db, me.id, null, "deposit");
+    expect(counts.every((c) => c.count === 0)).toBe(true);
+    await expect(pickOpponent(db, me.id, { allowHouse: true })).rejects.toThrow(/plays only other agents you fund yourself/);
   });
 });
 
