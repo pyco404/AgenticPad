@@ -10,17 +10,73 @@ import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
 import type { RentalChain } from "../src/db/rentals.js";
 import type { DepositChain } from "../src/db/deposits.js";
 import type { WithdrawalChain } from "../src/db/withdrawals.js";
+import type { LossBudgetChain } from "../src/db/loss-budget.js";
+import { PROGRAM_ID, pdas, type LossBudgetState } from "../src/chain/settlement.js";
+import { utcDay, uuidBytes } from "../src/chain/common.js";
+import idl from "../src/chain/idl.json" with { type: "json" };
+import { SystemProgram } from "@solana/web3.js";
+
+const BUDGET_DISCRIMINATOR = Buffer.from(idl.instructions.find((i) => i.name === "set_loss_budget")!.discriminator);
 
 // Renting over HTTP on both flows. What matters here is that a caller can tell
 // them apart without guessing, and that the deposit flow never hands back an
 // agent that looks ready to play before it has been paid for.
 
 const RATE = DEVNET_CHIP_RATE;
+const uuidFromBytesLocal = (b: Uint8Array) => {
+  const h = Buffer.from(b).toString("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+};
 const FEE = baseUnits(200, RATE);
 const FAKE_PROGRAM = new PublicKey(Buffer.alloc(32, 5));
 
-class FakeChain implements RentalChain, DepositChain, WithdrawalChain {
+class FakeChain implements RentalChain, DepositChain, WithdrawalChain, LossBudgetChain {
   readonly settler = Keypair.generate();
+  get signer() {
+    return this.settler;
+  }
+  budgets = new Map<string, LossBudgetState>();
+  /** A real set_loss_budget instruction, accounts in the program's order, so the server's checks see what they would in production. */
+  async prepareLossBudget(input: { agentId: string; owner: string; perDay: number }) {
+    const perDay = Buffer.alloc(8);
+    perDay.writeBigUInt64LE(BigInt(input.perDay));
+    const transaction = new Transaction({
+      feePayer: this.settler.publicKey,
+      blockhash: "11111111111111111111111111111111",
+      lastValidBlockHeight: this.height + 150,
+    }).add(
+      new TransactionInstruction({
+        programId: PROGRAM_ID,
+        keys: [
+          { pubkey: this.settler.publicKey, isSigner: true, isWritable: true },
+          { pubkey: pdas.config(), isSigner: false, isWritable: false },
+          { pubkey: new PublicKey(input.owner), isSigner: true, isWritable: false },
+          { pubkey: pdas.owner(input.agentId), isSigner: false, isWritable: false },
+          { pubkey: pdas.budget(input.agentId), isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: Buffer.concat([BUDGET_DISCRIMINATOR, Buffer.from(uuidBytes(input.agentId)), perDay]),
+      }),
+    );
+    transaction.partialSign(this.settler);
+    return { transaction, lastValidBlockHeight: this.height + 150 };
+  }
+  async lossBudgetOf(agentId: string) {
+    return this.budgets.get(agentId) ?? null;
+  }
+  /** What the program does with a change: a raise at once, a cut from tomorrow. */
+  private applyBudget(data: Buffer) {
+    const agentId = uuidFromBytesLocal(data.subarray(8, 24));
+    const asked = Number(data.readBigUInt64LE(24));
+    const now = this.budgets.get(agentId);
+    const today = utcDay(new Date());
+    this.budgets.set(
+      agentId,
+      !now || asked >= now.perDay
+        ? { perDay: asked, nextPerDay: asked, nextFromDay: 0, net: [] }
+        : { ...now, nextPerDay: asked, nextFromDay: today + 1 },
+    );
+  }
   vaults = new Map<string, number>();
   height = 1000;
   async prepareRental(input: { rentalId: string; agentId: string; owner: string; deposit: number }) {
@@ -72,6 +128,11 @@ class FakeChain implements RentalChain, DepositChain, WithdrawalChain {
   /** Top-ups and withdrawals both go out through this in the real client. */
   async submitWithdrawal(raw: Uint8Array) {
     const tx = Transaction.from(raw);
+    const data = Buffer.from(tx.instructions[0]!.data);
+    if (tx.instructions[0]!.programId.equals(PROGRAM_ID) && data.subarray(0, 8).equals(BUDGET_DISCRIMINATOR)) {
+      this.applyBudget(data);
+      return "sig-budget";
+    }
     const [, agentId, amount] = tx.instructions[0]!.data.toString().split(":");
     this.vaults.set(agentId!, (this.vaults.get(agentId!) ?? 0) + Number(amount));
     return `sig-top-${agentId}`;
@@ -105,7 +166,7 @@ const tokens = new Map<string, string>();
  * because a wallet may only hold one agent at a time and every rental here
  * leaves one behind.
  */
-const DEPOSITORS = ["dep-tells-apart", "dep-unplayable", "dep-funds", "dep-refuses", "dep-private", "dep-topup", "dep-guard", "dep-chips", "dep-withdraw", "dep-partial", "dep-floor", "dep-retire", "dep-unpaid", "dep-limit"] as const;
+const DEPOSITORS = ["dep-tells-apart", "dep-unplayable", "dep-funds", "dep-refuses", "dep-private", "dep-topup", "dep-guard", "dep-chips", "dep-withdraw", "dep-partial", "dep-floor", "dep-retire", "dep-unpaid", "dep-limit", "dep-budget", "dep-budget-forge"] as const;
 const onDepositFlow = new Set(DEPOSITORS.map(walletOf));
 
 async function tokenFor(label: string): Promise<string> {
@@ -311,6 +372,80 @@ describe("renting over HTTP", () => {
   });
 
 
+
+  describe("the owner's daily loss budget", () => {
+    /** Rents on the deposit flow and lands it. */
+    async function landed(who: string, chips: number) {
+      const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: chips }, as: who });
+      const tx = Transaction.from(Buffer.from(rented.body.rental.transaction, "base64"));
+      tx.partialSign(keypairFor(who));
+      await api(`/rentals/${rented.body.rental.rentalId}/submit`, {
+        method: "POST",
+        body: { transaction: tx.serialize().toString("base64") },
+        as: who,
+      });
+      return rented.body.agent.id as string;
+    }
+    /** Asks for a change, signs it as `signer`, sends it as `who`. */
+    async function change(agentId: string, who: string, chips: number, signer = keypairFor(who)) {
+      const prepared = await api(`/agents/${agentId}/loss-budget`, { method: "POST", body: { chips }, as: who });
+      if (prepared.status !== 201) return prepared;
+      const tx = Transaction.from(Buffer.from(prepared.body.lossBudget.transaction, "base64"));
+      tx.partialSign(signer);
+      return api(`/agents/${agentId}/loss-budget/submit`, {
+        method: "POST",
+        body: { transaction: tx.serialize().toString("base64"), lastValidBlockHeight: prepared.body.lossBudget.lastValidBlockHeight },
+        as: who,
+      });
+    }
+
+    it("starts at a third of the deposit, raises at once, and cuts from tomorrow", async () => {
+      const who = "dep-budget";
+      const agentId = await landed(who, 900);
+      const view = async () => (await api(`/agents/${agentId}`, { as: who })).body.lossBudget;
+      expect(await view()).toMatchObject({ perDayChips: 300, lostTodayChips: 0, nextPerDayChips: null });
+
+      const raised = await change(agentId, who, 500);
+      expect(raised.body.lossBudget).toMatchObject({ status: "confirmed", perDayChips: 500 });
+      expect(await view()).toMatchObject({ perDayChips: 500, nextPerDayChips: null });
+
+      // A cut: today keeps 500, tomorrow is 100, and the owner sees both.
+      const cut = await change(agentId, who, 100);
+      expect(cut.body.lossBudget.status).toBe("confirmed");
+      expect(await view()).toMatchObject({ perDayChips: 500, nextPerDayChips: 100, nextFromDay: utcDay(new Date()) + 1 });
+    });
+
+    it("sends only a change this server built, signed by the agent's owner", async () => {
+      const who = "dep-budget-forge";
+      const agentId = await landed(who, 900);
+
+      // Someone else's agent: refused before anything is built.
+      expect((await change(agentId, "mallory", 10)).status).toBe(403);
+
+      // The owner's own transaction carrying the same instruction, without the
+      // settler's signature: not one this server built, so not one it sends.
+      const prepared = await api(`/agents/${agentId}/loss-budget`, { method: "POST", body: { chips: 5 }, as: who });
+      const ours = Transaction.from(Buffer.from(prepared.body.lossBudget.transaction, "base64"));
+      const theirs = new Transaction({ feePayer: keypairFor(who).publicKey, blockhash: ours.recentBlockhash!, lastValidBlockHeight: 1 })
+        .add(ours.instructions[0]!);
+      theirs.sign(keypairFor(who));
+      const forged = await api(`/agents/${agentId}/loss-budget/submit`, {
+        method: "POST",
+        body: { transaction: theirs.serialize({ requireAllSignatures: false }).toString("base64") },
+        as: who,
+      });
+      expect(forged.status).toBe(400);
+      expect(String(forged.body.error)).toMatch(/built here/);
+      expect(chain.budgets.get(agentId)).toBeUndefined();
+    });
+
+    it("has nothing to change on an agent rented before deposits", async () => {
+      const seeded = await api("/agents", { method: "POST", body: { presetName: "Bully" }, as: "seed-budget" });
+      const out = await api(`/agents/${seeded.body.agent.id}/loss-budget`, { method: "POST", body: { chips: 10 }, as: "seed-budget" });
+      expect(out.status).toBe(409);
+      expect(String(out.body.error)).toMatch(/no loss budget/);
+    });
+  });
 
   describe("the deposit limit", () => {
     // Its own server, with room for one rental and one top-up an hour.

@@ -21,7 +21,11 @@ import {
   runMatch,
   type LadderTab,
   bandCounts,
+  lossBudgetOn,
+  lostToday,
 } from "../db/runner.js";
+import { utcDay } from "../chain/common.js";
+import type { LossBudgetState } from "../chain/settlement.js";
 import { autoplayStatus, markSeen, setAutoplay, sinceYouLeft } from "../db/autoplay.js";
 import { renewAgent, rentalStatus, RenewError } from "../db/seasons.js";
 import { prizeTable } from "../db/standings.js";
@@ -49,6 +53,7 @@ import { DEVNET_CHIP_RATE, rateOf, type Funding } from "../chips.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../db/faucet.js";
 import { prepareRental, rejectRental, submitRental, RentalError, type RentalChain } from "../db/rentals.js";
 import { checkDeposit, depositBlocked, prepareDeposit, submitDeposit, DepositError, type DepositChain } from "../db/deposits.js";
+import { prepareLossBudget, submitLossBudget, LossBudgetError, type LossBudgetChain } from "../db/loss-budget.js";
 import { rentals } from "../db/schema.js";
 import { baseUnits, chips as toChips } from "../chips.js";
 import { AuthError, isPublicKey, issueNonce, ownerForToken, revokeSession, verifySignIn } from "../auth/wallet.js";
@@ -136,7 +141,7 @@ export type AppOptions = {
    * program will insist on when their transaction arrives.
    */
   deposit?: {
-    chain: RentalChain & DepositChain & WithdrawalChain;
+    chain: RentalChain & DepositChain & WithdrawalChain & LossBudgetChain;
     /** Base units burned per rental, as the program's config carries it. */
     fee: number;
     /** Base units to one chip this season. */
@@ -291,6 +296,8 @@ export function createApp(options: AppOptions): Server {
     ["GET", /^\/admin$/, getAdmin],
     ["POST", /^\/agents\/([^/]+)\/deposits$/, postDeposit],
     ["POST", /^\/deposits\/([^/]+)\/submit$/, postDepositSubmit],
+    ["POST", /^\/agents\/([^/]+)\/loss-budget$/, postLossBudget],
+    ["POST", /^\/agents\/([^/]+)\/loss-budget\/submit$/, postLossBudgetSubmit],
     ["POST", /^\/rentals\/([^/]+)\/submit$/, postRentalSubmit],
     ["POST", /^\/rentals\/([^/]+)\/reject$/, postRentalReject],
     ["GET", /^\/rentals\/([^/]+)$/, getRental],
@@ -633,6 +640,8 @@ export function createApp(options: AppOptions): Server {
         rental: rentalStatus(full!),
         // Why it cannot be topped up, if so: a vault exists only once the rental has landed.
         depositBlocked: await depositBlocked(db, full!),
+        // The owner's daily loss limit, in chips, and how much of it today has used.
+        lossBudget: await lossBudgetView(full!),
         sinceYouLeft: await sinceYouLeft(db, full!),
         view: "owner",
       };
@@ -992,6 +1001,32 @@ export function createApp(options: AppOptions): Server {
     };
   }
 
+  /** A budget as the chain holds it, in chips. */
+  function budgetInChips(state: LossBudgetState | null, rate: number) {
+    if (!state) return { perDayChips: null, nextPerDayChips: null, nextFromDay: null };
+    return {
+      perDayChips: toChips(state.perDay, rate),
+      nextPerDayChips: toChips(state.nextPerDay, rate),
+      nextFromDay: state.nextFromDay === 0 ? null : state.nextFromDay,
+    };
+  }
+
+  /** The owner's view of an agent's loss budget, from the ledger's copy. Null when it has none. */
+  async function lossBudgetView(row: typeof agents.$inferSelect) {
+    if (row.lossBudget === null) return null;
+    const rate = rateOf(row);
+    const today = utcDay(new Date());
+    const cutPending = row.lossBudgetNextFromDay !== null && row.lossBudgetNextFromDay > today;
+    return {
+      perDayChips: toChips(lossBudgetOn(row, today)!, rate),
+      lostTodayChips: toChips(await lostToday(db, row.id), rate),
+      // A cut waiting for tomorrow, so the owner sees both numbers.
+      nextPerDayChips: cutPending ? toChips(row.lossBudgetNext!, rate) : null,
+      nextFromDay: cutPending ? row.lossBudgetNextFromDay : null,
+      resetsAt: new Date((today + 1) * 86_400_000).toISOString(),
+    };
+  }
+
   /** Owner only: builds a top-up for the owner's wallet to sign. Amount in chips. */
   async function postDeposit(ctx: Ctx) {
     const ownerId = ctx.requireOwner();
@@ -1016,6 +1051,53 @@ export function createApp(options: AppOptions): Server {
       return { deposit: { ...out, chips: toChips(out.amount, deposit.chipRate) } };
     } catch (error) {
       if (error instanceof DepositError) throw new HttpError(error.status, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Owner only: builds a change to the agent's daily loss budget, in chips,
+   * for the owner's wallet to sign. A raise applies at once; a cut from the
+   * next UTC day.
+   */
+  async function postLossBudget(ctx: Ctx) {
+    const ownerId = ctx.requireOwner();
+    const agentId = requireUuid(ctx.params[0]);
+    const deposit = options.deposit;
+    if (!deposit) throw new HttpError(503, "loss budgets are unavailable on this server");
+    const asked = ctx.body["chips"];
+    if (typeof asked !== "number" || !Number.isFinite(asked) || asked < 0) {
+      throw new HttpError(400, "chips is required: the most the agent may lose in a day, zero or more");
+    }
+    spendBoth(rentLimiter, rentByAddress, ownerId, ctx.clientKey, "budget changes");
+    try {
+      return {
+        lossBudget: await prepareLossBudget(db, deposit.chain, {
+          agentId,
+          ownerId,
+          perDay: baseUnits(Math.floor(asked), deposit.chipRate),
+        }),
+      };
+    } catch (error) {
+      if (error instanceof LossBudgetError) throw new HttpError(error.status, error.message);
+      throw error;
+    }
+  }
+
+  /** Owner only: sends the wallet-signed budget change and reads the result back from the chain. */
+  async function postLossBudgetSubmit(ctx: Ctx) {
+    const ownerId = ctx.requireOwner();
+    const agentId = requireUuid(ctx.params[0]);
+    const deposit = options.deposit;
+    if (!deposit) throw new HttpError(503, "loss budgets are unavailable on this server");
+    const signed = String(ctx.body["transaction"] ?? "");
+    if (!signed) throw new HttpError(400, "transaction is required");
+    const lastValidBlockHeight = Number(ctx.body["lastValidBlockHeight"] ?? 0);
+    try {
+      const out = await submitLossBudget(db, deposit.chain, { agentId, ownerId, signedTx: signed, lastValidBlockHeight });
+      return { lossBudget: { status: out.status, ...budgetInChips(out.budget, deposit.chipRate) } };
+    } catch (error) {
+      if (error instanceof LossBudgetError) throw new HttpError(error.status, error.message);
       throw error;
     }
   }
