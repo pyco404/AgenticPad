@@ -5,7 +5,9 @@ import { agents, chainOps, ledger, matches, ratings } from "../src/db/schema.js"
 import { balanceOf } from "../src/db/ledger.js";
 import { createAgent, runExhibition, runMatch } from "../src/db/runner.js";
 import { agentRecord, matchActivity, recentMatches } from "../src/db/feed.js";
-import { pickHousePair, startHouseExhibitions } from "../src/db/house.js";
+import { DEPOSIT_HOUSE, ensureDepositHouse, pickHousePair, startHouseExhibitions } from "../src/db/house.js";
+import { record } from "../src/db/ledger.js";
+import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
 import { StakeError } from "../src/db/ledger.js";
 import { someWallet } from "./helpers.js";
 
@@ -190,6 +192,66 @@ describe("house exhibitions", () => {
     expect(activity.totalStaked).toBe(played.stake * 2);
     expect(activity.largestPot).toBe(Math.abs(played.settled.A));
     expect(activity.exhibitions).toBe(3);
+    await close();
+  });
+});
+
+describe("the house on the deposit program", () => {
+  let n = 0;
+  const nextName = () => `DepHouse${n++}`;
+
+  it("seeds three of each preset in every band, each with a vault op the worker can send", async () => {
+    const { db, close } = await fresh();
+    const { created, roster } = await ensureDepositHouse(db, nextName);
+    expect(created).toHaveLength(36);
+    expect(roster).toHaveLength(36);
+    for (const band of ["A", "B", "C"] as const) {
+      const here = roster.filter((r) => r.band === band);
+      expect(here).toHaveLength(12);
+      for (const preset of ["Anchor", "Hammer", "Mirage", "Bully"]) expect(here.filter((r) => r.presetName === preset)).toHaveLength(3);
+      expect(new Set(here.map((r) => r.chips))).toEqual(new Set([DEPOSIT_HOUSE.chips[band]]));
+    }
+    // Each on the deposit program, with no owner, and a pending open_vault op
+    // carrying the salt - which is the only place that salt is kept.
+    const ops = await db.select().from(chainOps).where(eq(chainOps.kind, "open_vault"));
+    expect(ops).toHaveLength(36);
+    for (const op of ops) {
+      expect(op.status).toBe("pending");
+      expect(op.owner).toBeNull();
+      expect(op.salt).toMatch(/^[0-9a-f]{32}$/);
+    }
+    const rows = await db.select().from(agents);
+    expect(rows.every((r) => r.funding === "deposit" && r.ownerId === null && r.rentalEndsAt === null)).toBe(true);
+    // Nothing written to the ledger: the balance follows the treasury's deposit.
+    expect((await db.select({ n: count() }).from(ledger))[0]!.n).toBe(0);
+    await close();
+  });
+
+  it("creates only what is missing when run again", async () => {
+    const { db, close } = await fresh();
+    await ensureDepositHouse(db, nextName);
+    const again = await ensureDepositHouse(db, nextName);
+    expect(again.created).toHaveLength(0);
+    expect(again.roster).toHaveLength(36);
+    await close();
+  });
+
+  it("never pairs a house exhibition across programs", async () => {
+    const { db, close } = await fresh();
+    // Two seed-program house agents and two deposit-program ones, all in band B
+    // and all able to cover it: the picker must keep each program to itself.
+    for (let i = 0; i < 2; i++) await createAgent(db, { name: `Seed${i}`, presetName: "Anchor" });
+    for (let i = 0; i < 2; i++) {
+      const row = await createAgent(db, { name: `Dep${i}`, presetName: "Bully", funding: "deposit" });
+      await record(db, [{ agentId: row.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
+    }
+    const funding = new Map((await db.select().from(agents)).map((r) => [r.id, r.funding]));
+    for (let i = 0; i < 30; i++) {
+      const pair = await pickHousePair(db);
+      expect(pair).not.toBeNull();
+      expect(funding.get(pair![0])).toBe(funding.get(pair![1]));
+      await runExhibition(db, pair![0], pair![1], { seed: i + 1 });
+    }
     await close();
   });
 });
