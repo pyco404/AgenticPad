@@ -31,12 +31,12 @@ import { STAKE_DECIMALS } from "../src/chain/settlement.js";
  * is finished by running it again. The order matters and is the order below:
  * the supply has to exist before the authority to make it is given up.
  *
- * This is a devnet tool. On mainnet the stake token is $OXUDE, which already
+ * This is a devnet tool. On mainnet the stake token is $OX, which already
  * exists and which nobody here has ever had the authority to mint.
  */
 
 const RPC = process.env["CHAIN_RPC_URL"] ?? "http://127.0.0.1:18899";
-/** A billion tokens, as $OXUDE has. 1e15 base units: inside a u64, and inside a JavaScript safe integer. */
+/** A billion tokens, as $OX has. 1e15 base units: inside a u64, and inside a JavaScript safe integer. */
 const SUPPLY_TOKENS = 1_000_000_000;
 const SUPPLY = SUPPLY_TOKENS * 10 ** STAKE_DECIMALS;
 

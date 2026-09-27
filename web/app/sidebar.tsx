@@ -249,7 +249,7 @@ export function Sidebar() {
             <WalletControl placement="up" />
           </div>
           <p className="mt-3 text-[12px] leading-5 text-muted">
-            The game runs on Solana devnet: balances here are test tokens with no value. $OXUDE on mainnet is a
+            The game runs on Solana devnet: balances here are test tokens with no value. $OX on mainnet is a
             separate, real token, and becomes the game&apos;s currency at mainnet launch.
           </p>
         </div>

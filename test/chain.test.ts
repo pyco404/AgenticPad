@@ -150,7 +150,7 @@ describe.skipIf(!RUN)("settlement program", () => {
     // for good. After the last step nobody can mint, this program included.
     stakeMint = await createMint(connection, admin, admin.publicKey, null, STAKE_DECIMALS);
     treasury = (await getOrCreateAssociatedTokenAccount(connection, admin, stakeMint, admin.publicKey)).address;
-    // A billion tokens, as $OXUDE has: 1e15 base units, well inside a u64 and
+    // A billion tokens, as $OX has: 1e15 base units, well inside a u64 and
     // inside a JavaScript safe integer too.
     await mintTo(connection, admin, stakeMint, treasury, admin, 1_000_000_000 * CHIP);
     await setAuthority(connection, admin, stakeMint, admin, AuthorityType.MintTokens, null);
