@@ -68,6 +68,16 @@ pub const RENTAL_SEED: &[u8] = b"rental";
 pub const EXIT_SEED: &[u8] = b"exit";
 pub const EXIT_CONFIG_SEED: &[u8] = b"exit_config";
 pub const STRATEGY_SEED: &[u8] = b"strategy";
+pub const BUDGET_SEED: &[u8] = b"budget";
+
+/// How many days back a settlement for a budgeted agent may be dated: today
+/// and the two before. A backlog up to two days old still settles; older is
+/// refused, so a stolen settler key can spread a theft over at most three
+/// days' budgets at once.
+pub const BUDGET_LOOKBACK_DAYS: u64 = 2;
+/// One bucket per day in the lookback, so three consecutive days never share one.
+pub const BUDGET_BUCKETS: usize = (BUDGET_LOOKBACK_DAYS + 1) as usize;
+pub const SECONDS_PER_DAY: i64 = 86_400;
 
 /// A strategy table's shape: six situations, five edges, one action per cell.
 pub const STRATEGY_SITUATIONS: u32 = 6;
@@ -377,12 +387,16 @@ pub mod oxude_settlement {
     /// Moves a match's settled net from the loser's vault to the winner's, and
     /// records it. The amount was decided and validated off chain; this checks
     /// the bounds again and refuses to settle the same match twice.
+    /// `day` is the UTC day the match was played (unix seconds / 86,400), as
+    /// the ledger recorded it. It matters only for an agent with a loss budget,
+    /// where it picks the day the loss counts against; see `LossBudget`.
     pub fn settle(
         ctx: Context<Settle>,
         match_id: [u8; 16],
         from_agent: [u8; 16],
         to_agent: [u8; 16],
         amount: u64,
+        day: u64,
     ) -> Result<()> {
         require!(amount > 0, OxudeError::ZeroAmount);
         require!(amount <= ctx.accounts.config.max_settlement, OxudeError::OverLimit);
@@ -395,6 +409,26 @@ pub mod oxude_settlement {
         let cap = outflow_cap(ctx.accounts.from_vault.amount, ctx.accounts.config.chip_rate);
         (outflow.window_start, outflow.spent) = charge(outflow.window_start, outflow.spent, slot, amount, cap)
             .ok_or(OxudeError::OutflowLimit)?;
+
+        // The owners' daily loss budgets. Each account's address is fixed by
+        // its agent, so the payer's cannot be swapped out or left off: if one
+        // exists at that address it is charged, and if none does the agent has
+        // no budget. The day is checked only when a budget is involved, so an
+        // unbudgeted agent's backlog settles however old it is.
+        let today = today()?;
+        let from_budget = ctx.accounts.from_budget.to_account_info();
+        if budget_exists(&from_budget) {
+            require!(day_settleable(day, today), OxudeError::SettlementDayOutOfRange);
+            with_budget(&from_budget, |b| b.charge_loss(day, amount))?;
+        }
+        let to_budget = ctx.accounts.to_budget.to_account_info();
+        if budget_exists(&to_budget) {
+            require!(day_settleable(day, today), OxudeError::SettlementDayOutOfRange);
+            with_budget(&to_budget, |b| {
+                b.credit_win(day, amount);
+                Ok(())
+            })?;
+        }
 
         let bump = ctx.accounts.config.bump;
         let signer: &[&[&[u8]]] = &[&[CONFIG_SEED, &[bump]]];
@@ -595,6 +629,34 @@ pub mod oxude_settlement {
     /// a drained vault: the reconciler alarms, correctly, and never stops. So
     /// the record outlives the claim by as long as the server had to settle in
     /// the first place.
+    /// Sets how much an agent may lose, net, in one UTC day. The owner signs;
+    /// nobody else can, the settler included.
+    ///
+    /// A raise takes effect at once. A cut takes effect from the next UTC day,
+    /// so a settlement already agreed today can never be stranded by it: the
+    /// ledger decided that match under the old budget, and the chain must be
+    /// able to record it.
+    pub fn set_loss_budget(ctx: Context<SetLossBudget>, agent_id: [u8; 16], per_day: u64) -> Result<()> {
+        let budget = &mut ctx.accounts.budget;
+        if budget.agent_id == [0u8; 16] {
+            // New: in force from now, and every bucket empty.
+            budget.agent_id = agent_id;
+            budget.bump = ctx.bumps.budget;
+            budget.per_day = per_day;
+            budget.next_per_day = per_day;
+            budget.next_from_day = 0;
+        } else {
+            budget.change(per_day, today()?);
+        }
+        emit!(LossBudgetSet {
+            agent_id,
+            per_day: budget.per_day,
+            next_per_day: budget.next_per_day,
+            next_from_day: budget.next_from_day,
+        });
+        Ok(())
+    }
+
     /// Records an agent's strategy table, signed by its owner, once.
     ///
     /// This is the half of a match the settler cannot make up: what each side
@@ -719,6 +781,36 @@ pub fn exit_payout(asked: u64, held: u64, min_stake: u64) -> u64 {
     }
 }
 
+/// Today's UTC day number, from the cluster's clock.
+pub fn today() -> Result<u64> {
+    let now = Clock::get()?.unix_timestamp;
+    Ok(u64::try_from(now.div_euclid(SECONDS_PER_DAY)).unwrap_or(0))
+}
+
+/// Whether a budgeted settlement may be dated `day`: not in the future, and
+/// not older than the lookback.
+pub fn day_settleable(day: u64, today: u64) -> bool {
+    day <= today && day.saturating_add(BUDGET_LOOKBACK_DAYS) >= today
+}
+
+/// Reads the LossBudget at `account`, applies `f`, and writes it back.
+/// `try_deserialize` checks the account's discriminator, and `budget_exists`
+/// has already checked that this program owns it.
+fn with_budget(account: &AccountInfo, f: impl FnOnce(&mut LossBudget) -> Result<()>) -> Result<()> {
+    let mut data = account.try_borrow_mut_data()?;
+    let mut budget = LossBudget::try_deserialize(&mut &data[..])?;
+    f(&mut budget)?;
+    budget.try_serialize(&mut &mut data[..])?;
+    Ok(())
+}
+
+/// Whether an account at a budget's address holds one. Empty means the agent
+/// has none; anything owned by this program there is a LossBudget, because the
+/// address is derived from the budget seed.
+pub fn budget_exists(account: &AccountInfo) -> bool {
+    account.owner == &crate::ID && !account.data_is_empty()
+}
+
 /// Whether a packed table is one the game can play: 30 cells of two bits, in
 /// situation-major order, each fold (0), call (1) or raise (2) - and only fold
 /// or call when facing a raise, where there is no re-raise. The four bits
@@ -815,6 +907,83 @@ pub struct Strategy {
     pub table: u64,
     pub slot: u64,
     pub bump: u8,
+}
+
+/// One per agent whose owner has set a daily loss budget.
+///
+/// Net loss per UTC day, in base units: a loss adds, a win takes away. Three
+/// buckets hold today and the two days before, indexed by day modulo three -
+/// consecutive days never share one, and a bucket still holding an older day
+/// is simply reset when its slot comes round again.
+#[account]
+#[derive(InitSpace)]
+pub struct LossBudget {
+    pub agent_id: [u8; 16],
+    /// The limit in force now.
+    pub per_day: u64,
+    /// A cut waiting for its day, or the same as `per_day` when there is none.
+    pub next_per_day: u64,
+    /// The day `next_per_day` applies from; zero when nothing is waiting.
+    pub next_from_day: u64,
+    pub days: [u64; BUDGET_BUCKETS],
+    pub net: [i64; BUDGET_BUCKETS],
+    pub bump: u8,
+}
+
+impl LossBudget {
+    /// The limit that applies to losses dated `day`.
+    pub fn limit_for(&self, day: u64) -> u64 {
+        if self.next_from_day != 0 && day >= self.next_from_day {
+            self.next_per_day
+        } else {
+            self.per_day
+        }
+    }
+
+    /// The bucket for `day`, emptied first if it still holds an older one.
+    fn bucket(&mut self, day: u64) -> usize {
+        let i = (day % BUDGET_BUCKETS as u64) as usize;
+        if self.days[i] != day {
+            self.days[i] = day;
+            self.net[i] = 0;
+        }
+        i
+    }
+
+    /// A loss dated `day`, refused if it takes that day past its limit.
+    pub fn charge_loss(&mut self, day: u64, amount: u64) -> Result<()> {
+        let limit = self.limit_for(day);
+        let i = self.bucket(day);
+        let amount = i64::try_from(amount).map_err(|_| OxudeError::OverLimit)?;
+        let net = self.net[i].checked_add(amount).ok_or(OxudeError::OverLimit)?;
+        require!(i128::from(net) <= i128::from(limit), OxudeError::LossBudgetExceeded);
+        self.net[i] = net;
+        Ok(())
+    }
+
+    /// A win dated `day`: it offsets that day's losses. Never refused.
+    pub fn credit_win(&mut self, day: u64, amount: u64) {
+        let i = self.bucket(day);
+        self.net[i] = self.net[i].saturating_sub(i64::try_from(amount).unwrap_or(i64::MAX));
+    }
+
+    /// The owner asks for `per_day`. A raise over today's limit applies now; a
+    /// cut waits for tomorrow, so nothing agreed today can be stranded by it.
+    pub fn change(&mut self, per_day: u64, today: u64) {
+        // A cut whose day has come is the limit now.
+        if self.next_from_day != 0 && today >= self.next_from_day {
+            self.per_day = self.next_per_day;
+            self.next_from_day = 0;
+        }
+        if per_day >= self.per_day {
+            self.per_day = per_day;
+            self.next_per_day = per_day;
+            self.next_from_day = 0;
+        } else {
+            self.next_per_day = per_day;
+            self.next_from_day = today + 1;
+        }
+    }
 }
 
 /// One per agent that has paid out through a settlement: its current window.
@@ -1001,6 +1170,13 @@ pub struct Settle<'info> {
         bump
     )]
     pub settlement: Account<'info, Settlement>,
+    /// CHECK: the paying agent's loss budget, at its fixed address. Empty when
+    /// it has none; read and written in `settle` only if it holds one.
+    #[account(mut, seeds = [BUDGET_SEED, from_agent.as_ref()], bump)]
+    pub from_budget: UncheckedAccount<'info>,
+    /// CHECK: the receiving agent's loss budget, the same way.
+    #[account(mut, seeds = [BUDGET_SEED, to_agent.as_ref()], bump)]
+    pub to_budget: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
 }
@@ -1154,6 +1330,29 @@ pub struct ClaimExit<'info> {
 
 #[derive(Accounts)]
 #[instruction(agent_id: [u8; 16])]
+pub struct SetLossBudget<'info> {
+    /// Pays the account's rent the first time, so an owner needs no SOL.
+    #[account(mut)]
+    pub settler: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = settler @ OxudeError::NotSettler)]
+    pub config: Account<'info, Config>,
+    /// The owner's signature is what makes the budget theirs to set.
+    pub owner: Signer<'info>,
+    #[account(seeds = [OWNER_SEED, agent_id.as_ref()], bump = agent_owner.bump, has_one = owner @ OxudeError::NotOwner)]
+    pub agent_owner: Account<'info, AgentOwner>,
+    #[account(
+        init_if_needed,
+        payer = settler,
+        space = 8 + LossBudget::INIT_SPACE,
+        seeds = [BUDGET_SEED, agent_id.as_ref()],
+        bump
+    )]
+    pub budget: Account<'info, LossBudget>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(agent_id: [u8; 16])]
 pub struct CommitStrategy<'info> {
     #[account(mut)]
     pub settler: Signer<'info>,
@@ -1189,6 +1388,14 @@ pub struct CloseExit<'info> {
         has_one = owner @ OxudeError::NotOwner
     )]
     pub exit: Account<'info, Exit>,
+}
+
+#[event]
+pub struct LossBudgetSet {
+    pub agent_id: [u8; 16],
+    pub per_day: u64,
+    pub next_per_day: u64,
+    pub next_from_day: u64,
 }
 
 #[event]
@@ -1343,6 +1550,10 @@ pub enum OxudeError {
     ExitWindowShrinkTooFast,
     #[msg("Not a strategy table the game can play")]
     InvalidStrategy,
+    #[msg("This settlement would take the agent past its owner's daily loss budget")]
+    LossBudgetExceeded,
+    #[msg("A budgeted settlement must be dated today or within the two days before")]
+    SettlementDayOutOfRange,
 }
 
 #[cfg(test)]
@@ -1352,6 +1563,75 @@ mod tests {
     /// Packs actions in situation-major order, as the server does.
     fn pack(cells: &[u64]) -> u64 {
         cells.iter().enumerate().fold(0, |t, (i, a)| t | (a << (2 * i)))
+    }
+
+    fn budget(per_day: u64) -> LossBudget {
+        LossBudget {
+            agent_id: [1; 16],
+            per_day,
+            next_per_day: per_day,
+            next_from_day: 0,
+            days: [0; BUDGET_BUCKETS],
+            net: [0; BUDGET_BUCKETS],
+            bump: 0,
+        }
+    }
+
+    #[test]
+    fn a_budget_counts_net_loss_per_day_and_refuses_past_it() {
+        let mut b = budget(300);
+        b.charge_loss(100, 200).unwrap();
+        // A win the same day makes room again: it is net loss that is capped.
+        b.credit_win(100, 150);
+        b.charge_loss(100, 250).unwrap();
+        assert!(b.charge_loss(100, 1).is_err());
+        // The refused loss left nothing behind: exactly the limit, not over it.
+        assert_eq!(b.net[(100 % BUDGET_BUCKETS as u64) as usize], 300);
+        // Another day is its own budget.
+        b.charge_loss(101, 300).unwrap();
+    }
+
+    #[test]
+    fn a_budget_bucket_is_reused_only_by_a_day_three_on() {
+        let mut b = budget(300);
+        b.charge_loss(100, 300).unwrap();
+        b.charge_loss(101, 300).unwrap();
+        b.charge_loss(102, 300).unwrap();
+        // Day 103 shares day 100's slot, which is emptied for it.
+        b.charge_loss(103, 300).unwrap();
+        // Days 101 and 102 kept their own totals throughout.
+        assert!(b.charge_loss(101, 1).is_err());
+        assert!(b.charge_loss(102, 1).is_err());
+    }
+
+    #[test]
+    fn a_settlement_day_is_today_or_the_two_before() {
+        assert!(day_settleable(100, 100));
+        assert!(day_settleable(98, 100));
+        assert!(!day_settleable(97, 100));
+        assert!(!day_settleable(101, 100));
+        // Near zero, nothing underflows.
+        assert!(day_settleable(0, 1));
+    }
+
+    #[test]
+    fn a_raise_applies_now_and_a_cut_from_tomorrow() {
+        let mut b = budget(300);
+        b.change(500, 100);
+        assert_eq!((b.limit_for(100), b.next_from_day), (500, 0));
+
+        // A cut: today keeps what was agreed under the old limit.
+        b.change(200, 100);
+        assert_eq!(b.limit_for(100), 500);
+        assert_eq!(b.limit_for(101), 200);
+        // Losses dated today still settle against today's limit.
+        b.charge_loss(100, 450).unwrap();
+        assert!(b.charge_loss(101, 201).is_err());
+
+        // Once the cut's day has come it is simply the limit, and a later
+        // change is measured against it rather than against the old one.
+        b.change(250, 102);
+        assert_eq!((b.per_day, b.next_from_day), (250, 0));
     }
 
     #[test]

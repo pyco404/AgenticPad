@@ -63,9 +63,24 @@ export const pdas = {
   exitConfig: () => PublicKey.findProgramAddressSync([Buffer.from("exit_config")], PROGRAM_ID)[0],
   exit: (agentId: string) =>
     PublicKey.findProgramAddressSync([Buffer.from("exit"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
+  /** The agent's daily loss budget, set by its owner. */
+  budget: (agentId: string) =>
+    PublicKey.findProgramAddressSync([Buffer.from("budget"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
   /** The strategy table the agent's owner signed at rent. */
   strategy: (agentId: string) =>
     PublicKey.findProgramAddressSync([Buffer.from("strategy"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
+};
+
+/**
+ * An agent's loss budget as the program holds it, in base units. `perDay` is
+ * in force now; `nextPerDay` applies from `nextFromDay` (a UTC day number) when
+ * that is non-zero - a cut, waiting for the day after it was asked for.
+ */
+export type LossBudgetState = {
+  perDay: number;
+  nextPerDay: number;
+  nextFromDay: number;
+  net: { day: number; net: number }[];
 };
 
 /** What opening a vault needs: the id, and the owner and salt it was derived from (src/agent-id.ts). */
@@ -244,6 +259,8 @@ export class ChainClient {
      * plays is fixed by its owner before it plays anything.
      */
     table: bigint;
+    /** The daily loss budget to start with, in base units, set under the owner's signature. */
+    lossBudget: number;
   }): Promise<PreparedWithdrawal> {
     const owner = new PublicKey(input.owner);
     const salt = Array.from(Buffer.from(input.salt, "hex"));
@@ -265,13 +282,14 @@ export class ChainClient {
     const fund = await this.depositInstruction({ agentId: input.agentId, depositor: owner, amount: input.deposit });
     // After the vault opens, because it checks the owner the vault recorded.
     const commit = await this.commitStrategyInstruction({ agentId: input.agentId, owner, table: input.table });
+    const budget = await this.setLossBudgetInstruction({ agentId: input.agentId, owner, perDay: input.lossBudget });
 
     const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash("confirmed");
     const transaction = new Transaction({ feePayer: this.signer.publicKey, blockhash, lastValidBlockHeight })
       // The owner may not have an account for the stake token yet if they were
       // sent tokens by some other route; opening it here is idempotent.
       .add(createAssociatedTokenAccountIdempotentInstruction(this.signer.publicKey, source, owner, this.mint))
-      .add(fee, open, fund, commit);
+      .add(fee, open, fund, commit, budget);
     transaction.partialSign(this.signer);
     return { transaction, lastValidBlockHeight };
   }
@@ -489,9 +507,15 @@ export class ChainClient {
       .rpc();
   }
 
-  async settle(input: { matchId: string; fromAgent: string; toAgent: string; amount: number }): Promise<string> {
+  async settle(input: { matchId: string; fromAgent: string; toAgent: string; amount: number; day: number }): Promise<string> {
     return this.program.methods
-      .settle(uuidBytes(input.matchId), uuidBytes(input.fromAgent), uuidBytes(input.toAgent), new BN(input.amount))
+      .settle(
+        uuidBytes(input.matchId),
+        uuidBytes(input.fromAgent),
+        uuidBytes(input.toAgent),
+        new BN(input.amount),
+        new BN(input.day),
+      )
       .accountsPartial({
         settler: this.signer.publicKey,
         config: pdas.config(),
@@ -499,10 +523,53 @@ export class ChainClient {
         toVault: pdas.vault(input.toAgent),
         outflow: pdas.outflow(input.fromAgent),
         settlement: pdas.settlement(input.matchId),
+        // Always passed, at their fixed addresses: the program charges one if
+        // it exists there, so leaving one off is not a way around it.
+        fromBudget: pdas.budget(input.fromAgent),
+        toBudget: pdas.budget(input.toAgent),
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .rpc();
+  }
+
+  /** The owner-signed instruction that sets an agent's daily loss budget, in base units. */
+  async setLossBudgetInstruction(input: { agentId: string; owner: PublicKey; perDay: number }): Promise<TransactionInstruction> {
+    return this.program.methods
+      .setLossBudget(uuidBytes(input.agentId), new BN(input.perDay))
+      .accountsPartial({
+        settler: this.signer.publicKey,
+        config: pdas.config(),
+        owner: input.owner,
+        agentOwner: pdas.owner(input.agentId),
+        budget: pdas.budget(input.agentId),
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+  }
+
+  /**
+   * Builds a change to an agent's loss budget for its owner to sign. The
+   * settler pays; the owner's signature is the one still missing.
+   */
+  async prepareLossBudget(input: { agentId: string; owner: string; perDay: number }): Promise<PreparedWithdrawal> {
+    const ix = await this.setLossBudgetInstruction({ agentId: input.agentId, owner: new PublicKey(input.owner), perDay: input.perDay });
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash("confirmed");
+    const transaction = new Transaction({ feePayer: this.signer.publicKey, blockhash, lastValidBlockHeight }).add(ix);
+    transaction.partialSign(this.signer);
+    return { transaction, lastValidBlockHeight };
+  }
+
+  /** An agent's loss budget as the program holds it, or null when it has none. Base units. */
+  async lossBudgetOf(agentId: string): Promise<LossBudgetState | null> {
+    const b = await this.program.account.lossBudget.fetchNullable(pdas.budget(agentId), "confirmed");
+    if (!b) return null;
+    return {
+      perDay: b.perDay.toNumber(),
+      nextPerDay: b.nextPerDay.toNumber(),
+      nextFromDay: b.nextFromDay.toNumber(),
+      net: b.days.map((day, i) => ({ day: day.toNumber(), net: b.net[i]!.toNumber() })),
+    };
   }
 
   /**

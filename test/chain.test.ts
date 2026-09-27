@@ -18,7 +18,10 @@ import {
 } from "@solana/spl-token";
 import BN from "bn.js";
 import { ChainClient, DEVNET_CHIP_RATE, PROGRAM_ID, pdas, STAKE_DECIMALS } from "../src/chain/settlement.js";
-import { uuidBytes } from "../src/chain/common.js";
+import { utcDay, uuidBytes } from "../src/chain/common.js";
+
+/** The day a settlement is dated when the test plays it now. */
+const todayUtc = () => utcDay(new Date());
 import { agentIdFor, newAgentId } from "../src/agent-id.js";
 import { packPolicy, unpackPolicy } from "../src/agents/policy.js";
 import { snapshotPreset } from "../src/db/runner.js";
@@ -291,7 +294,7 @@ describe.skipIf(!RUN)("settlement program", () => {
     expect((await chain.config()).maxSettlement.toNumber()).toBe(90 * CHIP);
     const payer = await houseVault(180 * CHIP);
     const payee = await houseVault(10 * CHIP);
-    await chain.settle({ matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: 90 * CHIP });
+    await chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: 90 * CHIP });
     expect(await chain.vaultBalance(payer)).toBe(90 * CHIP);
 
     // Zero, and anything above a full seed, are refused: a stolen admin key
@@ -444,22 +447,22 @@ describe.skipIf(!RUN)("settlement program", () => {
     const bystander = await houseVault(180 * CHIP);
     let paid = 0;
     while (paid + MAX <= OUTFLOW_FLOOR) {
-      await chain.settle({ matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: MAX });
+      await chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: MAX });
       paid += MAX;
     }
     expect(await chain.vaultBalance(payer)).toBe(180 * CHIP - OUTFLOW_FLOOR);
     // Its window is spent, though the vault still holds enough to pay.
-    await expect(chain.settle({ matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: 1 * CHIP })).rejects.toThrow(
+    await expect(chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: 1 * CHIP })).rejects.toThrow(
       /OutflowLimit/,
     );
     expect(await chain.vaultBalance(payer)).toBe(180 * CHIP - OUTFLOW_FLOOR);
     // The limit is per vault: everyone else carries on settling.
-    await chain.settle({ matchId: randomUUID(), fromAgent: bystander, toAgent: payee, amount: MAX });
+    await chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: bystander, toAgent: payee, amount: MAX });
     expect(await chain.vaultBalance(bystander)).toBe(120 * CHIP);
     // And it cannot be dodged by paying a different vault.
     const elsewhere = await houseVault(10 * CHIP);
     await expect(
-      chain.settle({ matchId: randomUUID(), fromAgent: payer, toAgent: elsewhere, amount: 1 * CHIP }),
+      chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: payer, toAgent: elsewhere, amount: 1 * CHIP }),
     ).rejects.toThrow(/OutflowLimit/);
   });
 
@@ -478,7 +481,7 @@ describe.skipIf(!RUN)("settlement program", () => {
     let paid = 0;
     for (const step of schedule) {
       expect(paid + MAX).toBeLessThanOrEqual(step.cap);
-      await chain.settle({ matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: MAX });
+      await chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: MAX });
       paid += MAX;
       expect(await chain.vaultBalance(payer)).toBe(step.after);
     }
@@ -486,7 +489,7 @@ describe.skipIf(!RUN)("settlement program", () => {
     expect(paid).toBe(180 * CHIP);
     expect(paid).toBeGreaterThan(OUTFLOW_FLOOR);
     expect(paid + MAX).toBeGreaterThan(outflowCap(720 * CHIP));
-    await expect(chain.settle({ matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: MAX })).rejects.toThrow(
+    await expect(chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: MAX })).rejects.toThrow(
       /OutflowLimit/,
     );
     expect(await chain.vaultBalance(payer)).toBe(720 * CHIP);
@@ -496,7 +499,7 @@ describe.skipIf(!RUN)("settlement program", () => {
     const [a, b] = [await houseVault(180 * CHIP), await houseVault(180 * CHIP)];
     const match = randomUUID();
 
-    await chain.settle({ matchId: match, fromAgent: a, toAgent: b, amount: 42 * CHIP });
+    await chain.settle({ day: todayUtc(), matchId: match, fromAgent: a, toAgent: b, amount: 42 * CHIP });
     expect(await chain.vaultBalance(a)).toBe(138 * CHIP);
     expect(await chain.vaultBalance(b)).toBe(222 * CHIP);
     expect(await chain.isSettled(match)).toBe(true);
@@ -505,13 +508,13 @@ describe.skipIf(!RUN)("settlement program", () => {
     expect(record.amount.toNumber()).toBe(42 * CHIP);
 
     // The same match cannot move money twice, even with a different amount.
-    await expect(chain.settle({ matchId: match, fromAgent: a, toAgent: b, amount: 1 * CHIP })).rejects.toThrow();
+    await expect(chain.settle({ day: todayUtc(), matchId: match, fromAgent: a, toAgent: b, amount: 1 * CHIP })).rejects.toThrow();
     expect(await chain.vaultBalance(a)).toBe(138 * CHIP);
   });
 
   it("refuses more than the per-match limit, even from the settler", async () => {
     const [a, b] = [await houseVault(180 * CHIP), await houseVault(180 * CHIP)];
-    await expect(chain.settle({ matchId: randomUUID(), fromAgent: a, toAgent: b, amount: MAX + 1 })).rejects.toThrow(
+    await expect(chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: a, toAgent: b, amount: MAX + 1 })).rejects.toThrow(
       /OverLimit|per-match limit/,
     );
     expect(await chain.vaultBalance(a)).toBe(180 * CHIP);
@@ -519,10 +522,10 @@ describe.skipIf(!RUN)("settlement program", () => {
 
   it("refuses a vault that cannot cover it, and a self-settlement", async () => {
     const [poor, rich] = [await houseVault(10 * CHIP), await houseVault(180 * CHIP)];
-    await expect(chain.settle({ matchId: randomUUID(), fromAgent: poor, toAgent: rich, amount: 11 * CHIP })).rejects.toThrow(
+    await expect(chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: poor, toAgent: rich, amount: 11 * CHIP })).rejects.toThrow(
       /InsufficientVault|cannot cover/,
     );
-    await expect(chain.settle({ matchId: randomUUID(), fromAgent: rich, toAgent: rich, amount: 5 * CHIP })).rejects.toThrow();
+    await expect(chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: rich, toAgent: rich, amount: 5 * CHIP })).rejects.toThrow();
   });
 
   it("refuses anyone but the settler", async () => {
@@ -535,7 +538,7 @@ describe.skipIf(!RUN)("settlement program", () => {
     await expect(rogue.openVault({ agentId: mine.id, owner: null, salt: mine.salt })).rejects.toThrow(
       /NotSettler|settler/,
     );
-    await expect(rogue.settle({ matchId: randomUUID(), fromAgent: a, toAgent: b, amount: 10 * CHIP })).rejects.toThrow(
+    await expect(rogue.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: a, toAgent: b, amount: 10 * CHIP })).rejects.toThrow(
       /NotSettler|settler/,
     );
     expect(await chain.vaultBalance(a)).toBe(180 * CHIP);
@@ -683,7 +686,7 @@ describe.skipIf(!RUN)("settlement program", () => {
     /** Builds the rental, adds the owner's signature to the settler's, sends. */
     async function rent(
       owner: Keypair,
-      input: { deposit: number; fee?: number; rentalId?: string; agentId?: string; salt?: string; table?: bigint },
+      input: { deposit: number; fee?: number; rentalId?: string; agentId?: string; salt?: string; table?: bigint; lossBudget?: number },
     ) {
       const made = newAgentId(owner.publicKey.toBase58());
       const prepared = await chain.prepareRental({
@@ -694,6 +697,7 @@ describe.skipIf(!RUN)("settlement program", () => {
         fee: input.fee ?? RENT,
         deposit: input.deposit,
         table: input.table ?? ANCHOR_TABLE,
+        lossBudget: input.lossBudget ?? Math.floor(input.deposit / 3),
       });
       prepared.transaction.partialSign(owner);
       const signature = await chain.submitRental(prepared.transaction.serialize(), prepared.lastValidBlockHeight);
@@ -754,6 +758,7 @@ describe.skipIf(!RUN)("settlement program", () => {
         fee: RENT,
         deposit: 1_000 * CHIP,
         table: ANCHOR_TABLE,
+        lossBudget: 300 * CHIP,
       });
       // The settler has signed; nobody else has. The network will not take it.
       await expect(
@@ -834,6 +839,94 @@ describe.skipIf(!RUN)("settlement program", () => {
       // The owner's own signature: taken.
       await sendWith(new Transaction().add(unsigned), [owner]);
       expect((await chain.strategyOf(made.id))?.table).toBe(ANCHOR_TABLE);
+    });
+
+    describe("the owner's daily loss budget", () => {
+      /** A signed change to an agent's budget, sent. */
+      async function setBudget(agent: string, signer: Keypair, perDay: number) {
+        const ix = await chain.setLossBudgetInstruction({ agentId: agent, owner: signer.publicKey, perDay });
+        return sendWith(new Transaction().add(ix), [signer]);
+      }
+      const today = () => utcDay(new Date());
+
+      it("starts every rental with a third of its deposit a day", async () => {
+        const owner = await walletWith(3_000 * CHIP);
+        const { agent } = await rent(owner, { deposit: 900 * CHIP });
+        const budget = await chain.lossBudgetOf(agent);
+        expect(budget).toMatchObject({ perDay: 300 * CHIP, nextPerDay: 300 * CHIP, nextFromDay: 0 });
+      });
+
+      it("refuses a loss past the day's budget, and counts a win against the losses", async () => {
+        const loser = await rent(await walletWith(3_000 * CHIP), { deposit: 1_000 * CHIP, lossBudget: 100 * CHIP });
+        const winner = await rent(await walletWith(3_000 * CHIP), { deposit: 1_000 * CHIP });
+        const lose = (amount: number) =>
+          chain.settle({ day: today(), matchId: randomUUID(), fromAgent: loser.agent, toAgent: winner.agent, amount });
+
+        await lose(60 * CHIP);
+        // 60 + 50 is past 100: refused, and nothing moved.
+        expect(await refusal(() => lose(50 * CHIP))).toMatch(/LossBudgetExceeded/);
+        expect(await chain.vaultBalance(loser.agent)).toBe(940 * CHIP);
+
+        // A win the same day offsets it: it is net loss that is capped.
+        await chain.settle({ day: today(), matchId: randomUUID(), fromAgent: winner.agent, toAgent: loser.agent, amount: 30 * CHIP });
+        await lose(50 * CHIP);
+        expect(await refusal(() => lose(21 * CHIP))).toMatch(/LossBudgetExceeded/);
+        expect(await chain.vaultBalance(loser.agent)).toBe(920 * CHIP);
+      });
+
+      it("takes a budgeted settlement dated today or the two days before, and nothing else", async () => {
+        const loser = await rent(await walletWith(3_000 * CHIP), { deposit: 1_000 * CHIP });
+        const winner = await rent(await walletWith(3_000 * CHIP), { deposit: 1_000 * CHIP });
+        const dated = (day: number) =>
+          chain.settle({ day, matchId: randomUUID(), fromAgent: loser.agent, toAgent: winner.agent, amount: 10 * CHIP });
+        expect(await refusal(() => dated(today() + 1))).toMatch(/SettlementDayOutOfRange/);
+        expect(await refusal(() => dated(today() - 3))).toMatch(/SettlementDayOutOfRange/);
+        await dated(today() - 2);
+        await dated(today());
+        expect(await chain.vaultBalance(loser.agent)).toBe(980 * CHIP);
+      });
+
+      it("leaves an agent with no budget exactly as before, however old the day", async () => {
+        const a = await houseVault(500 * CHIP);
+        const b = await houseVault(500 * CHIP);
+        await chain.settle({ day: today() - 30, matchId: randomUUID(), fromAgent: a, toAgent: b, amount: 40 * CHIP });
+        expect(await chain.vaultBalance(b)).toBe(540 * CHIP);
+        expect(await chain.lossBudgetOf(a)).toBeNull();
+      });
+
+      it("is the owner's to set: a raise applies now, a cut from tomorrow", async () => {
+        const owner = await walletWith(3_000 * CHIP);
+        const { agent } = await rent(owner, { deposit: 900 * CHIP });
+
+        expect(await refusal(() => setBudget(agent, Keypair.generate(), 5 * CHIP))).toMatch(/NotOwner/);
+        expect((await chain.lossBudgetOf(agent))?.perDay).toBe(300 * CHIP);
+
+        await setBudget(agent, owner, 500 * CHIP);
+        expect(await chain.lossBudgetOf(agent)).toMatchObject({ perDay: 500 * CHIP, nextFromDay: 0 });
+
+        // A cut waits a day, so nothing already agreed today can be stranded.
+        await setBudget(agent, owner, 100 * CHIP);
+        expect(await chain.lossBudgetOf(agent)).toMatchObject({ perDay: 500 * CHIP, nextPerDay: 100 * CHIP, nextFromDay: today() + 1 });
+      });
+
+      it("cannot be dodged by naming some other account as the budget", async () => {
+        const loser = await rent(await walletWith(3_000 * CHIP), { deposit: 1_000 * CHIP, lossBudget: 10 * CHIP });
+        const winner = await rent(await walletWith(3_000 * CHIP), { deposit: 1_000 * CHIP });
+        const decoy = await houseVault(100 * CHIP);
+        // The payer's budget swapped for an agent that has none: a stolen
+        // settler key's first idea. The address is derived from the paying
+        // agent, so the program refuses it outright.
+        const attempt = chain.program.methods
+          .settle(uuidBytes(randomUUID()), uuidBytes(loser.agent), uuidBytes(winner.agent), new BN(40 * CHIP), new BN(today()))
+          .accountsPartial({
+            settler: settler.publicKey,
+            fromBudget: pdas.budget(decoy),
+            toBudget: pdas.budget(winner.agent),
+          })
+          .rpc();
+        expect(await refusal(() => attempt)).toMatch(/ConstraintSeeds|seeds constraint/);
+        expect(await chain.vaultBalance(loser.agent)).toBe(1_000 * CHIP);
+      });
     });
 
     it("refuses an agent id that is not this owner's", async () => {
@@ -1004,7 +1097,7 @@ describe.skipIf(!RUN)("settlement program", () => {
       await asOwner.requestExit({ agentId: agent, amount: 900 * CHIP });
       // The agent loses while the exit waits. This is the race the window
       // exists for, and the settlement wins it.
-      await chain.settle({ matchId: randomUUID(), fromAgent: agent, toAgent: winner, amount: 60 * CHIP });
+      await chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: agent, toAgent: winner, amount: 60 * CHIP });
       await reachSlot((await asOwner.exitOf(agent))!.unlockSlot);
       await asOwner.claimExit(agent);
 
@@ -1080,7 +1173,7 @@ describe.skipIf(!RUN)("settlement program", () => {
 
       await asOwner.requestExit({ agentId: agent, amount: 900 * CHIP });
       // The agent loses a match. The exit is live and does not block it.
-      await chain.settle({ matchId: randomUUID(), fromAgent: agent, toAgent: winner, amount: 60 * CHIP });
+      await chain.settle({ day: todayUtc(), matchId: randomUUID(), fromAgent: agent, toAgent: winner, amount: 60 * CHIP });
 
       expect(await asOwner.vaultBalance(agent)).toBe(840 * CHIP);
       // The request still says 900, and the vault says 840. The gap is the

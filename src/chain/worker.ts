@@ -5,6 +5,7 @@ import type { ChainExit } from "./settlement.js";
 import { balancesOf, record } from "../db/ledger.js";
 import { agents, chainOps, deposits, exits, rentals, withdrawals, type ChainOpRow } from "../db/schema.js";
 import { chipRate, type Funding } from "../chips.js";
+import { utcDay } from "./common.js";
 import { expireWithdrawal, markWithdrawn } from "../db/withdrawals.js";
 import { ingestExits, type ExitPass } from "../db/exits.js";
 
@@ -48,7 +49,8 @@ function portsOf(chain: ChainPort | ChainPorts): ChainPorts {
 
 export type ChainPort = {
   openVault(input: SeedOpenVaultInput): Promise<string>;
-  settle(input: { matchId: string; fromAgent: string; toAgent: string; amount: number }): Promise<string>;
+  /** `day`: the UTC day the match was played (utcDay), which a loss budget charges. */
+  settle(input: { matchId: string; fromAgent: string; toAgent: string; amount: number; day: number }): Promise<string>;
   hasVault(agentId: string): Promise<boolean>;
   isSettled(matchId: string): Promise<boolean>;
   vaultBalance(agentId: string): Promise<number | null>;
@@ -88,7 +90,15 @@ async function alreadyDone(chain: ChainPort, op: ChainOpRow): Promise<boolean> {
 
 async function submit(chain: ChainPort, op: ChainOpRow): Promise<string> {
   if (op.kind === "open_vault") return chain.openVault({ agentId: op.agentId!, owner: op.owner, salt: op.salt!, amount: op.amount });
-  return chain.settle({ matchId: op.matchId!, fromAgent: op.fromAgent!, toAgent: op.toAgent!, amount: op.amount });
+  return chain.settle({
+    matchId: op.matchId!,
+    fromAgent: op.fromAgent!,
+    toAgent: op.toAgent!,
+    amount: op.amount,
+    // The op is written in the same transaction as the match, so its creation
+    // is the match's day - the one a loss budget charges, however late this lands.
+    day: utcDay(op.createdAt),
+  });
 }
 
 /**

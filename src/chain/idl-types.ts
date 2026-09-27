@@ -238,18 +238,6 @@ export type OxudeSettlement = {
     {
       "name": "commitStrategy",
       "docs": [
-        "Clears an exit and returns its rent to the owner.",
-        "",
-        "Before a claim this is a cancel, and needs no wait: changing your mind",
-        "costs nobody anything.",
-        "",
-        "After a claim it waits one window, and that wait is",
-        "load-bearing. A claimed exit is the only evidence on chain that the",
-        "vault is legitimately smaller than the server's ledger. Erase it before",
-        "the server has read it and the shortfall becomes indistinguishable from",
-        "a drained vault: the reconciler alarms, correctly, and never stops. So",
-        "the record outlives the claim by as long as the server had to settle in",
-        "the first place.",
         "Records an agent's strategy table, signed by its owner, once.",
         "",
         "This is the half of a match the settler cannot make up: what each side",
@@ -1313,6 +1301,144 @@ export type OxudeSettlement = {
       ]
     },
     {
+      "name": "setLossBudget",
+      "docs": [
+        "Clears an exit and returns its rent to the owner.",
+        "",
+        "Before a claim this is a cancel, and needs no wait: changing your mind",
+        "costs nobody anything.",
+        "",
+        "After a claim it waits one window, and that wait is",
+        "load-bearing. A claimed exit is the only evidence on chain that the",
+        "vault is legitimately smaller than the server's ledger. Erase it before",
+        "the server has read it and the shortfall becomes indistinguishable from",
+        "a drained vault: the reconciler alarms, correctly, and never stops. So",
+        "the record outlives the claim by as long as the server had to settle in",
+        "the first place.",
+        "Sets how much an agent may lose, net, in one UTC day. The owner signs;",
+        "nobody else can, the settler included.",
+        "",
+        "A raise takes effect at once. A cut takes effect from the next UTC day,",
+        "so a settlement already agreed today can never be stranded by it: the",
+        "ledger decided that match under the old budget, and the chain must be",
+        "able to record it."
+      ],
+      "discriminator": [
+        184,
+        132,
+        152,
+        41,
+        138,
+        131,
+        252,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "settler",
+          "docs": [
+            "Pays the account's rent the first time, so an owner needs no SOL."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "docs": [
+            "The owner's signature is what makes the budget theirs to set."
+          ],
+          "signer": true,
+          "relations": [
+            "agentOwner"
+          ]
+        },
+        {
+          "name": "agentOwner",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  119,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agentId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "budget",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  100,
+                  103,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agentId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "agentId",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "perDay",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "setMaxSettlement",
       "docs": [
         "Raises or lowers the most a single settlement can move. The admin",
@@ -1499,7 +1625,10 @@ export type OxudeSettlement = {
       "docs": [
         "Moves a match's settled net from the loser's vault to the winner's, and",
         "records it. The amount was decided and validated off chain; this checks",
-        "the bounds again and refuses to settle the same match twice."
+        "the bounds again and refuses to settle the same match twice.",
+        "`day` is the UTC day the match was played (unix seconds / 86,400), as",
+        "the ledger recorded it. It matters only for an agent with a loss budget,",
+        "where it picks the day the loss counts against; see `LossBudget`."
       ],
       "discriminator": [
         175,
@@ -1637,6 +1766,55 @@ export type OxudeSettlement = {
           }
         },
         {
+          "name": "fromBudget",
+          "docs": [
+            "it has none; read and written in `settle` only if it holds one."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  100,
+                  103,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "fromAgent"
+              }
+            ]
+          }
+        },
+        {
+          "name": "toBudget",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  100,
+                  103,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "toAgent"
+              }
+            ]
+          }
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
@@ -1675,6 +1853,10 @@ export type OxudeSettlement = {
         },
         {
           "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "day",
           "type": "u64"
         }
       ]
@@ -1908,6 +2090,19 @@ export type OxudeSettlement = {
       ]
     },
     {
+      "name": "lossBudget",
+      "discriminator": [
+        81,
+        36,
+        2,
+        157,
+        86,
+        71,
+        20,
+        22
+      ]
+    },
+    {
       "name": "outflow",
       "discriminator": [
         243,
@@ -2037,6 +2232,19 @@ export type OxudeSettlement = {
         174,
         23,
         156
+      ]
+    },
+    {
+      "name": "lossBudgetSet",
+      "discriminator": [
+        197,
+        96,
+        243,
+        140,
+        189,
+        222,
+        89,
+        188
       ]
     },
     {
@@ -2289,6 +2497,16 @@ export type OxudeSettlement = {
       "code": 6028,
       "name": "invalidStrategy",
       "msg": "Not a strategy table the game can play"
+    },
+    {
+      "code": 6029,
+      "name": "lossBudgetExceeded",
+      "msg": "This settlement would take the agent past its owner's daily loss budget"
+    },
+    {
+      "code": 6030,
+      "name": "settlementDayOutOfRange",
+      "msg": "A budgeted settlement must be dated today or within the two days before"
     }
   ],
   "types": [
@@ -2584,6 +2802,103 @@ export type OxudeSettlement = {
           },
           {
             "name": "slots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lossBudget",
+      "docs": [
+        "One per agent whose owner has set a daily loss budget.",
+        "",
+        "Net loss per UTC day, in base units: a loss adds, a win takes away. Three",
+        "buckets hold today and the two days before, indexed by day modulo three -",
+        "consecutive days never share one, and a bucket still holding an older day",
+        "is simply reset when its slot comes round again."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "perDay",
+            "docs": [
+              "The limit in force now."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "nextPerDay",
+            "docs": [
+              "A cut waiting for its day, or the same as `per_day` when there is none."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "nextFromDay",
+            "docs": [
+              "The day `next_per_day` applies from; zero when nothing is waiting."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "days",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "net",
+            "type": {
+              "array": [
+                "i64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lossBudgetSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "perDay",
+            "type": "u64"
+          },
+          {
+            "name": "nextPerDay",
+            "type": "u64"
+          },
+          {
+            "name": "nextFromDay",
             "type": "u64"
           }
         ]

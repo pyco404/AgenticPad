@@ -53,3 +53,12 @@ export type PreparedWithdrawal = {
   /** After this block height the transaction can never land, signed or not. */
   lastValidBlockHeight: number;
 };
+
+/**
+ * The UTC day a moment falls on, as the settlement program counts days: unix
+ * seconds divided by 86,400. A loss budget is charged against the day its
+ * match was played, so the ledger and the program must agree on this exactly.
+ */
+export function utcDay(at: Date | number): number {
+  return Math.floor((typeof at === "number" ? at : at.getTime()) / 86_400_000);
+}

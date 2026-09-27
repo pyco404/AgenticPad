@@ -35,12 +35,17 @@ export type RentalChain = {
     deposit: number;
     /** The agent's table, packed (packPolicy), for the owner to commit on chain as they rent. */
     table: bigint;
+    /** The daily loss budget the agent starts with, in base units, set under the owner's signature. */
+    lossBudget: number;
   }): Promise<PreparedWithdrawal>;
   submitRental(raw: Uint8Array, lastValidBlockHeight: number): Promise<string>;
   blockHeightPassed(lastValidBlockHeight: number): Promise<boolean>;
   /** The vault's balance, to tell a landed transaction from a lost one. */
   vaultBalance(agentId: string): Promise<number | null>;
 };
+
+/** The daily loss budget a rental starts with: a third of the deposit, in base units. */
+export const defaultLossBudget = (deposit: number) => Math.floor(deposit / 3);
 
 export class RentalError extends Error {
   constructor(
@@ -79,6 +84,16 @@ export async function prepareRental(
   }
 
   const agent = await createAgent(db, { ...input, funding: "deposit" });
+  // Every rental starts with a daily loss budget, set in the rental transaction
+  // under the owner's signature: a third of what they put in. It bounds what a
+  // stolen settler key can take from this agent in a day, and the owner can
+  // change it. Written to the ledger now; the agent cannot play until the
+  // rental lands, and the same transaction creates it on chain.
+  const lossBudget = defaultLossBudget(input.deposit);
+  await db
+    .update(agents)
+    .set({ lossBudget, lossBudgetNext: lossBudget, lossBudgetNextFromDay: null })
+    .where(eq(agents.id, agent.id));
   const [row] = await db
     .insert(rentals)
     .values({
@@ -102,6 +117,7 @@ export async function prepareRental(
     // The table exactly as stored: the agent row is what plays, so it is what
     // the owner commits to.
     table: packPolicy(agent.policyTable!),
+    lossBudget,
   });
   const preparedTx = prepared.transaction
     .serialize({ requireAllSignatures: false, verifySignatures: false })
