@@ -93,6 +93,16 @@ export type Traits = {
   note: string | null;
 };
 
+export type LossBudgetView = {
+  perDayChips: number;
+  lostTodayChips: number;
+  nextPerDayChips: number | null;
+  /** The UTC day number the pending cut applies from. */
+  nextFromDay: number | null;
+  /** When today's count starts again: the next 00:00 UTC. */
+  resetsAt: string;
+};
+
 export type AgentView = {
   /**
    * Which flow this agent was rented under. Only a "deposit" agent can be
@@ -104,6 +114,12 @@ export type AgentView = {
    * an agent whose rental has not been paid for, which has no vault yet.
    */
   depositBlocked?: string | null;
+  /**
+   * Owner view only: the most this agent may lose, net, in one UTC day, and
+   * how much of it today has used. Null for an agent without one. A cut waits
+   * for the next UTC day, so `nextPerDayChips` is set while one is pending.
+   */
+  lossBudget?: LossBudgetView | null;
   /** Portrait, epithet and bio. Null for an agent not yet given one. */
   character?: Character | null;
   traits?: Traits;
@@ -419,6 +435,17 @@ export const api = {
    */
   feed: (limit = 12, before?: number) =>
     request<Feed>(`/matches?staked=false&limit=${limit}${before === undefined ? "" : `&before=${before}`}`),
+  prepareLossBudget: (token: string | null, agentId: string, chips: number) =>
+    request<{ lossBudget: { transaction: string; lastValidBlockHeight: number } }>(`/agents/${agentId}/loss-budget`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ chips }),
+    }),
+  submitLossBudget: (token: string | null, agentId: string, transaction: string, lastValidBlockHeight: number) =>
+    request<{ lossBudget: { status: "confirmed" | "submitted"; perDayChips: number | null; nextPerDayChips: number | null; nextFromDay: number | null } }>(
+      `/agents/${agentId}/loss-budget/submit`,
+      { method: "POST", token, body: JSON.stringify({ transaction, lastValidBlockHeight }) },
+    ),
   prepareDeposit: (token: string | null, agentId: string, chips: number) =>
     request<{ deposit: { depositId: string; amount: number; chips: number; transaction: string } }>(
       `/agents/${agentId}/deposits`,

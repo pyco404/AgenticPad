@@ -15,6 +15,7 @@ import { SeasonLine } from "@/app/season-line";
 import { RentalPanel } from "@/app/rental-panel";
 import { FaucetPanel } from "@/app/faucet-panel";
 import { DepositPanel } from "@/app/deposit-panel";
+import { LossBudgetPanel } from "@/app/loss-budget-panel";
 import { CutoverNotice } from "@/app/cutover-notice";
 import { CharacterBlock } from "@/app/character";
 import { AutoplayPanel } from "@/app/autoplay-panel";
@@ -1172,6 +1173,17 @@ function AgentCard({
             agentId={(agent.id ?? agent.agentId)!}
             canDeposit={agent.funding === "deposit" && !retired}
             blocked={agent.depositBlocked ?? null}
+            onChanged={onWithdrawn}
+          />
+        )}
+
+        {!(agent.id ?? agent.agentId) ? null : (
+          <LossBudgetPanel
+            agentId={(agent.id ?? agent.agentId)!}
+            budget={agent.lossBudget}
+            // Budgets live in the deposit program, and only once the rental has
+            // landed - which is also when Add Funds stops being blocked.
+            canChange={agent.funding === "deposit" && !retired && !agent.depositBlocked}
             onChanged={onWithdrawn}
           />
         )}
