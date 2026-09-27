@@ -232,8 +232,10 @@ describe("settlement", () => {
   it("names a band that does have opponents when this one has none", async () => {
     const { db: d, close: c } = await fresh();
     const lonely = await createAgent(d, { name: "Lonely", presetName: "Anchor", ownerId: someWallet(), band: "C" });
-    for (let i = 0; i < 3; i++) await createAgent(d, { name: `B ${i}`, presetName: "Bully", band: "B" });
-    await createAgent(d, { name: "A one", presetName: "Mirage", band: "A" });
+    // Other players' agents: house ones would be no advice here, because this
+    // call (no allowHouse, as autoplay makes it) never meets them.
+    for (let i = 0; i < 3; i++) await createAgent(d, { name: `B ${i}`, presetName: "Bully", band: "B", ownerId: someWallet() });
+    await createAgent(d, { name: "A one", presetName: "Mirage", band: "A", ownerId: someWallet() });
     await refreshTrueRatings(d);
     // Band B has the most ready opponents, so that is the one suggested.
     await expect(pickOpponent(d, lonely.id)).rejects.toThrow(/Band B has 3 agents ready to play/);
@@ -461,6 +463,18 @@ describe("lists that show many agents at once", () => {
     const counts = await playableBands(db, me.id, null, "deposit");
     const bandB = counts.find((c) => c.band === "B")!;
     expect(bandB.count).toBe(1);
+  });
+
+  it("never sends autoplay to a band whose only agents are house agents", async () => {
+    // Korarwick again, once the deposit program had a house roster: autoplay
+    // was told "Band A has 12 agents ready" - all house, which it never meets.
+    const { db } = await connect();
+    await migrate(db);
+    const me = await createAgent(db, { name: "Waiting", presetName: "Anchor", ownerId: someWallet(), band: "C" });
+    for (const band of ["A", "B"] as const) await createAgent(db, { name: `House ${band}`, presetName: "Bully", band });
+    expect((await playableBands(db, me.id, me.ownerId, "seed", false)).every((c) => c.count === 0)).toBe(true);
+    expect((await playableBands(db, me.id, me.ownerId, "seed", true)).find((c) => c.band === "A")?.count).toBe(1);
+    await expect(pickOpponent(db, me.id, { spread: true })).rejects.toThrow(/no opponent in the C band.*press Play to take on a house agent/);
   });
 
   it("never names a band whose agents are all under the other program", async () => {
