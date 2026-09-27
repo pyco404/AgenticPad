@@ -633,15 +633,18 @@ export function createApp(options: AppOptions): Server {
           ...bandStatus(row),
           character: ownCharacter,
           traits,
+          // On the agent, because that is the object the page holds and reads
+          // them from. They were once returned beside it, where nothing looked,
+          // and the panels built on them silently never appeared.
+          // Why it cannot be topped up, if so: a vault exists only once the rental has landed.
+          depositBlocked: await depositBlocked(db, full!),
+          // The owner's daily loss limit, in chips, and how much of it today has used.
+          lossBudget: await lossBudgetView(full!),
         },
         // Private to the owner: whether it is playing, and what it did while they were away.
         autoplay: await autoplayStatus(db, full!, { intervalMs: autoplayIntervalMs }),
         // Where its rental stands: active, renewed, expired and renewable, or lapsed.
         rental: rentalStatus(full!),
-        // Why it cannot be topped up, if so: a vault exists only once the rental has landed.
-        depositBlocked: await depositBlocked(db, full!),
-        // The owner's daily loss limit, in chips, and how much of it today has used.
-        lossBudget: await lossBudgetView(full!),
         sinceYouLeft: await sinceYouLeft(db, full!),
         view: "owner",
       };

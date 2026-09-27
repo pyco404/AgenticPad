@@ -350,7 +350,7 @@ describe("renting over HTTP", () => {
       const out = await api(`/agents/${agentId}/deposits`, { method: "POST", body: { amount: 100 }, as: who });
       expect(out.status).toBe(409);
       expect(String(out.body.error)).toMatch(/hasn't been paid for yet/);
-      expect((await api(`/agents/${agentId}`, { as: who })).body.depositBlocked).toMatch(/hasn't been paid for yet/);
+      expect((await api(`/agents/${agentId}`, { as: who })).body.agent.depositBlocked).toMatch(/hasn't been paid for yet/);
 
       const tx = Transaction.from(Buffer.from(rented.body.rental.transaction, "base64"));
       tx.partialSign(keypairFor(who));
@@ -359,7 +359,7 @@ describe("renting over HTTP", () => {
         body: { transaction: tx.serialize().toString("base64") },
         as: who,
       });
-      expect((await api(`/agents/${agentId}`, { as: who })).body.depositBlocked).toBeNull();
+      expect((await api(`/agents/${agentId}`, { as: who })).body.agent.depositBlocked).toBeNull();
     });
 
     it("refuses anyone but the owner, and an amount of nothing", async () => {
@@ -402,7 +402,8 @@ describe("renting over HTTP", () => {
     it("starts at a third of the deposit, raises at once, and cuts from tomorrow", async () => {
       const who = "dep-budget";
       const agentId = await landed(who, 900);
-      const view = async () => (await api(`/agents/${agentId}`, { as: who })).body.lossBudget;
+      // Read from the agent object, as the page does.
+      const view = async () => (await api(`/agents/${agentId}`, { as: who })).body.agent.lossBudget;
       expect(await view()).toMatchObject({ perDayChips: 300, lostTodayChips: 0, nextPerDayChips: null });
 
       const raised = await change(agentId, who, 500);
