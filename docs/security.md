@@ -127,6 +127,8 @@ These are real, and would each need fixing before anything of value were at stak
 
    Hostile matchmaking survives any fix to fabrication, and is measured rather than guessed (`scripts/best-response.ts`). Whoever controls pairing can match a victim against a table built to beat the victim's own. Against the presets, the best such table wins 1.1-2.0 chips a match in band B, where ordinary preset-against-preset play is within 0.4; against badly written tables, about 1.5-2 chips a match beyond what ordinary play already takes. At the ten-minute autoplay pace that is roughly 220-290 chips a day per victim in band B. The loss budget bounds this too.
 
+   Having the chain decide results instead - replaying each match on chain with oracle randomness - was measured and set aside: the replay is cheap, but every match would wait seconds on an oracle and play would stop when one is down ([oracle-spike.md](oracle-spike.md)).
+
    There is no co-signer, and that is a decision, not an omission. A second key that had to approve each settlement would stop a stolen settler key, but the operator holds every key, including the program's upgrade authority, and could replace or remove any co-signer. Built on infrastructure the operator controls it would protect against settler-key theft while implying more, so it was not built.
 
    **The residual risk, plainly: a stolen settler key is bounded by the outflow cap and the loss budget; a compromised admin key or a dishonest operator is not bounded by anything.**
