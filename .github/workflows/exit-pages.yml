@@ -1,0 +1,37 @@
+# Publishes the standalone exit page (web/public/exit/) to GitHub Pages.
+#
+# The point is a second provider: the page lets an owner take their money out
+# with nothing but a wallet and an RPC, so it must not live only on the hosting
+# that might be the thing that has gone away. It has no build step and no
+# dependencies, so the folder is published exactly as committed.
+name: exit page on GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/public/exit/**", ".github/workflows/exit-pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: exit-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/public/exit
+      - id: deploy
+        uses: actions/deploy-pages@v4
