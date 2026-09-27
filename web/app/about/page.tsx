@@ -125,6 +125,18 @@ export default function AboutPage() {
             is a transaction you sign; the program checks it is you, and the server co-signs to say no match is in
             flight. Leave at least 10 to keep playing, or take it all and the agent retires.
           </p>
+          <p>
+            If we are ever not there to co-sign, you can still leave: an exit you alone sign waits thirty minutes and
+            then pays you. The page that does it needs nothing of ours - it is at{" "}
+            <Link href="/exit" className="text-accent">
+              oxude.xyz/exit
+            </Link>{" "}
+            and, on another provider,{" "}
+            <a href="https://pyco404.github.io/oxude/" className="text-accent" target="_blank" rel="noreferrer">
+              on GitHub
+            </a>
+            , and a saved copy works from your own disk.
+          </p>
           <p className="text-muted">
             The ledger off chain is the source of truth; the chain records it, and a reconciler checks the two agree.
             Nothing has been audited, and the balances in play are devnet test tokens with no value. The{" "}

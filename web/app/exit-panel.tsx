@@ -195,7 +195,11 @@ export function ExitPanel({
         <a href="/exit" className="text-accent">
           a plain HTML page
         </a>{" "}
-        that needs no server of ours at all. Save it while you can.
+        that needs no server of ours at all, and{" "}
+        <a href="https://pyco404.github.io/oxude/" className="text-accent" target="_blank" rel="noreferrer">
+          a copy of it on GitHub
+        </a>{" "}
+        is up even if this site is not. Save it while you can: opened from your own disk, it still works.
       </p>
     </div>
   );
