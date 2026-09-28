@@ -27,7 +27,7 @@ export function SiteFooter() {
   return (
     <footer className="border-t border-line px-4 py-4 text-[11px] leading-5 text-muted lg:px-10">
       <p className="flex flex-wrap gap-x-4 gap-y-1">
-        <a href="https://x.com/OxudeAI" className="hover:text-text" target="_blank" rel="noreferrer">
+        <a href="https://x.com/OxudeOX" className="hover:text-text" target="_blank" rel="noreferrer">
           X
         </a>
         <a href="https://github.com/pyco404/oxude" className="hover:text-text" target="_blank" rel="noreferrer">
