@@ -33,6 +33,9 @@
 //! - each match settles at most once, and each rental is paid for at most once,
 //!   because each has a record that is a PDA seeded by its id and cannot be
 //!   created twice;
+//! - settlement is normally hourly and net: each agent's net for an hour moves
+//!   as one transfer into or out of a clearing account the program owns, each
+//!   numbered one more than that agent's last, so it lands once and in order;
 //! - renting costs a fee, burned out of the renter's own tokens, at the price
 //!   the config carries. The price is checked against the amount in the
 //!   instruction, so a price that moves while a player is signing makes their
@@ -73,6 +76,8 @@ pub const EXIT_CONFIG_SEED: &[u8] = b"exit_config";
 pub const STRATEGY_SEED: &[u8] = b"strategy";
 pub const BUDGET_SEED: &[u8] = b"budget";
 pub const ADMIN_HANDOVER_SEED: &[u8] = b"admin_handover";
+pub const CLEARING_SEED: &[u8] = b"clearing";
+pub const POSITION_SEED: &[u8] = b"position";
 
 /// How many days back a settlement for a budgeted agent may be dated: today
 /// and the two before. A backlog up to two days old still settles; older is
@@ -498,6 +503,93 @@ pub mod oxude_settlement {
         Ok(())
     }
 
+    /// Opens the clearing account that net settlement passes through. Once per
+    /// deployment; the settler signs and pays, as it does for every vault.
+    ///
+    /// A token account like a vault, whose authority is the config PDA, so
+    /// only `settle_net` moves what it holds. It is empty
+    /// between settlements: an hour's debits add up to exactly that hour's
+    /// credits, because every match gave one agent what it took from the other.
+    pub fn open_clearing(_ctx: Context<OpenClearing>) -> Result<()> {
+        Ok(())
+    }
+
+    /// Settles an agent's net for a period, as one transfer between its vault
+    /// and the clearing account: out of the vault when it lost over the period
+    /// (`pays`), into it when it won.
+    ///
+    /// The ledger nets every match an agent played in an hour into one amount
+    /// (docs/economy.md), and that lands as one transfer rather than one per
+    /// match. The server sends every payment of a period before any of its
+    /// receipts, so clearing is never asked for a win whose losses have not
+    /// arrived; a receipt clearing cannot cover yet is refused and sent again.
+    ///
+    /// `batch` is this agent's settlement number: one more than the last it
+    /// made, whichever way. So each lands once - a retry after a lost
+    /// confirmation is refused, not paid twice - and none overtakes one before
+    /// it. A payment is held to the outflow window and the owner's loss budget
+    /// exactly as `settle` is; a receipt counts against the budget as a win.
+    /// `day` is the day the period's matches were played.
+    ///
+    /// `max_settlement` does not apply. It bounds one match, and a period's net
+    /// is many; what bounds a period is the outflow window, a period long.
+    pub fn settle_net(
+        ctx: Context<SettleNet>,
+        agent_id: [u8; 16],
+        batch: u64,
+        amount: u64,
+        pays: bool,
+        day: u64,
+    ) -> Result<()> {
+        require!(amount > 0, OxudeError::ZeroAmount);
+        let position = &mut ctx.accounts.position;
+        require!(batch_follows(position.batch, batch), OxudeError::BatchOutOfOrder);
+        position.agent_id = agent_id;
+        position.batch = batch;
+        position.bump = ctx.bumps.position;
+
+        let budget = ctx.accounts.budget.to_account_info();
+        if budget_exists(&budget) {
+            require!(day_settleable(day, today()?), OxudeError::SettlementDayOutOfRange);
+        }
+        let (from, to) = if pays {
+            require!(ctx.accounts.vault.amount >= amount, OxudeError::InsufficientVault);
+            let outflow = &mut ctx.accounts.outflow;
+            outflow.bump = ctx.bumps.outflow;
+            // Measured on what the vault holds now, before this leaves it.
+            let cap = outflow_cap(ctx.accounts.vault.amount, ctx.accounts.config.chip_rate);
+            (outflow.window_start, outflow.spent) = charge(outflow.window_start, outflow.spent, this_hour()?, amount, cap)
+                .ok_or(OxudeError::OutflowLimit)?;
+            if budget_exists(&budget) {
+                with_budget(&budget, |b| b.charge_loss(day, amount))?;
+            }
+            (ctx.accounts.vault.to_account_info(), ctx.accounts.clearing.to_account_info())
+        } else {
+            require!(ctx.accounts.clearing.amount >= amount, OxudeError::ClearingShort);
+            if budget_exists(&budget) {
+                with_budget(&budget, |b| {
+                    b.credit_win(day, amount);
+                    Ok(())
+                })?;
+            }
+            (ctx.accounts.clearing.to_account_info(), ctx.accounts.vault.to_account_info())
+        };
+
+        let bump = ctx.accounts.config.bump;
+        let signer: &[&[&[u8]]] = &[&[CONFIG_SEED, &[bump]]];
+        move_tokens(
+            &ctx.accounts.token_program,
+            &ctx.accounts.mint,
+            from,
+            to,
+            ctx.accounts.config.to_account_info(),
+            signer,
+            amount,
+        )?;
+        emit!(SettledNet { agent_id, batch, amount, pays, day });
+        Ok(())
+    }
+
     /// Moves tokens from an agent's vault to its owner. The owner must sign,
     /// and must be the owner recorded on chain; the settler co-signs to say
     /// nothing is in flight. `remaining` is what the ledger says the vault
@@ -875,6 +967,13 @@ pub fn strategy_valid(table: u64) -> bool {
     })
 }
 
+/// Whether `batch` is the one to follow `last`: exactly one more. Never a gap,
+/// which would let a period be skipped, and never a repeat, which would pay it
+/// twice.
+pub fn batch_follows(last: u64, batch: u64) -> bool {
+    last.checked_add(1) == Some(batch)
+}
+
 /// This hour's number, counted from the epoch: the outflow window it is in.
 pub fn this_hour() -> Result<u64> {
     let now = Clock::get()?.unix_timestamp;
@@ -1054,6 +1153,16 @@ impl LossBudget {
             self.next_from_day = today + 1;
         }
     }
+}
+
+/// One per agent that has settled net: the number of its last net settlement.
+/// Starts at zero, so an agent's first is batch 1.
+#[account]
+#[derive(InitSpace)]
+pub struct Position {
+    pub agent_id: [u8; 16],
+    pub batch: u64,
+    pub bump: u8,
 }
 
 /// One per agent that has paid out through a settlement: its current window.
@@ -1305,6 +1414,66 @@ pub struct Settle<'info> {
     pub system_program: Program<'info, System>,
     /// The stake token, which a checked transfer names: the config's own mint,
     /// under the token program passed alongside it.
+    #[account(address = config.mint, mint::token_program = token_program)]
+    pub mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+pub struct OpenClearing<'info> {
+    #[account(mut)]
+    pub settler: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = settler @ OxudeError::NotSettler, has_one = mint)]
+    pub config: Account<'info, Config>,
+    pub mint: InterfaceAccount<'info, Mint>,
+    #[account(
+        init,
+        payer = settler,
+        token::mint = mint,
+        token::authority = config,
+        token::token_program = token_program,
+        seeds = [CLEARING_SEED],
+        bump
+    )]
+    pub clearing: InterfaceAccount<'info, TokenAccount>,
+    pub system_program: Program<'info, System>,
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+#[instruction(agent_id: [u8; 16])]
+pub struct SettleNet<'info> {
+    #[account(mut)]
+    pub settler: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = settler @ OxudeError::NotSettler)]
+    pub config: Account<'info, Config>,
+    #[account(mut, seeds = [VAULT_SEED, agent_id.as_ref()], bump, token::mint = config.mint)]
+    pub vault: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut, seeds = [CLEARING_SEED], bump, token::mint = config.mint)]
+    pub clearing: InterfaceAccount<'info, TokenAccount>,
+    /// The vault's outflow window, shared with `settle`: one cap, whichever
+    /// way the money leaves. Charged only when the agent pays.
+    #[account(
+        init_if_needed,
+        payer = settler,
+        space = 8 + Outflow::INIT_SPACE,
+        seeds = [OUTFLOW_SEED, agent_id.as_ref()],
+        bump
+    )]
+    pub outflow: Account<'info, Outflow>,
+    #[account(
+        init_if_needed,
+        payer = settler,
+        space = 8 + Position::INIT_SPACE,
+        seeds = [POSITION_SEED, agent_id.as_ref()],
+        bump
+    )]
+    pub position: Account<'info, Position>,
+    /// CHECK: the agent's loss budget, at its fixed address. Empty when it has
+    /// none; read and written only if it holds one.
+    #[account(mut, seeds = [BUDGET_SEED, agent_id.as_ref()], bump)]
+    pub budget: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
     #[account(address = config.mint, mint::token_program = token_program)]
     pub mint: InterfaceAccount<'info, Mint>,
     pub token_program: Interface<'info, TokenInterface>,
@@ -1632,6 +1801,16 @@ pub struct MaxSettlementChanged {
 }
 
 #[event]
+pub struct SettledNet {
+    pub agent_id: [u8; 16],
+    pub batch: u64,
+    pub amount: u64,
+    /// True when the agent paid into clearing; false when it was paid out.
+    pub pays: bool,
+    pub day: u64,
+}
+
+#[event]
 pub struct Settled {
     pub match_id: [u8; 16],
     pub from_agent: [u8; 16],
@@ -1707,6 +1886,10 @@ pub enum OxudeError {
     InvalidAdmin,
     #[msg("Only the proposed key can accept the handover")]
     NotProposedAdmin,
+    #[msg("A net settlement must be this agent's next one: one more than its last")]
+    BatchOutOfOrder,
+    #[msg("The clearing account does not hold this credit yet: its period's debits have not all landed")]
+    ClearingShort,
 }
 
 #[cfg(test)]
@@ -1899,6 +2082,19 @@ mod tests {
         // One charge can never exceed the cap on its own.
         assert_eq!(charge(hour, 0, hour + 5, 121, 120), None);
         assert_eq!(charge(hour, u64::MAX, hour, 1, u64::MAX), None);
+    }
+
+    #[test]
+    fn a_net_settlement_is_the_next_one_exactly() {
+        assert!(batch_follows(0, 1));
+        assert!(batch_follows(41, 42));
+        // A repeat: the same period paid twice.
+        assert!(!batch_follows(42, 42));
+        // A gap: a period skipped, and never paid.
+        assert!(!batch_follows(41, 43));
+        assert!(!batch_follows(0, 0));
+        // The count cannot wrap round to the start.
+        assert!(!batch_follows(u64::MAX, 0));
     }
 
     #[test]

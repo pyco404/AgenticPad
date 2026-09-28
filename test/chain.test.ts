@@ -110,6 +110,16 @@ async function playerVault(amount: number, owner: Keypair = Keypair.generate()) 
   return { agent: id, owner };
 }
 
+/**
+ * Waits out the last seconds of a UTC hour. The outflow window is the clock
+ * hour, so a test that fills one and then expects a refusal would pass for the
+ * wrong reason if the hour turned in between.
+ */
+async function clearOfTheHour(marginMs = 10_000): Promise<void> {
+  const into = Date.now() % 3_600_000;
+  if (into > 3_600_000 - marginMs) await new Promise((r) => setTimeout(r, 3_600_000 - into + 1_000));
+}
+
 /** The error a call failed with, as text. Empty if it unexpectedly succeeded. */
 async function refusal(call: () => Promise<unknown>): Promise<string> {
   try {
@@ -480,6 +490,7 @@ describe.skipIf(!RUN)("settlement program", () => {
   });
 
   it("caps what one vault can pay out through settlements in a window", async () => {
+    await clearOfTheHour();
     // A vault this size is governed by the floor: a quarter of 180 is less.
     const payer = await houseVault(180 * CHIP);
     const payee = await houseVault(10 * CHIP);
@@ -506,6 +517,7 @@ describe.skipIf(!RUN)("settlement program", () => {
   });
 
   it("lets a large vault pay out more than the floor, in proportion to what it holds", async () => {
+    await clearOfTheHour();
     const payer = await houseVault(MAX_SETTLEMENT_CEILING);
     const payee = await houseVault(10 * CHIP);
     // The cap is read from the balance before each settlement leaves, so it
@@ -581,6 +593,102 @@ describe.skipIf(!RUN)("settlement program", () => {
       /NotSettler|settler/,
     );
     expect(await chain.vaultBalance(a)).toBe(180 * CHIP);
+  });
+
+  describe("net settlement", () => {
+    const day = () => todayUtc();
+    const pay = (agentId: string, batch: number, amount: number, via: ChainClient = chain) =>
+      via.settleNet({ agentId, batch, amount, pays: true, day: day() });
+    const receive = (agentId: string, batch: number, amount: number, via: ChainClient = chain) =>
+      via.settleNet({ agentId, batch, amount, pays: false, day: day() });
+
+    beforeAll(async () => {
+      await chain.openClearing();
+    });
+
+    it("opens one clearing account, empty, and only once", async () => {
+      expect(await chain.clearingBalance()).toBe(0);
+      expect(await refusal(() => chain.openClearing())).not.toBe("");
+    });
+
+    it("moves an hour's losses into clearing and its wins out, and leaves clearing as it found it", async () => {
+      const [a, b, c] = [await houseVault(300 * CHIP), await houseVault(300 * CHIP), await houseVault(300 * CHIP)];
+      // Over the hour a lost 50 and b lost 10, and c won the 60 between them.
+      await pay(a, 1, 50 * CHIP);
+      await pay(b, 1, 10 * CHIP);
+      expect(await chain.clearingBalance()).toBe(60 * CHIP);
+      await receive(c, 1, 60 * CHIP);
+      expect(await chain.clearingBalance()).toBe(0);
+      expect([await chain.vaultBalance(a), await chain.vaultBalance(b), await chain.vaultBalance(c)]).toEqual([
+        250 * CHIP,
+        290 * CHIP,
+        360 * CHIP,
+      ]);
+      expect([await chain.netBatch(a), await chain.netBatch(c)]).toEqual([1, 1]);
+    });
+
+    it("takes each agent's settlements once and in order, whichever way they move", async () => {
+      const [a, b] = [await houseVault(300 * CHIP), await houseVault(300 * CHIP)];
+      await pay(a, 1, 20 * CHIP);
+      // The same batch again: a retry after a lost confirmation, refused rather than paid twice.
+      expect(await refusal(() => pay(a, 1, 20 * CHIP))).toMatch(/BatchOutOfOrder/);
+      // A gap: a period skipped would never be paid.
+      expect(await refusal(() => receive(a, 3, 20 * CHIP))).toMatch(/BatchOutOfOrder/);
+      // The next one, the other way.
+      await receive(a, 2, 20 * CHIP);
+      expect(await chain.netBatch(a)).toBe(2);
+      // The count is per agent: b starts at one.
+      expect(await refusal(() => pay(b, 2, 1 * CHIP))).toMatch(/BatchOutOfOrder/);
+      expect(await chain.vaultBalance(a)).toBe(300 * CHIP);
+      expect(await chain.clearingBalance()).toBe(0);
+    });
+
+    it("refuses a win clearing cannot cover yet, and pays it once the losses land", async () => {
+      const [loser, winner] = [await houseVault(300 * CHIP), await houseVault(300 * CHIP)];
+      expect(await refusal(() => receive(winner, 1, 30 * CHIP))).toMatch(/ClearingShort/);
+      // Refused whole: the batch was not used up.
+      expect(await chain.netBatch(winner)).toBe(0);
+      await pay(loser, 1, 30 * CHIP);
+      await receive(winner, 1, 30 * CHIP);
+      expect(await chain.vaultBalance(winner)).toBe(330 * CHIP);
+    });
+
+    it("holds a payment to the vault's hourly outflow, shared with per-match settlement", async () => {
+      await clearOfTheHour();
+      // Governed by the floor: a quarter of 180 is less than 120.
+      const payer = await houseVault(180 * CHIP);
+      const payee = await houseVault(10 * CHIP);
+      await chain.settle({ day: day(), matchId: randomUUID(), fromAgent: payer, toAgent: payee, amount: MAX });
+      // One cap, whichever instruction the money leaves by.
+      expect(await refusal(() => pay(payer, 1, OUTFLOW_FLOOR - MAX + 1))).toMatch(/OutflowLimit/);
+      await pay(payer, 1, OUTFLOW_FLOOR - MAX);
+      expect(await refusal(() => pay(payer, 2, 1))).toMatch(/OutflowLimit/);
+      // A win is not outflow: the same agent can still be paid.
+      await pay(payee, 1, 10 * CHIP);
+      await receive(payer, 2, 10 * CHIP);
+      await receive(payee, 2, OUTFLOW_FLOOR - MAX);
+      expect(await chain.clearingBalance()).toBe(0);
+    });
+
+    it("is not held to the per-match limit: an hour's net is many matches", async () => {
+      await clearOfTheHour();
+      const [a, b] = [await houseVault(900 * CHIP), await houseVault(10 * CHIP)];
+      // Three worst matches' worth, inside a quarter of 900.
+      await pay(a, 1, 3 * MAX);
+      await receive(b, 1, 3 * MAX);
+      expect(await chain.vaultBalance(b)).toBe(10 * CHIP + 3 * MAX);
+    });
+
+    it("refuses anyone but the settler, and a vault that cannot cover it", async () => {
+      const intruder = Keypair.generate();
+      await airdrop(intruder, 2);
+      const rogue = new ChainClient(connection, intruder, stakeMint, TOKEN);
+      const poor = await houseVault(10 * CHIP);
+      expect(await refusal(() => pay(poor, 1, 5 * CHIP, rogue))).toMatch(/NotSettler|settler/);
+      expect(await refusal(() => pay(poor, 1, 11 * CHIP))).toMatch(/InsufficientVault/);
+      expect(await refusal(() => pay(poor, 1, 0))).toMatch(/ZeroAmount/);
+      expect(await chain.vaultBalance(poor)).toBe(10 * CHIP);
+    });
   });
 
   // The ledger-to-chain round trip is pending the funding flow. `createAgent`
@@ -946,6 +1054,23 @@ describe.skipIf(!RUN)("settlement program", () => {
         // A cut waits a day, so nothing already agreed today can be stranded.
         await setBudget(agent, owner, 100 * CHIP);
         expect(await chain.lossBudgetOf(agent)).toMatchObject({ perDay: 500 * CHIP, nextPerDay: 100 * CHIP, nextFromDay: today() + 1 });
+      });
+
+      it("charges a net payment to the day's budget, and counts a net receipt against it", async () => {
+        const loser = await rent(await walletWith(3_000 * CHIP), { deposit: 1_000 * CHIP, lossBudget: 100 * CHIP });
+        const winner = await rent(await walletWith(3_000 * CHIP), { deposit: 1_000 * CHIP });
+        const net = (agentId: string, batch: number, amount: number, pays: boolean) =>
+          chain.settleNet({ agentId, batch, amount, pays, day: today() });
+        await net(loser.agent, 1, 80 * CHIP, true);
+        expect(await refusal(() => net(loser.agent, 2, 30 * CHIP, true))).toMatch(/LossBudgetExceeded/);
+        await net(winner.agent, 1, 80 * CHIP, false);
+        // A receipt the same day makes room, as a won match does.
+        await net(winner.agent, 2, 30 * CHIP, true);
+        await net(loser.agent, 2, 30 * CHIP, false);
+        await net(loser.agent, 3, 50 * CHIP, true);
+        expect(await refusal(() => net(loser.agent, 4, 1 * CHIP, true))).toMatch(/LossBudgetExceeded/);
+        await net(winner.agent, 3, 50 * CHIP, false);
+        expect(await chain.clearingBalance()).toBe(0);
       });
 
       it("cannot be dodged by naming some other account as the budget", async () => {

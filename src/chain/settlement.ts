@@ -69,6 +69,11 @@ export const pdas = {
   /** The agent's daily loss budget, set by its owner. */
   budget: (agentId: string) =>
     PublicKey.findProgramAddressSync([Buffer.from("budget"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
+  /** Where net settlement passes through: payments in, receipts out. One per deployment. */
+  clearing: () => PublicKey.findProgramAddressSync([Buffer.from("clearing")], PROGRAM_ID)[0],
+  /** An agent's count of net settlements, which orders them. */
+  position: (agentId: string) =>
+    PublicKey.findProgramAddressSync([Buffer.from("position"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
   /** The strategy table the agent's owner signed at rent. */
   strategy: (agentId: string) =>
     PublicKey.findProgramAddressSync([Buffer.from("strategy"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
@@ -85,6 +90,14 @@ export type LossBudgetState = {
   nextFromDay: number;
   net: { day: number; net: number }[];
 };
+
+/**
+ * One agent's net for a period, as `settle_net` takes it. `pays`: it lost over
+ * the period, and the amount leaves its vault for clearing; otherwise it won,
+ * and the amount comes out of clearing into its vault. `batch` must be one more
+ * than the agent's last. Base units.
+ */
+export type NetSettleInput = { agentId: string; batch: number; amount: number; pays: boolean; day: number };
 
 /** What opening a vault needs: the id, and the owner and salt it was derived from (src/agent-id.ts). */
 export type OpenVaultInput = { agentId: string; owner: string | null; salt: string };
@@ -605,6 +618,57 @@ export class ChainClient {
         tokenProgram: this.tokenProgram,
       })
       .rpc();
+  }
+
+  /** Opens the clearing account net settlement passes through. Once per deployment; the settler pays. */
+  async openClearing(): Promise<string> {
+    return this.program.methods
+      .openClearing()
+      .accountsPartial({
+        settler: this.signer.publicKey,
+        config: pdas.config(),
+        mint: this.mint,
+        clearing: pdas.clearing(),
+        systemProgram: SystemProgram.programId,
+        tokenProgram: this.tokenProgram,
+      })
+      .rpc();
+  }
+
+  async settleNet(input: NetSettleInput): Promise<string> {
+    return this.program.methods
+      .settleNet(uuidBytes(input.agentId), new BN(input.batch), new BN(input.amount), input.pays, new BN(input.day))
+      .accountsPartial({
+        settler: this.signer.publicKey,
+        config: pdas.config(),
+        vault: pdas.vault(input.agentId),
+        clearing: pdas.clearing(),
+        outflow: pdas.outflow(input.agentId),
+        position: pdas.position(input.agentId),
+        // At its fixed address, like settle's: charged if it exists there.
+        budget: pdas.budget(input.agentId),
+        systemProgram: SystemProgram.programId,
+        mint: this.mint,
+        tokenProgram: this.tokenProgram,
+      })
+      .rpc();
+  }
+
+  /** The number of the agent's last net settlement on chain; 0 before its first. */
+  async netBatch(agentId: string): Promise<number> {
+    const position = await this.program.account.position.fetchNullable(pdas.position(agentId), "confirmed");
+    return position ? position.batch.toNumber() : 0;
+  }
+
+  /** What the clearing account holds, or null before it is opened. Base units. */
+  async clearingBalance(): Promise<number | null> {
+    try {
+      const account = await getAccount(this.connection, pdas.clearing(), "confirmed", this.tokenProgram);
+      return Number(account.amount);
+    } catch (error) {
+      if (error instanceof TokenAccountNotFoundError || error instanceof TokenInvalidAccountOwnerError) return null;
+      throw error;
+    }
   }
 
   /** The owner-signed instruction that sets an agent's daily loss budget, in base units. */

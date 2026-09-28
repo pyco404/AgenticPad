@@ -798,6 +798,91 @@ export type OxudeSettlement = {
       ]
     },
     {
+      "name": "openClearing",
+      "docs": [
+        "Opens the clearing account that net settlement passes through. Once per",
+        "deployment; the settler signs and pays, as it does for every vault.",
+        "",
+        "A token account like a vault, whose authority is the config PDA, so",
+        "only `settle_net` moves what it holds. It is empty",
+        "between settlements: an hour's debits add up to exactly that hour's",
+        "credits, because every match gave one agent what it took from the other."
+      ],
+      "discriminator": [
+        99,
+        2,
+        234,
+        105,
+        138,
+        126,
+        206,
+        20
+      ],
+      "accounts": [
+        {
+          "name": "settler",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "clearing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  101,
+                  97,
+                  114,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "tokenProgram"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "openOwnedVault",
       "docs": [
         "Opens a player's agent's empty vault and records its owner, together.",
@@ -2118,6 +2203,227 @@ export type OxudeSettlement = {
       ]
     },
     {
+      "name": "settleNet",
+      "docs": [
+        "Settles an agent's net for a period, as one transfer between its vault",
+        "and the clearing account: out of the vault when it lost over the period",
+        "(`pays`), into it when it won.",
+        "",
+        "The ledger nets every match an agent played in an hour into one amount",
+        "(docs/economy.md), and that lands as one transfer rather than one per",
+        "match. The server sends every payment of a period before any of its",
+        "receipts, so clearing is never asked for a win whose losses have not",
+        "arrived; a receipt clearing cannot cover yet is refused and sent again.",
+        "",
+        "`batch` is this agent's settlement number: one more than the last it",
+        "made, whichever way. So each lands once - a retry after a lost",
+        "confirmation is refused, not paid twice - and none overtakes one before",
+        "it. A payment is held to the outflow window and the owner's loss budget",
+        "exactly as `settle` is; a receipt counts against the budget as a win.",
+        "`day` is the day the period's matches were played.",
+        "",
+        "`max_settlement` does not apply. It bounds one match, and a period's net",
+        "is many; what bounds a period is the outflow window, a period long."
+      ],
+      "discriminator": [
+        210,
+        114,
+        199,
+        205,
+        221,
+        45,
+        168,
+        131
+      ],
+      "accounts": [
+        {
+          "name": "settler",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agentId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "clearing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  101,
+                  97,
+                  114,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "outflow",
+          "docs": [
+            "The vault's outflow window, shared with `settle`: one cap, whichever",
+            "way the money leaves. Charged only when the agent pays."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  117,
+                  116,
+                  102,
+                  108,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agentId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agentId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "budget",
+          "docs": [
+            "none; read and written only if it holds one."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  100,
+                  103,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agentId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "tokenProgram"
+        }
+      ],
+      "args": [
+        {
+          "name": "agentId",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "batch",
+          "type": "u64"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "pays",
+          "type": "bool"
+        },
+        {
+          "name": "day",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "withdraw",
       "docs": [
         "Moves tokens from an agent's vault to its owner. The owner must sign,",
@@ -2391,6 +2697,19 @@ export type OxudeSettlement = {
       ]
     },
     {
+      "name": "position",
+      "discriminator": [
+        170,
+        188,
+        143,
+        228,
+        122,
+        64,
+        247,
+        208
+      ]
+    },
+    {
       "name": "rental",
       "discriminator": [
         121,
@@ -2598,6 +2917,19 @@ export type OxudeSettlement = {
         124,
         145,
         238
+      ]
+    },
+    {
+      "name": "settledNet",
+      "discriminator": [
+        151,
+        238,
+        119,
+        6,
+        231,
+        99,
+        228,
+        159
       ]
     },
     {
@@ -2818,6 +3150,16 @@ export type OxudeSettlement = {
       "code": 6032,
       "name": "notProposedAdmin",
       "msg": "Only the proposed key can accept the handover"
+    },
+    {
+      "code": 6033,
+      "name": "batchOutOfOrder",
+      "msg": "A net settlement must be this agent's next one: one more than its last"
+    },
+    {
+      "code": 6034,
+      "name": "clearingShort",
+      "msg": "The clearing account does not hold this credit yet: its period's debits have not all landed"
     }
   ],
   "types": [
@@ -3314,6 +3656,35 @@ export type OxudeSettlement = {
       }
     },
     {
+      "name": "position",
+      "docs": [
+        "One per agent that has settled net: the number of its last net settlement.",
+        "Starts at zero, so an agent's first is batch 1."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "batch",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "rentChanged",
       "type": {
         "kind": "struct",
@@ -3425,6 +3796,42 @@ export type OxudeSettlement = {
           },
           {
             "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "settledNet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "batch",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "pays",
+            "docs": [
+              "True when the agent paid into clearing; false when it was paid out."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "day",
             "type": "u64"
           }
         ]
