@@ -47,11 +47,21 @@ import { cutDue, dueAtSql, type CutResult } from "../db/netting.js";
  * shorthand for "everything is the seed flow", which is what every test and
  * every deployment does until the deposit program is live.
  */
-export type ChainPorts = { seed: ChainPort; deposit?: ChainPort };
+/**
+ * The clients to route between, one per program this server is configured for.
+ * Either may be absent: mainnet has no seed program, and a server that has
+ * only the seed program has no deposit one. A flow with no client waits.
+ */
+export type ChainPorts = { seed?: ChainPort; deposit?: ChainPort };
 
-/** Normalises either shape into a lookup, and says when a flow has no client. */
+/**
+ * Normalises either shape into a lookup. A lone client is the seed program's,
+ * as it always was. Told apart by being a client - it can settle - rather than
+ * by its keys: a ChainClient has a `deposit` method, so `"deposit" in chain`
+ * would take a deposit client for a lookup, and `{ deposit }` has no `seed`.
+ */
 function portsOf(chain: ChainPort | ChainPorts): ChainPorts {
-  return "seed" in chain ? chain : { seed: chain };
+  return typeof (chain as ChainPort).settle === "function" ? { seed: chain as ChainPort } : (chain as ChainPorts);
 }
 
 export type ChainPort = {

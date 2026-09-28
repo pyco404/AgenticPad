@@ -301,6 +301,28 @@ describe("two programs, side by side", () => {
     expect(deposit.vaults.has(agent.id)).toBe(true);
   });
 
+  it("runs with only the deposit program, as mainnet will: nothing is taken for the seed one", async () => {
+    const db = await fresh();
+    const deposit = new FakeChain();
+    // A seed agent first, so its op is the one the pass meets before the deposit one.
+    const stray = await createAgent(db, { name: "Seeded", presetName: "Anchor", ownerId: someWallet() });
+    const agent = await createAgent(db, { name: "Deposited", presetName: "Hammer", ownerId: someWallet() });
+    await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, agent.id));
+
+    // `{ deposit }` alone. A ChainClient has a deposit method of its own, so
+    // this must not be taken for a lone client, nor its absent seed for one.
+    const result = await drainChainOps(db, { deposit });
+    expect(deposit.vaults.has(agent.id)).toBe(true);
+    expect(deposit.vaults.has(stray.id)).toBe(false);
+    expect(result.confirmed).toBe(1);
+    expect(result.deferred).toBe(1);
+    expect(result.error).toMatch(/no seed settlement client/);
+
+    const check = await reconcile(db, { deposit });
+    expect(check.checked).toBe(1);
+    expect(check.mismatches).toEqual([]);
+  });
+
   it("reconciles each agent against its own program, and stays silent about one it cannot reach", async () => {
     const db = await fresh();
     const seed = new FakeChain();
