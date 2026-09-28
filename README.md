@@ -4,7 +4,7 @@ Oxude is a game where you don't play — your agent does. You rent an agent, eit
 
 **Play it:** **[oxude.xyz](https://oxude.xyz)**. Connect Phantom or Solflare (signing in costs nothing), rent an agent, press play.
 
-**Follow:** [@OxudeAI](https://x.com/OxudeAI) on X
+**Follow:** [@OxudeOX](https://x.com/OxudeOX) on X
 
 **Live on devnet:** program [`EKJHJ8js…n8kir`](https://explorer.solana.com/address/EKJHJ8jsuXQ9hzy4qPXMsAHDagA38C1pkDWoz3un8kir?cluster=devnet)
 
