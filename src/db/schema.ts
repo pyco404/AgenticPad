@@ -131,6 +131,12 @@ export const agents = pgTable(
     lossBudget: bigint("loss_budget", { mode: "number" }),
     lossBudgetNext: bigint("loss_budget_next", { mode: "number" }),
     lossBudgetNextFromDay: integer("loss_budget_next_from_day"),
+    /**
+     * Set when its owner asks for its money while matches are waiting for
+     * their hour to be netted: the next pass settles this agent's matches
+     * early (src/db/netting.ts), then clears it.
+     */
+    settleRequestedAt: timestamp("settle_requested_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     retiredAt: timestamp("retired_at", { withTimezone: true }),
     /** Why it retired: ran out, withdrawn in full, or its rental lapsed. Null while it plays. */
@@ -560,7 +566,12 @@ export const chainOps = pgTable(
     /** Submission order: a vault must open before its first settlement. */
     seq: bigserial("seq", { mode: "number" }).notNull(),
     /** register_owner: only in history; owners are now recorded as their vault opens. */
-    kind: text("kind").$type<"open_vault" | "settle" | "register_owner" | "withdraw">().notNull(),
+    /**
+     * net: one agent's net for one cut of netted matches (src/db/netting.ts).
+     * It pays into clearing when `fromAgent` is set, and is paid out of it when
+     * `toAgent` is; `agentId` is the agent either way.
+     */
+    kind: text("kind").$type<"open_vault" | "settle" | "register_owner" | "withdraw" | "net">().notNull(),
     agentId: uuid("agent_id").references(() => agents.id),
     matchId: uuid("match_id").references(() => matches.id),
     fromAgent: uuid("from_agent").references(() => agents.id),
@@ -573,14 +584,30 @@ export const chainOps = pgTable(
     salt: text("salt"),
     /** withdraw: which withdrawal, whose signed transaction the op sends. */
     withdrawalId: uuid("withdrawal_id"),
-    status: text("status").$type<"pending" | "confirmed" | "failed">().notNull().default("pending"),
+    /**
+     * netted: a netted match that a cut has taken. Done as a row - its agents'
+     * net ops are what is still to land.
+     */
+    status: text("status").$type<"pending" | "confirmed" | "failed" | "netted">().notNull().default("pending"),
+    /** settle: this match settles through its agents' hourly nets, and is never sent alone. */
+    netted: boolean("netted").notNull().default(false),
+    /** A netted settle row, the cut that took it; a net op, the cut it belongs to. */
+    cut: uuid("cut"),
+    /** net: the agent's settlement number on chain, one more than its last. */
+    batch: bigint("batch", { mode: "number" }),
+    /** net: the UTC day its matches were played, which a loss budget charges. */
+    day: integer("day"),
     signature: text("signature"),
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("chain_ops_status_idx").on(t.status, t.seq), index("chain_ops_match_idx").on(t.matchId)],
+  (t) => [
+    index("chain_ops_status_idx").on(t.status, t.seq),
+    index("chain_ops_match_idx").on(t.matchId),
+    index("chain_ops_cut_idx").on(t.cut),
+  ],
 );
 
 /**
