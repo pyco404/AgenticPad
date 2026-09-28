@@ -3296,6 +3296,10 @@ export type OxudeSettlement = {
         "fields": [
           {
             "name": "windowStart",
+            "docs": [
+              "The hour this window is (`this_hour`). Named for when windows were slot",
+              "ranges and this was the first slot; the layout is unchanged."
+            ],
             "type": "u64"
           },
           {

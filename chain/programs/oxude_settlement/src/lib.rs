@@ -19,8 +19,8 @@
 //!   the admin key can change and never above `MAX_SETTLEMENT_CEILING_CHIPS`
 //!   converted at the rate; and no
 //!   vault can pay out more than `outflow_cap` of its own balance through
-//!   settlements in one window of `WINDOW_SLOTS` - so a stolen settler key
-//!   drains slowly enough to be stopped;
+//!   settlements in one UTC hour - so a stolen settler key drains slowly
+//!   enough to be stopped;
 //! - nothing here can create currency. The stake token is an ordinary mint made
 //!   outside this program and handed to `initialize`, which refuses it unless
 //!   its mint authority has already been given up. Every balance therefore
@@ -90,8 +90,20 @@ pub const STRATEGY_EDGES: u32 = 5;
 pub const STRATEGY_FIRST_FACING_RAISE: u32 = 4;
 /// Mixed into every agent id, so an id can't be confused with any other hash.
 pub const AGENT_ID_DOMAIN: &[u8] = b"oxude-agent-v1";
-/// A rate-limit window: about ten minutes of slots.
-pub const WINDOW_SLOTS: u64 = 1_500;
+/// The outflow window: one UTC hour, by the cluster's clock.
+///
+/// An hour because settlement is hourly: each agent's net for an hour lands
+/// as one transfer, so a window the same length as the period it settles is
+/// what lets an honest hour through in one piece while holding a thief to a
+/// quarter of a vault an hour rather than a quarter every ten minutes.
+///
+/// By the clock rather than in slots, unlike the exit window, because it has
+/// to line up with something the clock decides: the server cuts its periods
+/// on the hour, and nine thousand slots is an hour only while slots keep to
+/// 400ms. When they run slow, a slot window outlasts the hour and the next
+/// hour's settlement lands inside it, charged against a cap already spent.
+/// The loss budget's days are clock days for the same reason.
+pub const OUTFLOW_WINDOW_SECONDS: i64 = 3_600;
 /// The most base units one chip may ever cost, which is equivalently a floor on
 /// the market cap: with a billion tokens issued and a chip pegged near a cent,
 /// a thousand tokens to the chip is a ten-thousand-dollar cap. Below that the
@@ -119,7 +131,7 @@ pub const OUTFLOW_FLOOR_CHIPS: u64 = 120;
 /// withdrawal taken in that gap can take money already owed to someone else.
 /// The window is the server's chance to settle what it owes before the money
 /// leaves, and it is sized against the two clocks that already exist: the
-/// outflow window is `WINDOW_SLOTS` (~10 minutes) and the server's settlement
+/// outflow window was ~10 minutes and the server's settlement
 /// lag alarm fires at 15 minutes. Thirty clears both with room.
 ///
 /// In slots rather than wall clock, like every other interval here. Slots
@@ -440,7 +452,7 @@ pub mod oxude_settlement {
         outflow.bump = ctx.bumps.outflow;
         // Measured on what the vault holds now, before this settlement leaves it.
         let cap = outflow_cap(ctx.accounts.from_vault.amount, ctx.accounts.config.chip_rate);
-        (outflow.window_start, outflow.spent) = charge(outflow.window_start, outflow.spent, slot, amount, cap)
+        (outflow.window_start, outflow.spent) = charge(outflow.window_start, outflow.spent, this_hour()?, amount, cap)
             .ok_or(OxudeError::OutflowLimit)?;
 
         // The owners' daily loss budgets. Each account's address is fixed by
@@ -761,9 +773,6 @@ pub fn in_base_units(chips: u64, chip_rate: u64) -> Result<u64> {
     chips.checked_mul(chip_rate).ok_or(OxudeError::RateOverflow.into())
 }
 
-/// A fixed-window budget: `(window_start, spent)` after charging `amount` at
-/// `slot`, or None if it would go over `cap`. A window that has run its course
-/// starts again from this slot.
 /// Whether the exit window may move from `previous` to `next`.
 ///
 /// Growing is always fine. Shrinking is capped at half in one step, so walking
@@ -866,10 +875,23 @@ pub fn strategy_valid(table: u64) -> bool {
     })
 }
 
-pub fn charge(window_start: u64, spent: u64, slot: u64, amount: u64, cap: u64) -> Option<(u64, u64)> {
-    let (start, spent) = if slot >= window_start.saturating_add(WINDOW_SLOTS) { (slot, 0) } else { (window_start, spent) };
+/// This hour's number, counted from the epoch: the outflow window it is in.
+pub fn this_hour() -> Result<u64> {
+    let now = Clock::get()?.unix_timestamp;
+    Ok(u64::try_from(now.div_euclid(OUTFLOW_WINDOW_SECONDS)).unwrap_or(0))
+}
+
+/// A fixed-window budget: `(window, spent)` after charging `amount` in window
+/// `now`, or None if it would go over `cap`.
+///
+/// Any window but the one on record starts again from nothing. That includes
+/// what an account written before windows were hours holds - a slot number,
+/// hundreds of times any hour's - so those reset on their first charge rather
+/// than reading as a window that will not end for centuries.
+pub fn charge(window: u64, spent: u64, now: u64, amount: u64, cap: u64) -> Option<(u64, u64)> {
+    let spent = if window == now { spent } else { 0 };
     let spent = spent.checked_add(amount)?;
-    (spent <= cap).then_some((start, spent))
+    (spent <= cap).then_some((now, spent))
 }
 
 #[account]
@@ -1038,6 +1060,8 @@ impl LossBudget {
 #[account]
 #[derive(InitSpace)]
 pub struct Outflow {
+    /// The hour this window is (`this_hour`). Named for when windows were slot
+    /// ranges and this was the first slot; the layout is unchanged.
     pub window_start: u64,
     pub spent: u64,
     pub bump: u8,
@@ -1865,17 +1889,24 @@ mod tests {
     }
 
     #[test]
-    fn charge_stays_within_the_cap_and_resets_with_the_window() {
-        assert_eq!(charge(0, 0, 100, 60, 120), Some((0, 60)));
-        assert_eq!(charge(0, 60, 200, 60, 120), Some((0, 120)));
-        assert_eq!(charge(0, 120, 300, 1, 120), None);
-        // Still inside the window, one slot before it ends.
-        assert_eq!(charge(0, 120, WINDOW_SLOTS - 1, 1, 120), None);
-        // The window has run its course: a fresh one starts at this slot.
-        assert_eq!(charge(0, 120, WINDOW_SLOTS, 60, 120), Some((WINDOW_SLOTS, 60)));
+    fn charge_stays_within_the_cap_and_resets_with_the_hour() {
+        let hour = 495_000;
+        assert_eq!(charge(hour, 0, hour, 60, 120), Some((hour, 60)));
+        assert_eq!(charge(hour, 60, hour, 60, 120), Some((hour, 120)));
+        assert_eq!(charge(hour, 120, hour, 1, 120), None);
+        // The next hour is a fresh window.
+        assert_eq!(charge(hour, 120, hour + 1, 60, 120), Some((hour + 1, 60)));
         // One charge can never exceed the cap on its own.
-        assert_eq!(charge(0, 0, 5_000, 121, 120), None);
-        assert_eq!(charge(0, u64::MAX, 1, 1, u64::MAX), None);
+        assert_eq!(charge(hour, 0, hour + 5, 121, 120), None);
+        assert_eq!(charge(hour, u64::MAX, hour, 1, u64::MAX), None);
+    }
+
+    #[test]
+    fn a_window_left_from_the_slot_era_resets_rather_than_lasting_for_ever() {
+        // An Outflow written by the ten-minute program holds a slot, far above
+        // any hour. It must not read as a window still running.
+        let slot = 412_000_000;
+        assert_eq!(charge(slot, 120, 495_000, 60, 120), Some((495_000, 60)));
     }
 
     /// One chip at the rate devnet is fixed to: one whole token, six decimals.
