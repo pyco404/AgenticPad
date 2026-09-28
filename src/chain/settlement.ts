@@ -34,6 +34,11 @@ import type { OxudeSettlement } from "./idl-types.js";
 
 export const PROGRAM_ID = new PublicKey((idl as { address: string }).address);
 
+const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+/** Where an upgradeable program keeps its code and names its upgrade authority. */
+export const programDataOf = (programId: PublicKey) =>
+  PublicKey.findProgramAddressSync([programId.toBuffer()], BPF_LOADER_UPGRADEABLE)[0];
+
 /**
  * Every amount crossing this client is in base units - never chips - so a
  * caller holding chips converts first, at the season's rate. Re-exported from
@@ -189,16 +194,27 @@ export class ChainClient {
    * One-time: the config, pointed at the stake token. Signed by the admin,
    * naming the settler. The program refuses a mint that can still be minted.
    */
-  async initialize(settler: PublicKey, maxSettlement: number, rent: number, chipRate: number): Promise<string> {
-    return this.program.methods
+  async initialize(
+    settler: PublicKey,
+    maxSettlement: number,
+    rent: number,
+    chipRate: number,
+    upgradeAuthority?: Keypair,
+  ): Promise<string> {
+    // The program refuses anyone but its upgrade authority. On devnet that is
+    // the admin's own key; on mainnet it is a separate one, which signs too.
+    const authority = upgradeAuthority ?? this.signer;
+    const call = this.program.methods
       .initialize(settler, new BN(maxSettlement), new BN(rent), new BN(chipRate))
       .accountsPartial({
         admin: this.signer.publicKey,
+        upgradeAuthority: authority.publicKey,
+        programData: programDataOf(PROGRAM_ID),
         config: pdas.config(),
         mint: this.mint,
         systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+      });
+    return (authority === this.signer ? call : call.signers([authority])).rpc();
   }
 
   /**

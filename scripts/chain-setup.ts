@@ -1,5 +1,5 @@
 import "./env.js";
-import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { getMint } from "@solana/spl-token";
 import { existsSync } from "node:fs";
 import { loadKeypair, v2SettlerKeyPath } from "../src/chain/common.js";
@@ -35,8 +35,18 @@ const admin = loadKeypair(process.env["CHAIN_ADMIN_KEYPAIR"] ?? ".keys/admin.jso
 // Not .keys/settler.json: that is the seed program's key, and this program's
 // settler has been rotated since. v2SettlerKeyPath picks the right file on a
 // rotated machine and on a fresh clone alike.
-const settlerKey = process.env["CHAIN_SETTLER_KEYPAIR"] ?? v2SettlerKeyPath();
-const settler = loadKeypair(settlerKey);
+//
+// CHAIN_SETTLER_PUBKEY names the settler by its public key alone, for when its
+// secret lives only on the api service and never on this machine (the mainnet
+// way, docs/rehearsal.md). Setup then needs nothing the settler signs: the api
+// opens the clearing account itself at start.
+const settlerPubkey = process.env["CHAIN_SETTLER_PUBKEY"];
+const settler: Keypair | null = settlerPubkey ? null : loadKeypair(process.env["CHAIN_SETTLER_KEYPAIR"] ?? v2SettlerKeyPath());
+const settlerAddress = settlerPubkey ? new PublicKey(settlerPubkey) : settler!.publicKey;
+// Only the program's upgrade authority can initialise it. On devnet that is
+// the admin; where it is a separate key, CHAIN_UPGRADE_AUTHORITY_KEYPAIR names it.
+const upgradeAuthorityPath = process.env["CHAIN_UPGRADE_AUTHORITY_KEYPAIR"];
+const upgradeAuthority = upgradeAuthorityPath ? loadKeypair(upgradeAuthorityPath) : undefined;
 const SETTLER_FLOOR = Number(process.env["SETTLER_MIN_SOL"] ?? 0.5);
 
 const CHIP_RATE = Number(process.env["CHAIN_CHIP_RATE"] ?? DEVNET_CHIP_RATE);
@@ -67,7 +77,8 @@ if (!program?.executable) {
 }
 
 console.log(`admin    ${admin.publicKey.toBase58()}  ${(await sol(admin.publicKey)).toFixed(3)} SOL`);
-console.log(`settler  ${settler.publicKey.toBase58()}  ${(await sol(settler.publicKey)).toFixed(3)} SOL  (${settlerKey})`);
+const settlerSource = settler ? (process.env["CHAIN_SETTLER_KEYPAIR"] ?? v2SettlerKeyPath()) : "CHAIN_SETTLER_PUBKEY: its secret is on the api only";
+console.log(`settler  ${settlerAddress.toBase58()}  ${(await sol(settlerAddress)).toFixed(3)} SOL  (${settlerSource})`);
 
 // The token the program will be pointed at. Both of these are refused by
 // initialize, so say so here rather than letting it fail with a code.
@@ -90,10 +101,10 @@ if (token.mintAuthority !== null) {
 
 if (await connection.getAccountInfo(pdas.config(), "confirmed")) {
   const config = await new ChainClient(connection, admin, mint, tokenProgram).config();
-  if (config.settler.toBase58() !== settler.publicKey.toBase58()) {
+  if (config.settler.toBase58() !== settlerAddress.toBase58()) {
     console.error(`Already initialised with a different settler: ${config.settler.toBase58()}`);
-    console.error(`This run is using ${settlerKey}, which is ${settler.publicKey.toBase58()}.`);
-    console.error("Point CHAIN_SETTLER_KEYPAIR at the key the config names, or rotate with set-settler.");
+    console.error(`This run is using ${settlerSource}, which is ${settlerAddress.toBase58()}.`);
+    console.error("Point CHAIN_SETTLER_KEYPAIR or CHAIN_SETTLER_PUBKEY at the key the config names, or rotate with set-settler.");
     process.exit(1);
   }
   if (config.mint.toBase58() !== mint.toBase58()) {
@@ -112,7 +123,13 @@ if (await connection.getAccountInfo(pdas.config(), "confirmed")) {
   console.log(`config   ${pdas.config().toBase58()}  already initialised`);
   console.log(`         chip rate ${rate} base units, limit ${config.maxSettlement.toNumber() / rate} chips, rent ${config.rent.toNumber() / rate} chips`);
 } else {
-  const signature = await new ChainClient(connection, admin, mint, tokenProgram).initialize(settler.publicKey, MAX_SETTLEMENT, RENT, CHIP_RATE);
+  const signature = await new ChainClient(connection, admin, mint, tokenProgram).initialize(
+    settlerAddress,
+    MAX_SETTLEMENT,
+    RENT,
+    CHIP_RATE,
+    upgradeAuthority,
+  );
   console.log(`config   ${pdas.config().toBase58()}  initialised (${signature})`);
   console.log(`         chip rate ${CHIP_RATE} base units, limit ${bandByName("C").worstMatch} chips, rent ${RENT_CHIPS} chips`);
 }
@@ -137,20 +154,21 @@ const EXIT_WINDOW = Number(process.env["CHAIN_EXIT_WINDOW_SLOTS"] ?? 4_500);
 // The clearing account hourly net settlement passes through. Opened once, by
 // the settler, like a vault; without it every net settlement is refused.
 {
-  const client = new ChainClient(connection, settler, mint, tokenProgram);
-  const held = await client.clearingBalance();
-  if (held === null) console.log(`clearing ${pdas.clearing().toBase58()}  opened (${await client.openClearing()})`);
-  else console.log(`clearing ${pdas.clearing().toBase58()}  already open, holding ${held} base units`);
+  const reader = new ChainClient(connection, admin, mint, tokenProgram);
+  const held = await reader.clearingBalance();
+  if (held !== null) console.log(`clearing ${pdas.clearing().toBase58()}  already open, holding ${held} base units`);
+  else if (settler) console.log(`clearing ${pdas.clearing().toBase58()}  opened (${await new ChainClient(connection, settler, mint, tokenProgram).openClearing()})`);
+  else console.log(`clearing ${pdas.clearing().toBase58()}  not open yet: the api opens it at start, with the settler key only it holds`);
 }
 
 // The settler pays rent for each vault, settlement, withdrawal and rental record it creates.
-const have = await sol(settler.publicKey);
+const have = await sol(settlerAddress);
 if (have < SETTLER_FLOOR) {
   const top = SETTLER_FLOOR - have;
   const tx = new Transaction().add(
     SystemProgram.transfer({
       fromPubkey: admin.publicKey,
-      toPubkey: settler.publicKey,
+      toPubkey: settlerAddress,
       lamports: Math.ceil(top * LAMPORTS_PER_SOL),
     }),
   );

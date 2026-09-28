@@ -185,6 +185,11 @@ pub mod oxude_settlement {
     /// its mint authority is already `None`. That is the whole of the supply
     /// guarantee: this program holds no authority to mint, and neither does
     /// anyone else, so the currency cannot be inflated after this call.
+    ///
+    /// Only the program's upgrade authority can call it (see `Initialize`).
+    /// Deploying and initialising are separate transactions, and whoever calls
+    /// this first decides the admin, the settler and the stake token for good;
+    /// before this check, that was anyone who saw the deploy land.
     pub fn initialize(
         ctx: Context<Initialize>,
         settler: Pubkey,
@@ -196,6 +201,10 @@ pub mod oxude_settlement {
         require!(max_settlement > 0, OxudeError::InvalidLimit);
         require!(max_settlement <= in_base_units(MAX_SETTLEMENT_CEILING_CHIPS, chip_rate)?, OxudeError::InvalidLimit);
         require!(rent > 0, OxudeError::InvalidLimit);
+        require!(
+            upgrade_authority_of(&ctx.accounts.program_data.try_borrow_data()?) == Some(ctx.accounts.upgrade_authority.key()),
+            OxudeError::NotUpgradeAuthority
+        );
         require!(ctx.accounts.mint.decimals == STAKE_DECIMALS, OxudeError::WrongStakeDecimals);
         require!(ctx.accounts.mint.mint_authority.is_none(), OxudeError::MintableStakeToken);
         let config = &mut ctx.accounts.config;
@@ -974,6 +983,21 @@ pub fn batch_follows(last: u64, batch: u64) -> bool {
     last.checked_add(1) == Some(batch)
 }
 
+/// The upgradeable loader, which owns every upgradeable program's ProgramData.
+pub const LOADER_UPGRADEABLE: Pubkey = pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
+
+/// The upgrade authority a ProgramData account records, or None when it has
+/// none (an immutable program) or the bytes are not a ProgramData account.
+///
+/// The loader's layout: a u32 tag (3 = ProgramData), the u64 slot of the last
+/// deploy, then an Option<Pubkey> - one byte, then 32 if it is Some.
+pub fn upgrade_authority_of(data: &[u8]) -> Option<Pubkey> {
+    if data.len() < 45 || data[0..4] != [3, 0, 0, 0] || data[12] != 1 {
+        return None;
+    }
+    Pubkey::try_from(&data[13..45]).ok()
+}
+
 /// This hour's number, counted from the epoch: the outflow window it is in.
 pub fn this_hour() -> Result<u64> {
     let now = Clock::get()?.unix_timestamp;
@@ -1291,6 +1315,22 @@ pub struct SetMaxSettlement<'info> {
 pub struct Initialize<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
+    /// Whoever holds this program's upgrade authority. `initialize` makes the
+    /// config once and for good - the admin, the settler and the stake token -
+    /// so without this anyone watching the deploy could call it first and take
+    /// the program. With it, only the key that could already replace the
+    /// program's code can set it up. It may be the admin's own key or not.
+    pub upgrade_authority: Signer<'info>,
+    /// This program's ProgramData account, where the loader records the
+    /// upgrade authority. Read by hand in `upgrade_authority_of` rather than
+    /// through `Account<ProgramData>`, whose general decoder cost 62 KB of
+    /// program size for the 45 bytes this needs.
+    /// CHECK: owner and address are checked here; contents in `initialize`.
+    #[account(
+        owner = LOADER_UPGRADEABLE @ OxudeError::NotUpgradeAuthority,
+        address = Pubkey::find_program_address(&[crate::ID.as_ref()], &LOADER_UPGRADEABLE).0 @ OxudeError::NotUpgradeAuthority,
+    )]
+    pub program_data: UncheckedAccount<'info>,
     #[account(init, payer = admin, space = 8 + Config::INIT_SPACE, seeds = [CONFIG_SEED], bump)]
     pub config: Account<'info, Config>,
     /// The stake token: an ordinary mint made outside this program, whose mint
@@ -1890,6 +1930,8 @@ pub enum OxudeError {
     BatchOutOfOrder,
     #[msg("The clearing account does not hold this credit yet: its period's debits have not all landed")]
     ClearingShort,
+    #[msg("Only the program's upgrade authority can initialise it")]
+    NotUpgradeAuthority,
 }
 
 #[cfg(test)]
@@ -2069,6 +2111,27 @@ mod tests {
                 assert!(exit_payout(asked, held, 10) <= held, "asked {asked} held {held}");
             }
         }
+    }
+
+    #[test]
+    fn reads_the_upgrade_authority_from_program_data_bytes() {
+        let authority = Pubkey::new_unique();
+        let mut data = vec![3u8, 0, 0, 0];
+        data.extend_from_slice(&123u64.to_le_bytes());
+        data.push(1);
+        data.extend_from_slice(authority.as_ref());
+        data.extend_from_slice(&[0u8; 64]); // the program's code follows
+        assert_eq!(upgrade_authority_of(&data), Some(authority));
+        // Immutable: the authority is None, so nobody can initialise.
+        let mut immutable = data.clone();
+        immutable[12] = 0;
+        assert_eq!(upgrade_authority_of(&immutable), None);
+        // Not a ProgramData account: the Program account's tag is 2.
+        let mut program = data.clone();
+        program[0] = 2;
+        assert_eq!(upgrade_authority_of(&program), None);
+        // Too short to hold an authority at all.
+        assert_eq!(upgrade_authority_of(&data[..44]), None);
     }
 
     #[test]

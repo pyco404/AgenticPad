@@ -729,7 +729,12 @@ export type OxudeSettlement = {
         "The mint is passed in rather than created here, and it is refused unless",
         "its mint authority is already `None`. That is the whole of the supply",
         "guarantee: this program holds no authority to mint, and neither does",
-        "anyone else, so the currency cannot be inflated after this call."
+        "anyone else, so the currency cannot be inflated after this call.",
+        "",
+        "Only the program's upgrade authority can call it (see `Initialize`).",
+        "Deploying and initialising are separate transactions, and whoever calls",
+        "this first decides the admin, the settler and the stake token for good;",
+        "before this check, that was anyone who saw the deploy land."
       ],
       "discriminator": [
         175,
@@ -746,6 +751,26 @@ export type OxudeSettlement = {
           "name": "admin",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "upgradeAuthority",
+          "docs": [
+            "Whoever holds this program's upgrade authority. `initialize` makes the",
+            "config once and for good - the admin, the settler and the stake token -",
+            "so without this anyone watching the deploy could call it first and take",
+            "the program. With it, only the key that could already replace the",
+            "program's code can set it up. It may be the admin's own key or not."
+          ],
+          "signer": true
+        },
+        {
+          "name": "programData",
+          "docs": [
+            "This program's ProgramData account, where the loader records the",
+            "upgrade authority. Read by hand in `upgrade_authority_of` rather than",
+            "through `Account<ProgramData>`, whose general decoder cost 62 KB of",
+            "program size for the 45 bytes this needs."
+          ]
         },
         {
           "name": "config",
@@ -3160,6 +3185,11 @@ export type OxudeSettlement = {
       "code": 6034,
       "name": "clearingShort",
       "msg": "The clearing account does not hold this credit yet: its period's debits have not all landed"
+    },
+    {
+      "code": 6035,
+      "name": "notUpgradeAuthority",
+      "msg": "Only the program's upgrade authority can initialise it"
     }
   ],
   "types": [

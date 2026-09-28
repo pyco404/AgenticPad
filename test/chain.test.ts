@@ -64,7 +64,8 @@ let treasury: PublicKey;
  * account already existing, whatever the mint is, which would make the
  * assertions below pass without ever reaching the checks they are about.
  */
-let initRefusals: { mintable: string; decimals: string };
+let initRefusals: { mintable: string; decimals: string; stranger: string };
+let upgrader: Keypair;
 /**
  * Every figure in this file is written as chips times CHIP, because that is how
  * the product thinks and how the program's own limits are stated. The chain
@@ -169,13 +170,16 @@ async function airdrop(to: Keypair, sol: number) {
 describe.skipIf(!RUN)("settlement program", () => {
   beforeAll(async () => {
     ledger = mkdtempSync(join(tmpdir(), "oxude-ledger-"));
+    // Loaded upgradeable, with an upgrade authority of its own, as a real
+    // deploy is: initialize checks the ProgramData account for exactly this.
+    upgrader = Keypair.generate();
     validator = spawn(
       "solana-test-validator",
       [
         "--reset", "--quiet", "--ledger", ledger,
         "--rpc-port", String(RPC_PORT), "--faucet-port", String(RPC_PORT + 1000),
         "--dynamic-port-range", `${RPC_PORT + 2000}-${RPC_PORT + 2100}`,
-        "--bpf-program", PROGRAM_ID.toBase58(), "chain/target/deploy/oxude_settlement.so",
+        "--upgradeable-program", PROGRAM_ID.toBase58(), "chain/target/deploy/oxude_settlement.so", upgrader.publicKey.toBase58(),
       ],
       { stdio: "ignore" },
     );
@@ -209,14 +213,19 @@ describe.skipIf(!RUN)("settlement program", () => {
     await setAuthority(connection, admin, wrongScale, admin, AuthorityType.MintTokens, null, [], undefined, TOKEN);
     initRefusals = {
       mintable: await refusal(() =>
-        new ChainClient(connection, admin, mintable, TOKEN).initialize(settler.publicKey, MAX, RENT, CHIP),
+        new ChainClient(connection, admin, mintable, TOKEN).initialize(settler.publicKey, MAX, RENT, CHIP, upgrader),
       ),
       decimals: await refusal(() =>
-        new ChainClient(connection, admin, wrongScale, TOKEN).initialize(settler.publicKey, MAX, RENT, CHIP),
+        new ChainClient(connection, admin, wrongScale, TOKEN).initialize(settler.publicKey, MAX, RENT, CHIP, upgrader),
+      ),
+      // Somebody who saw the deploy land: a good mint, but not the upgrade
+      // authority - whether they sign as themselves or name the admin.
+      stranger: await refusal(() =>
+        new ChainClient(connection, admin, stakeMint, TOKEN).initialize(settler.publicKey, MAX, RENT, CHIP),
       ),
     };
 
-    await new ChainClient(connection, admin, stakeMint, TOKEN).initialize(settler.publicKey, MAX, RENT, CHIP);
+    await new ChainClient(connection, admin, stakeMint, TOKEN).initialize(settler.publicKey, MAX, RENT, CHIP, upgrader);
     // Exits on, with a window this file can outlast. Production's is 4,500
     // slots (~30 minutes); at the validator's ~2.5 slots a second that would
     // be twenty minutes of test. TEST_EXIT_WINDOW is a few seconds, which is
@@ -469,6 +478,12 @@ describe.skipIf(!RUN)("settlement program", () => {
     // And a token of a different scale, where every figure the product quotes
     // would be out by a factor of a thousand.
     expect(initRefusals.decimals).toMatch(/WrongStakeDecimals/);
+  });
+
+  it("lets only the program's upgrade authority initialise it", () => {
+    // The admin signed and a valid mint was given, but the upgrade authority
+    // did not sign: refused, so a deploy cannot be taken by whoever calls first.
+    expect(initRefusals.stranger).toMatch(/NotUpgradeAuthority/);
   });
 
   it("opens a vault only under the id its owner and salt hash to", async () => {
