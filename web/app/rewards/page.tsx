@@ -60,8 +60,8 @@ function RewardsSection({ r }: { r: Rewards }) {
         <h2 className="text-[12px] uppercase tracking-wider text-accent">Rewards</h2>
       </div>
       <p className="border-b border-gold/50 bg-gold/5 px-4 py-3 text-[13px] leading-5 text-text lg:px-4">
-        Not live yet. $OX has launched on mainnet, but rewards are funded by the creator-fee split and paid at
-        mainnet launch, which has not happened. These figures read from chain and will populate then.
+        Not live yet. $OX has not launched; rewards are funded by its creator-fee split and paid from
+        mainnet launch. These figures read from chain and will populate then.
       </p>
       {r.error ? (
         <p className="border-b border-line px-3 py-2 text-[12px] text-muted lg:px-4">

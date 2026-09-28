@@ -1,6 +1,6 @@
 # Economy (post-hackathon design)
 
-**Status: design, with two parts now real.** Bands are live as money scales (see [Bands](#bands)), and **$OX has launched** (see [Token](#token)). Everything that connects them — rentals, funding, auctions, prizes, the chip rate — remains design only. The game still runs on devnet with a fake game token, and $OX is not yet its currency; this is the plan for making it one. The security model in [security.md](security.md) describes the system as it is, and several of its known limitations must be closed before any of this ships (see [Open questions](#open-questions)).
+**Status: design, with two parts now real.** Bands are live as money scales (see [Bands](#bands)); **$OX, the game's token, has not been minted yet** (see [Token](#token)). Everything that connects them — rentals, funding, auctions, prizes, the chip rate — remains design only. The game still runs on devnet with a fake game token, and $OX is not yet its currency; this is the plan for making it one. The security model in [security.md](security.md) describes the system as it is, and several of its known limitations must be closed before any of this ships (see [Open questions](#open-questions)).
 
 ## Roadmap
 
@@ -17,28 +17,20 @@ In order. Each step ships to devnet before the next begins, until the last, whic
 
 ## Token
 
-**$OX launched on pump.fun on 20 September 2026.**
+**$OX has not been minted yet.** It will launch on pump.fun, on Solana mainnet, with a supply of 1,000,000,000 and 6 decimals, as pump.fun mints them. New pump.fun tokens appear to launch on **Token-2022** rather than the original SPL Token program, so the settlement program is being ported to accept either; which one $OX is gets confirmed when it is minted.
 
-| | |
-|---|---|
-| Network | Solana mainnet |
-| Supply | 1,000,000,000 |
-| Decimals | 6 |
+**The previous launch, $OXUDE, is not $OX.** $OXUDE launched on pump.fun on 20 September 2026, mint `6LHnjWWn5qNvjwCsSo8ucWj5AZZjQP4d8yy79omGpump`, and is a dead launch with nothing holding it. It plays no part in the game and never will; it is recorded here so that the two are not confused.
 
-**It is not the game's currency yet, and holding it does not let anyone play.** The game runs on devnet against a
-program-derived mint (`8S5QVBtZcBoKdKVGGUH2tCDpnoLYBxtGrPYDTBwwA1N7`, 0 decimals), which is a test token with no
-value and no relation to $OX beyond the name. The two connect only at mainnet launch, which is what the open
-questions below gate.
+**Until $OX launches and mainnet opens, nothing connects the game to a real token.** The game runs on devnet against a
+program-derived mint (`8S5QVBtZcBoKdKVGGUH2tCDpnoLYBxtGrPYDTBwwA1N7`, 0 decimals), a test token with no value and no
+relation to $OX beyond the name. The two connect only at mainnet launch, which is what the open questions below gate.
 
-The launch came **ahead of the requirements this document lists** — no audit, no deposit instruction, no way out
-without the server, no legal review, and the chip rate undecided. The deposit and the non-custodial exit have since
-been built, and the chip rate is decided on paper ([The chip rate](#the-chip-rate)) though not yet in the program; the audit and the legal review have not. That is recorded here as fact, not
-as an argument: those requirements were written as gates on *real money in the game*, and they still are. What
-changed is that they are now pre-mainnet gates rather than pre-launch ones, and the token trading before them means
-there is an audience watching the gap close.
+The requirements this document lists were written as gates on *real money in the game*, and they still are. Of them,
+the deposit and the non-custodial exit have been built, and the chip rate is decided on paper ([The chip rate](#the-chip-rate))
+though not yet in the program; the audit and the legal review have not happened.
 
 - **6 decimals**, as pump.fun mints them.
-- The launch **pairs with USDC rather than SOL**, so neither the prize pool nor the rental price swings with SOL.
+- The launch will **pair with USDC rather than SOL**, so neither the prize pool nor the rental price swings with SOL.
 - **No minting on mainnet.** The devnet program mints a fake game token to seed vaults; mainnet has a fixed supply and every balance traces to a real deposit or a match win. The mint authority is not the platform's to hold.
 
 ## The chip rate
@@ -201,7 +193,7 @@ It is the same shape as the balance floor: the player sets the bounds, and the a
   **Not yet configured.** The split is a one-shot setting on pump.fun, so it must be configured before fees accumulate, and **all three addresses are final** once it is.
 - **Each prize cycle releases 50% of its wallet's balance**, never the whole of it. A quiet fee period then still pays a real prize instead of a near-zero one, and neither reward wallet ever empties. At a steady fee rate a cycle pays out about what came in since the last one, with about as much again held back.
 - **Claims are manual, per wallet**, and part of the season routine ([Seasons](#seasons)). A cycle can only release from what its wallet has claimed.
-- Launch paired to **USDC rather than SOL**, so the prize pool doesn't swing with SOL's price.
+- $OX launches paired to **USDC rather than SOL**, so the prize pool doesn't swing with SOL's price.
 - Matched auction bids pay the **weekly reward wallet** in full ([Expiry and auction](#expiry-and-auction)).
 - **Prizes are announced and accounted in USDC, and paid in $OX bought at the moment of payout.** A place is worth a stated dollar amount from the moment it is announced; at payout the reward wallet spends that many USDC buying $OX on the pool, and the tokens go to the winner. The published statement accounts in USDC: what came in, what each place was announced at, and what was spent buying it. The cost is slippage on that buy (open question 12).
 - Prizes pay on **final ladder placement**, to owner wallets. Never per match and never per win, which is farmable.
@@ -259,7 +251,7 @@ The **prize amounts are absent, not zero**: `funded` is false and `pool` and `pa
 
 ## Open questions
 
-These need resolving before **mainnet** — before $OX becomes the game's currency and real money is at stake in a match. The token launching has not moved any of them; it has only made the distance to mainnet visible from outside.
+These need resolving before **mainnet** — before $OX becomes the game's currency and real money is at stake in a match.
 
 1. **What an auction buyer gets.** The record transfers but the brief doesn't, so the buyer writes a new brief and the record then describes a different strategy. The auction sells a name and a history, not play strength. That is consistent with no-pay-to-win, but the ladder should either reset the record's strategy-dependent stats on transfer or show where the brief changed.
 
@@ -281,7 +273,7 @@ These need resolving before **mainnet** — before $OX becomes the game's curren
 
    Deposits change the safety story too: `MAX_SEED` stops being the cap on what a vault can hold, the outflow cap becomes the main brake on a stolen settler key, and "an agent can never be revived" stops being true.
 4. **Security limits before real money.** The known limitations in [security.md](security.md) all have to close first: the settler key can drain vaults, the admin key can upgrade the program and raise the per-match limit, and there's no audit. Hourly net settlement changes the first one's shape: a settlement is no longer capped by one match's stake, so the program needs a different limit, per agent per period.
-5. **Legal review.** Real-money stakes on match outcomes, plus prize pools funded by token trading fees, may be regulated as gambling or as a securities offering, depending on jurisdiction. This was written as advice to get before launch; the token launched first, so it is now advice to get before mainnet, and before the creator-fee split is configured — the split can only be set once.
+5. **Legal review.** Real-money stakes on match outcomes, plus prize pools funded by token trading fees, may be regulated as gambling or as a securities offering, depending on jurisdiction. It is advice to get before $OX launches - the previous launch, $OXUDE, went ahead without it - and at the latest before mainnet and before the creator-fee split is configured, which happens after launch and can only be set once.
 6. **Payout curve and ladder size.** How many places pay, and on what curve. Nothing is decided about top-N versus proportional, the minimum match count that qualifies, or whether daily and weekly use the same shape.
 7. **Anti-farming review policy.** Detection flags rather than pre-blocks, but nothing says who reviews a flag, on what timeline, or what happens to prizes already owed to a flagged wallet when the review lands after a payout.
 8. **Burn versus reward-wallet accounting.** Rental fees burn, outside-bidder auctions burn half, and matched bids pay the weekly reward wallet instead. No stated relationship exists between the burn rate and the reward wallet's inflow, and the published statement needs to reconcile both sides.
