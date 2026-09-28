@@ -64,6 +64,8 @@ export const pdas = {
   exitConfig: () => PublicKey.findProgramAddressSync([Buffer.from("exit_config")], PROGRAM_ID)[0],
   exit: (agentId: string) =>
     PublicKey.findProgramAddressSync([Buffer.from("exit"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
+  /** A proposed admin handover, waiting for the proposed key to accept. */
+  adminHandover: () => PublicKey.findProgramAddressSync([Buffer.from("admin_handover")], PROGRAM_ID)[0],
   /** The agent's daily loss budget, set by its owner. */
   budget: (agentId: string) =>
     PublicKey.findProgramAddressSync([Buffer.from("budget"), Buffer.from(uuidBytes(agentId))], PROGRAM_ID)[0],
@@ -354,6 +356,51 @@ export class ChainClient {
       .setSettler(settler)
       .accountsPartial({ admin: this.signer.publicKey, config: pdas.config() })
       .rpc();
+  }
+
+  /**
+   * Proposes a new admin. The signer must be the current admin; nothing changes
+   * until the proposed key accepts with `acceptAdmin`, so a mistyped address
+   * can never become the admin.
+   */
+  async proposeAdmin(proposed: PublicKey): Promise<string> {
+    return this.program.methods
+      .proposeAdmin(proposed)
+      .accountsPartial({
+        admin: this.signer.publicKey,
+        config: pdas.config(),
+        handover: pdas.adminHandover(),
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+  }
+
+  /** Accepts a proposed handover. The signer must be the proposed key. */
+  async acceptAdmin(): Promise<string> {
+    const { admin } = await this.config();
+    return this.program.methods
+      .acceptAdmin()
+      .accountsPartial({
+        proposed: this.signer.publicKey,
+        previousAdmin: admin,
+        config: pdas.config(),
+        handover: pdas.adminHandover(),
+      })
+      .rpc();
+  }
+
+  /** Withdraws a proposal before it is accepted. The signer must be the current admin. */
+  async cancelAdminHandover(): Promise<string> {
+    return this.program.methods
+      .cancelAdminHandover()
+      .accountsPartial({ admin: this.signer.publicKey, config: pdas.config(), handover: pdas.adminHandover() })
+      .rpc();
+  }
+
+  /** The key proposed as the next admin, or null when no handover is waiting. */
+  async proposedAdmin(): Promise<string | null> {
+    const handover = await this.program.account.adminHandover.fetchNullable(pdas.adminHandover(), "confirmed");
+    return handover ? handover.proposed.toBase58() : null;
   }
 
   /**

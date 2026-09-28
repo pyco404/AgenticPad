@@ -72,6 +72,7 @@ pub const EXIT_SEED: &[u8] = b"exit";
 pub const EXIT_CONFIG_SEED: &[u8] = b"exit_config";
 pub const STRATEGY_SEED: &[u8] = b"strategy";
 pub const BUDGET_SEED: &[u8] = b"budget";
+pub const ADMIN_HANDOVER_SEED: &[u8] = b"admin_handover";
 
 /// How many days back a settlement for a budgeted agent may be dated: today
 /// and the two before. A backlog up to two days old still settles; older is
@@ -97,15 +98,6 @@ pub const WINDOW_SLOTS: u64 = 1_500;
 /// rate clamps instead of following, so a tiny early cap cannot make one chip
 /// cost an absurd share of the supply.
 pub const MAX_CHIP_RATE: u64 = 1_000 * 1_000_000;
-/// How long the rate must stand before it can move again: six days of slots,
-/// safely inside a seven-day season.
-///
-/// This bounds how *often* the rate can move, not *when*. The season boundary
-/// is a wall-clock Monday and the ledger owns it; slot times drift, so a
-/// slot-derived week would sometimes refuse a change that was on time. What
-/// this stops is an admin compounding several ±50% moves inside a day, which
-/// the per-change band alone would allow.
-pub const MIN_RATE_INTERVAL_SLOTS: u64 = 6 * 24 * 60 * 60 * 1_000 / 400;
 /// The stake token's decimals. Not needed by any arithmetic here - `chip_rate`
 /// carries the whole conversion - but checked at `initialize` so that a
 /// deployment cannot be pointed at a token of a different scale, where every
@@ -205,13 +197,16 @@ pub mod oxude_settlement {
 
     /// Sets the season's rate: how many base units one chip is worth.
     ///
-    /// The admin supplies a number computed off chain from a published
-    /// time-weighted average price, and the program holds it to three bounds it
-    /// can check for itself: it may not move by more than half either way, it
-    /// may not exceed `MAX_CHIP_RATE`, and it may not move again for
-    /// `MIN_RATE_INTERVAL_SLOTS`. Those bound what a wrong or dishonest reading
-    /// can do; they do not make one acceptable. An on-chain oracle can take the
-    /// admin's place later without changing any of the three.
+    /// The admin supplies a number computed off chain from the token's price,
+    /// and the program holds it to two bounds it can check for itself: it may
+    /// rise freely up to `MAX_CHIP_RATE`, and it may fall by at most half in one
+    /// step - the same shape as the exit window. A token that crashes needs more
+    /// base units per chip, and gets them in one transaction; one that rallies
+    /// needs fewer, and a move of more than 2x takes several halving steps, each
+    /// its own transaction on chain and visible. There is no wait between steps:
+    /// the halving makes a large cut slow to *do* and easy to *see*, not slow to
+    /// happen. Rising is bounded only by the ceiling (docs/economy.md, open
+    /// question 13).
     ///
     /// `max_settlement` is a chip figure held in base units, so it is rescaled
     /// here rather than left to mean a different number of chips than it did
@@ -222,8 +217,7 @@ pub mod oxude_settlement {
         require!(chip_rate <= MAX_CHIP_RATE, OxudeError::RateCeiling);
         let slot = Clock::get()?.slot;
         let config = &mut ctx.accounts.config;
-        require!(rate_interval_passed(config.chip_rate_slot, slot), OxudeError::RateTooSoon);
-        require!(rate_within_band(config.chip_rate, chip_rate), OxudeError::RateMoveTooBig);
+        require!(rate_change_ok(config.chip_rate, chip_rate), OxudeError::RateMoveTooBig);
         let previous = config.chip_rate;
         config.max_settlement = config
             .max_settlement
@@ -315,6 +309,44 @@ pub mod oxude_settlement {
     /// fails loudly rather than looking like a rotation that happened. It also
     /// refuses the admin's own key: one key holding both roles would undo the
     /// separation every other check here depends on.
+    /// Proposes a new admin. The first half of a handover: the proposed key
+    /// takes over only once it signs `accept_admin` itself, so a mistyped
+    /// address can never become the admin - it would have to sign, and nobody
+    /// holds the key to a typo. Proposing again replaces the proposal.
+    ///
+    /// The admin is the key that sets the chip rate every week, so losing it
+    /// must not be permanent; and it must stay a different key from the
+    /// settler's, as `set_settler` requires from the other side.
+    pub fn propose_admin(ctx: Context<ProposeAdmin>, proposed: Pubkey) -> Result<()> {
+        let config = &ctx.accounts.config;
+        require!(proposed != Pubkey::default(), OxudeError::InvalidAdmin);
+        require!(proposed != config.admin, OxudeError::InvalidAdmin);
+        require!(proposed != config.settler, OxudeError::InvalidAdmin);
+        let handover = &mut ctx.accounts.handover;
+        handover.proposed = proposed;
+        handover.slot = Clock::get()?.slot;
+        handover.bump = ctx.bumps.handover;
+        emit!(AdminProposed { admin: config.admin, proposed });
+        Ok(())
+    }
+
+    /// The second half: the proposed key signs, and becomes the admin. The
+    /// proposal's rent goes back to the admin who paid for it.
+    pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        // The settler may have been rotated onto this key since it was proposed.
+        require!(ctx.accounts.proposed.key() != config.settler, OxudeError::InvalidAdmin);
+        let previous = config.admin;
+        config.admin = ctx.accounts.proposed.key();
+        emit!(AdminChanged { previous, admin: config.admin });
+        Ok(())
+    }
+
+    /// Withdraws a proposal before it is accepted.
+    pub fn cancel_admin_handover(_ctx: Context<CancelAdminHandover>) -> Result<()> {
+        Ok(())
+    }
+
     pub fn set_settler(ctx: Context<SetSettler>, settler: Pubkey) -> Result<()> {
         require!(settler != Pubkey::default(), OxudeError::InvalidSettler);
         let config = &mut ctx.accounts.config;
@@ -714,20 +746,12 @@ pub fn outflow_cap(vault: u64, chip_rate: u64) -> u64 {
     OUTFLOW_FLOOR_CHIPS.saturating_mul(chip_rate).max(vault / 4)
 }
 
-/// Whether a new rate is within half of the one in place, either way. A token
-/// that doubles or halves in a week moves the chip rate by half, and the rest
-/// is caught up the week after.
-pub fn rate_within_band(previous: u64, next: u64) -> bool {
-    match (next.checked_mul(2), previous.checked_mul(3)) {
-        (Some(twice), Some(thrice)) => twice >= previous && twice <= thrice,
-        _ => false,
-    }
-}
-
-/// Whether the rate has stood long enough to move again. A rate that has never
-/// moved may move at once.
-pub fn rate_interval_passed(last_slot: u64, slot: u64) -> bool {
-    last_slot == 0 || slot >= last_slot.saturating_add(MIN_RATE_INTERVAL_SLOTS)
+/// Whether the rate may move from `previous` to `next`: up by any amount (the
+/// ceiling is checked apart), down to no less than half. The same rule as the
+/// exit window's, and saturating for the same reason - doubling a rate near
+/// `u64::MAX` must not wrap into a refusal, or a cut into a pass.
+pub fn rate_change_ok(previous: u64, next: u64) -> bool {
+    next > 0 && next.saturating_mul(2) >= previous
 }
 
 /// An amount in chips as base units of the stake token, at the season's rate.
@@ -924,6 +948,15 @@ pub struct Strategy {
     pub bump: u8,
 }
 
+/// A proposed admin, waiting for that key to accept. At most one at a time.
+#[account]
+#[derive(InitSpace)]
+pub struct AdminHandover {
+    pub proposed: Pubkey,
+    pub slot: u64,
+    pub bump: u8,
+}
+
 /// One per agent whose owner has set a daily loss budget.
 ///
 /// Net loss per UTC day, in base units: a loss adds, a win takes away. Three
@@ -1008,6 +1041,53 @@ pub struct Outflow {
     pub window_start: u64,
     pub spent: u64,
     pub bump: u8,
+}
+
+#[derive(Accounts)]
+pub struct ProposeAdmin<'info> {
+    /// The admin recorded on the config, and nobody else. Pays the proposal's rent.
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = admin @ OxudeError::NotAdmin)]
+    pub config: Account<'info, Config>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + AdminHandover::INIT_SPACE,
+        seeds = [ADMIN_HANDOVER_SEED],
+        bump
+    )]
+    pub handover: Account<'info, AdminHandover>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AcceptAdmin<'info> {
+    /// The proposed key, signing for itself.
+    pub proposed: Signer<'info>,
+    /// CHECK: the outgoing admin, who paid the proposal's rent and gets it back.
+    #[account(mut, address = config.admin)]
+    pub previous_admin: UncheckedAccount<'info>,
+    #[account(mut, seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    #[account(
+        mut,
+        close = previous_admin,
+        seeds = [ADMIN_HANDOVER_SEED],
+        bump = handover.bump,
+        constraint = handover.proposed == proposed.key() @ OxudeError::NotProposedAdmin
+    )]
+    pub handover: Account<'info, AdminHandover>,
+}
+
+#[derive(Accounts)]
+pub struct CancelAdminHandover<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = admin @ OxudeError::NotAdmin)]
+    pub config: Account<'info, Config>,
+    #[account(mut, close = admin, seeds = [ADMIN_HANDOVER_SEED], bump = handover.bump)]
+    pub handover: Account<'info, AdminHandover>,
 }
 
 #[derive(Accounts)]
@@ -1424,6 +1504,18 @@ pub struct CloseExit<'info> {
 }
 
 #[event]
+pub struct AdminProposed {
+    pub admin: Pubkey,
+    pub proposed: Pubkey,
+}
+
+#[event]
+pub struct AdminChanged {
+    pub previous: Pubkey,
+    pub admin: Pubkey,
+}
+
+#[event]
 pub struct LossBudgetSet {
     pub agent_id: [u8; 16],
     pub per_day: u64,
@@ -1587,6 +1679,10 @@ pub enum OxudeError {
     LossBudgetExceeded,
     #[msg("A budgeted settlement must be dated today or within the two days before")]
     SettlementDayOutOfRange,
+    #[msg("The new admin must be a real key, and differ from the current admin and from the settler")]
+    InvalidAdmin,
+    #[msg("Only the proposed key can accept the handover")]
+    NotProposedAdmin,
 }
 
 #[cfg(test)]
@@ -1697,6 +1793,22 @@ mod tests {
     }
 
     #[test]
+    fn a_rate_rises_freely_and_falls_by_at_most_half() {
+        // Up by any amount: the ceiling is checked apart, not here.
+        assert!(rate_change_ok(1_000, 1_001));
+        assert!(rate_change_ok(1_000, 1_000_000));
+        // Down to exactly half, and no further in one step.
+        assert!(rate_change_ok(1_000, 500));
+        assert!(!rate_change_ok(1_000, 499));
+        // Zero is never a rate.
+        assert!(!rate_change_ok(1_000, 0));
+        // Doubling near the top saturates rather than wrapping into a refusal.
+        assert!(rate_change_ok(u64::MAX, u64::MAX));
+        assert!(rate_change_ok(u64::MAX, u64::MAX / 2 + 1));
+        assert!(!rate_change_ok(u64::MAX, u64::MAX / 4));
+    }
+
+    #[test]
     fn the_exit_window_grows_freely_and_shrinks_by_halves() {
         // Growing: always allowed, however far.
         assert!(window_shrink_ok(4_500, 9_000));
@@ -1793,37 +1905,6 @@ mod tests {
         assert_eq!(in_base_units(MIN_STAKE_CHIPS, CHIP).unwrap(), 10_000_000);
         // A rate that would make a limit wrap is an error, never a small number.
         assert!(in_base_units(MAX_SETTLEMENT_CEILING_CHIPS, u64::MAX).is_err());
-    }
-
-    #[test]
-    fn a_rate_may_move_by_half_either_way_and_no_further() {
-        // Exactly half and exactly half again as much are both allowed.
-        assert!(rate_within_band(1_000, 500));
-        assert!(rate_within_band(1_000, 1_500));
-        assert!(rate_within_band(1_000, 1_000));
-        // A hair outside either edge is not.
-        assert!(!rate_within_band(1_000, 499));
-        assert!(!rate_within_band(1_000, 1_501));
-        // Zero is never a rate, and nothing wraps at the top of the range.
-        assert!(!rate_within_band(1_000, 0));
-        assert!(!rate_within_band(u64::MAX, u64::MAX));
-    }
-
-    #[test]
-    fn a_rate_that_has_moved_must_stand_for_six_days_of_slots() {
-        // Never moved: the first change need not wait.
-        assert!(rate_interval_passed(0, 0));
-        assert!(rate_interval_passed(0, 1));
-        // Moved: not before the interval is out, and not a slot early.
-        assert!(!rate_interval_passed(100, 100));
-        assert!(!rate_interval_passed(100, 100 + MIN_RATE_INTERVAL_SLOTS - 1));
-        assert!(rate_interval_passed(100, 100 + MIN_RATE_INTERVAL_SLOTS));
-        // Six days of slots is inside a seven-day season.
-        assert!(MIN_RATE_INTERVAL_SLOTS < 7 * 24 * 60 * 60 * 1_000 / 400);
-        // Nothing wraps at the top of the range: the interval saturates rather
-        // than rolling over into letting a change through early.
-        assert!(!rate_interval_passed(u64::MAX, u64::MAX - 1));
-        assert!(!rate_interval_passed(u64::MAX - MIN_RATE_INTERVAL_SLOTS + 1, 0));
     }
 
     #[test]

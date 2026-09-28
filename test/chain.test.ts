@@ -1227,6 +1227,52 @@ describe.skipIf(!RUN)("settlement program", () => {
     });
   });
 
+  describe("handing the admin key on", () => {
+    it("takes a proposal from the admin and an acceptance from the proposed key, and nothing less", async () => {
+      const asAdmin = new ChainClient(connection, admin, stakeMint, TOKEN);
+      const next = Keypair.generate();
+      await airdrop(next, 1);
+      const asNext = new ChainClient(connection, next, stakeMint, TOKEN);
+
+      // Only the admin proposes, and only a key that is not already a role.
+      expect(await refusal(() => chain.proposeAdmin(next.publicKey))).toMatch(/NotAdmin/);
+      for (const taken of [admin.publicKey, settler.publicKey, PublicKey.default]) {
+        expect(await refusal(() => asAdmin.proposeAdmin(taken))).toMatch(/InvalidAdmin/);
+      }
+      await asAdmin.proposeAdmin(next.publicKey);
+      expect(await chain.proposedAdmin()).toBe(next.publicKey.toBase58());
+
+      // Proposed is not admin: nothing has changed until it accepts.
+      expect(await refusal(() => asNext.setSettler(Keypair.generate().publicKey))).toMatch(/NotAdmin/);
+      // And nobody else can accept for it.
+      const stranger = Keypair.generate();
+      await airdrop(stranger, 1);
+      expect(await refusal(() => new ChainClient(connection, stranger, stakeMint, TOKEN).acceptAdmin())).toMatch(/NotProposedAdmin/);
+
+      await asNext.acceptAdmin();
+      expect((await chain.config()).admin.toBase58()).toBe(next.publicKey.toBase58());
+      expect(await chain.proposedAdmin()).toBeNull();
+      // The old admin has no power left the moment the new one accepts.
+      expect(await refusal(() => asAdmin.setSettler(Keypair.generate().publicKey))).toMatch(/NotAdmin/);
+
+      // Handed straight back, by the same two steps, for the tests that follow.
+      await asNext.proposeAdmin(admin.publicKey);
+      await asAdmin.acceptAdmin();
+      expect((await chain.config()).admin.toBase58()).toBe(admin.publicKey.toBase58());
+    });
+
+    it("can be withdrawn before it is accepted", async () => {
+      const asAdmin = new ChainClient(connection, admin, stakeMint, TOKEN);
+      const next = Keypair.generate();
+      await airdrop(next, 1);
+      await asAdmin.proposeAdmin(next.publicKey);
+      await asAdmin.cancelAdminHandover();
+      expect(await chain.proposedAdmin()).toBeNull();
+      expect(await refusal(() => new ChainClient(connection, next, stakeMint, TOKEN).acceptAdmin())).not.toBe("");
+      expect((await chain.config()).admin.toBase58()).toBe(admin.publicKey.toBase58());
+    });
+  });
+
   // Note for anything added below: this block moves the chip rate, and
   // max_settlement follows it. A test appended after this one is playing at
   // half the limits the ones above it use.
@@ -1234,31 +1280,32 @@ describe.skipIf(!RUN)("settlement program", () => {
     /** Mirrors the program's ceiling on tokens per chip. */
     const MAX_CHIP_RATE = 1_000 * CHIP;
 
-    // Last in the file on purpose. A rate change cannot be undone here: the
-    // program makes a rate stand for six days of slots before it moves again,
-    // so anything declared after this would run against a different rate.
-    it("holds a new rate to a ceiling, a half-either-way band, and an interval", async () => {
+    // Last in the file, and it leaves the rate where it found it: a test added
+    // after it still plays at the rate the ones above it use.
+    it("lets the rate rise freely under the ceiling, and fall by at most half a step, with no wait", async () => {
       const asAdmin = new ChainClient(connection, admin, stakeMint, TOKEN);
       // The settler cannot move the rate; this is the admin's alone.
       await expect(chain.setChipRate(CHIP)).rejects.toThrow(/NotAdmin/);
       // Nor can it be zero, nor cost more than the ceiling on tokens per chip.
       await expect(asAdmin.setChipRate(0)).rejects.toThrow(/InvalidLimit/);
       await expect(asAdmin.setChipRate(MAX_CHIP_RATE + 1)).rejects.toThrow(/RateCeiling/);
-      // Nor move by more than half, either way, in one step.
+      // Down by more than half in one step: refused.
       await expect(asAdmin.setChipRate(CHIP / 2 - 1)).rejects.toThrow(/RateMoveTooBig/);
-      await expect(asAdmin.setChipRate(CHIP * 1.5 + 1)).rejects.toThrow(/RateMoveTooBig/);
       expect((await chain.config()).chipRate.toNumber()).toBe(CHIP);
 
-      // Half as many base units to the chip - the token having doubled - is
-      // exactly at the edge, so it is allowed. max_settlement follows the rate,
-      // so it still means band C's 60 chips and not half of them.
-      await asAdmin.setChipRate(CHIP / 2);
-      const after = await chain.config();
-      expect(after.chipRate.toNumber()).toBe(CHIP / 2);
-      expect(after.maxSettlement.toNumber()).toBe(60 * (CHIP / 2));
+      // Up tenfold - the token having crashed - in one transaction, where the
+      // old rule allowed half as much again once every six days. max_settlement
+      // follows the rate, so it still means band C's 60 chips.
+      await asAdmin.setChipRate(10 * CHIP);
+      let config = await chain.config();
+      expect(config.chipRate.toNumber()).toBe(10 * CHIP);
+      expect(config.maxSettlement.toNumber()).toBe(60 * 10 * CHIP);
 
-      // And now it has to stand: a second move is refused, however small.
-      await expect(asAdmin.setChipRate(CHIP / 2)).rejects.toThrow(/RateTooSoon/);
+      // Back down by halves, each step straight after the last: no interval.
+      for (const next of [5 * CHIP, 2.5 * CHIP, 1.25 * CHIP, CHIP]) await asAdmin.setChipRate(next);
+      config = await chain.config();
+      expect(config.chipRate.toNumber()).toBe(CHIP);
+      expect(config.maxSettlement.toNumber()).toBe(60 * CHIP);
     });
   });
 });

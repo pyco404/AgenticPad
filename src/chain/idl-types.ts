@@ -14,6 +14,155 @@ export type OxudeSettlement = {
   },
   "instructions": [
     {
+      "name": "acceptAdmin",
+      "docs": [
+        "The second half: the proposed key signs, and becomes the admin. The",
+        "proposal's rent goes back to the admin who paid for it."
+      ],
+      "discriminator": [
+        112,
+        42,
+        45,
+        90,
+        116,
+        181,
+        13,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "proposed",
+          "docs": [
+            "The proposed key, signing for itself."
+          ],
+          "signer": true
+        },
+        {
+          "name": "previousAdmin",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "handover",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  109,
+                  105,
+                  110,
+                  95,
+                  104,
+                  97,
+                  110,
+                  100,
+                  111,
+                  118,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancelAdminHandover",
+      "docs": [
+        "Withdraws a proposal before it is accepted."
+      ],
+      "discriminator": [
+        69,
+        119,
+        116,
+        39,
+        171,
+        221,
+        16,
+        128
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "handover",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  109,
+                  105,
+                  110,
+                  95,
+                  104,
+                  97,
+                  110,
+                  100,
+                  111,
+                  118,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "claimExit",
       "docs": [
         "Pays out an exit whose window has passed. The owner signs; nobody else",
@@ -1003,6 +1152,106 @@ export type OxudeSettlement = {
       ]
     },
     {
+      "name": "proposeAdmin",
+      "docs": [
+        "Points the config at a new settler key. The admin recorded at initialize",
+        "is the only key that can call it.",
+        "",
+        "Without this a compromised settler could only be answered by upgrading",
+        "the program, which is slow at exactly the moment speed matters. It",
+        "refuses the key already in place, so a call that would change nothing",
+        "fails loudly rather than looking like a rotation that happened. It also",
+        "refuses the admin's own key: one key holding both roles would undo the",
+        "separation every other check here depends on.",
+        "Proposes a new admin. The first half of a handover: the proposed key",
+        "takes over only once it signs `accept_admin` itself, so a mistyped",
+        "address can never become the admin - it would have to sign, and nobody",
+        "holds the key to a typo. Proposing again replaces the proposal.",
+        "",
+        "The admin is the key that sets the chip rate every week, so losing it",
+        "must not be permanent; and it must stay a different key from the",
+        "settler's, as `set_settler` requires from the other side."
+      ],
+      "discriminator": [
+        121,
+        214,
+        199,
+        212,
+        87,
+        39,
+        117,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "The admin recorded on the config, and nobody else. Pays the proposal's rent."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "handover",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  109,
+                  105,
+                  110,
+                  95,
+                  104,
+                  97,
+                  110,
+                  100,
+                  111,
+                  118,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "proposed",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "requestExit",
       "docs": [
         "Starts an exit that this server does not co-sign.",
@@ -1169,13 +1418,16 @@ export type OxudeSettlement = {
       "docs": [
         "Sets the season's rate: how many base units one chip is worth.",
         "",
-        "The admin supplies a number computed off chain from a published",
-        "time-weighted average price, and the program holds it to three bounds it",
-        "can check for itself: it may not move by more than half either way, it",
-        "may not exceed `MAX_CHIP_RATE`, and it may not move again for",
-        "`MIN_RATE_INTERVAL_SLOTS`. Those bound what a wrong or dishonest reading",
-        "can do; they do not make one acceptable. An on-chain oracle can take the",
-        "admin's place later without changing any of the three.",
+        "The admin supplies a number computed off chain from the token's price,",
+        "and the program holds it to two bounds it can check for itself: it may",
+        "rise freely up to `MAX_CHIP_RATE`, and it may fall by at most half in one",
+        "step - the same shape as the exit window. A token that crashes needs more",
+        "base units per chip, and gets them in one transaction; one that rallies",
+        "needs fewer, and a move of more than 2x takes several halving steps, each",
+        "its own transaction on chain and visible. There is no wait between steps:",
+        "the halving makes a large cut slow to *do* and easy to *see*, not slow to",
+        "happen. Rising is bounded only by the ceiling (docs/economy.md, open",
+        "question 13).",
         "",
         "`max_settlement` is a chip figure held in base units, so it is rescaled",
         "here rather than left to mean a different number of chips than it did",
@@ -1570,17 +1822,6 @@ export type OxudeSettlement = {
     },
     {
       "name": "setSettler",
-      "docs": [
-        "Points the config at a new settler key. The admin recorded at initialize",
-        "is the only key that can call it.",
-        "",
-        "Without this a compromised settler could only be answered by upgrading",
-        "the program, which is slow at exactly the moment speed matters. It",
-        "refuses the key already in place, so a call that would change nothing",
-        "fails loudly rather than looking like a rotation that happened. It also",
-        "refuses the admin's own key: one key holding both roles would undo the",
-        "separation every other check here depends on."
-      ],
       "discriminator": [
         18,
         138,
@@ -2059,6 +2300,19 @@ export type OxudeSettlement = {
   ],
   "accounts": [
     {
+      "name": "adminHandover",
+      "discriminator": [
+        182,
+        21,
+        191,
+        145,
+        69,
+        241,
+        77,
+        78
+      ]
+    },
+    {
       "name": "agentOwner",
       "discriminator": [
         190,
@@ -2190,6 +2444,32 @@ export type OxudeSettlement = {
     }
   ],
   "events": [
+    {
+      "name": "adminChanged",
+      "discriminator": [
+        232,
+        34,
+        31,
+        226,
+        62,
+        18,
+        19,
+        114
+      ]
+    },
+    {
+      "name": "adminProposed",
+      "discriminator": [
+        129,
+        249,
+        226,
+        227,
+        199,
+        82,
+        110,
+        243
+      ]
+    },
     {
       "name": "chipRateChanged",
       "discriminator": [
@@ -2528,9 +2808,74 @@ export type OxudeSettlement = {
       "code": 6030,
       "name": "settlementDayOutOfRange",
       "msg": "A budgeted settlement must be dated today or within the two days before"
+    },
+    {
+      "code": 6031,
+      "name": "invalidAdmin",
+      "msg": "The new admin must be a real key, and differ from the current admin and from the settler"
+    },
+    {
+      "code": 6032,
+      "name": "notProposedAdmin",
+      "msg": "Only the proposed key can accept the handover"
     }
   ],
   "types": [
+    {
+      "name": "adminChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "previous",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "adminHandover",
+      "docs": [
+        "A proposed admin, waiting for that key to accept. At most one at a time."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposed",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "adminProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposed",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
     {
       "name": "agentOwner",
       "docs": [
