@@ -62,13 +62,13 @@ Rent is from mainnet as of 2026-09-28. It has been lowered network-wide before; 
 
 | Item | SOL |
 |---|---|
-| Program data account at 700 KB (the binary is 594 KB with Token-2022; room for the changes above and later upgrades) | 3.557, permanent |
+| Program data account, **sized once netting is built, from the verifiable build**, not fixed in advance. The figure here is 700,000 bytes; the binary is already 636,640 bytes without netting (594 KB was the Token-2022 build alone), which leaves 63 KB, not the 106 KB this was sized for. Rent is about 0.254 SOL per extra 50 KB | 3.557 at 700,000 bytes, permanent |
 | Deploy buffer, refunded when the deploy succeeds | ~3.0, temporary |
 | Deploy transaction fees | ~0.01 |
 | Config and exit-window accounts | ~0.002 |
 | Settler starting float | 1–2 |
-| **Needed on hand** | **~7.6–8.6** |
-| **Spent for good** | **~3.6** |
+| **Needed on hand** | **~7.6–8.6**, at 700,000 bytes |
+| **Spent for good** | **~3.6**, at 700,000 bytes |
 
 House vaults are gone from this list with decision 5.
 
