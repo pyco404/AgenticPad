@@ -3,6 +3,7 @@
 #
 #   scripts/deploy.sh api
 #   scripts/deploy.sh web
+#   scripts/deploy.sh api rehearsal      another environment of the project
 #
 # Why it exists: `railway up` uploads the *working tree*, not the commit. With
 # two sessions editing one checkout that is not a theory - oxude.xyz has
@@ -18,11 +19,11 @@ cd "$(dirname "$0")/.."
 SERVICE="${1:-}"
 case "$SERVICE" in
   api|web) ;;
-  *) echo "usage: scripts/deploy.sh api|web"; exit 1 ;;
+  *) echo "usage: scripts/deploy.sh api|web [environment]"; exit 1 ;;
 esac
 
 PROJECT=af965879-57de-4ff2-89a0-efc0c9863fcd
-ENVIRONMENT=production
+ENVIRONMENT="${2:-production}"
 
 # The two services differ in what an uncommitted file means, so they differ in
 # what happens about one. For the api the working tree *is* the upload, so a
@@ -48,22 +49,34 @@ fi
 
 HEAD_SHA=$(git rev-parse HEAD)
 if [ -z "${DEPLOY_UNPUSHED:-}" ]; then
-  git fetch --quiet origin main 2>/dev/null || true
-  if ! git merge-base --is-ancestor "$HEAD_SHA" origin/main 2>/dev/null; then
-    echo "HEAD is not on origin/main, so what this deploys could not be fetched back."
+  git fetch --quiet origin 2>/dev/null || true
+  # Production ships main and nothing else. Another environment may run a
+  # pushed branch - the rehearsal's build carries a different program ID
+  # (docs/rehearsal.md), so it cannot be main - but it must still be pushed,
+  # so that what is live there can be fetched back too.
+  if [ "$ENVIRONMENT" = "production" ]; then
+    if ! git merge-base --is-ancestor "$HEAD_SHA" origin/main 2>/dev/null; then
+      echo "HEAD is not on origin/main, so what this deploys could not be fetched back."
+      echo "  HEAD    $(git log --oneline -1 | cat)"
+      echo "Push first, or set DEPLOY_UNPUSHED=1."
+      exit 1
+    fi
+  elif [ -z "$(git branch -r --contains "$HEAD_SHA" 2>/dev/null)" ]; then
+    echo "HEAD is on no pushed branch, so what this deploys could not be fetched back."
     echo "  HEAD    $(git log --oneline -1 | cat)"
-    echo "Push first, or set DEPLOY_UNPUSHED=1."
+    echo "Push its branch first, or set DEPLOY_UNPUSHED=1."
     exit 1
   fi
 fi
 
 echo "service  $SERVICE"
+echo "env      $ENVIRONMENT"
 echo "commit   $(git log --oneline -1 | cat)"
 
 if [ "$SERVICE" = "api" ]; then
   # The tree is clean, so the upload is HEAD. The root railway.json is the
   # api's config, which is why this one deploys from here.
-  railway up --service api --ci
+  railway up --service api --ci --project "$PROJECT" --environment "$ENVIRONMENT"
   exit $?
 fi
 
