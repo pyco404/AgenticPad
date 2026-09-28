@@ -17,7 +17,7 @@ In order. Each step ships to devnet before the next begins, until the last, whic
 
 ## Token
 
-**$OX has not been minted yet.** It will launch on pump.fun, on Solana mainnet, with a supply of 1,000,000,000 and 6 decimals, as pump.fun mints them. New pump.fun tokens appear to launch on **Token-2022** rather than the original SPL Token program, so the settlement program has been ported to accept either (not yet deployed), and its chain tests run in full against both; which one $OX is gets confirmed when it is minted.
+**$OX has not been minted yet.** It will launch on pump.fun, on Solana mainnet, with a supply of 1,000,000,000 and 6 decimals, as pump.fun mints them. New pump.fun tokens appear to launch on **Token-2022** rather than the original SPL Token program, so the settlement program has been ported to accept either - running on devnet since 2026-09-28 - and its chain tests run in full against both; which one $OX is gets confirmed when it is minted.
 
 **The previous launch, $OXUDE, is not $OX.** $OXUDE launched on pump.fun on 20 September 2026, mint `6LHnjWWn5qNvjwCsSo8ucWj5AZZjQP4d8yy79omGpump`, and is a dead launch with nothing holding it. It plays no part in the game and never will; it is recorded here so that the two are not confused.
 
