@@ -6,7 +6,7 @@ will be, so that what the plan leaves out shows up here and not on the day.
 It is also where the two-wallet proof runs: the first deposit-program
 settlement, carried by a Token-2022 transfer.
 
-Written as it happened, starting 2026-09-28. **Status: in progress.**
+Written as it happened, starting 2026-09-28. **Status: in progress.** Last updated 2026-09-29.
 
 ## Keys (step 3)
 
@@ -147,7 +147,12 @@ unless it says so.
    the program's upgrade authority, read from its ProgramData account, to
    sign `initialize`. That is a program change, so it lands before the
    rehearsal deploy, so the rehearsal exercises the fixed flow.
-   *Decision needed.*
+   *Decided and built 2026-09-29 (`dc6d4cf`).* The first version read
+   ProgramData through Anchor's `Account<ProgramData>` and grew the binary
+   by **62 KB** for about fifteen lines, most of the headroom sized for a
+   whole netting-sized change. Reading the 45 bytes by hand costs 3 KB:
+   **712,640 bytes** now. Worth knowing for every later change: a
+   convenience type can cost more than the feature.
 7. **The api cannot run without the seed program.** `scripts/serve.ts` always
    builds a seed-program client when an RPC is set, falling back to
    `.keys/settler.json` when `CHAIN_SETTLER_SECRET` is absent - so a fresh host
@@ -157,6 +162,13 @@ unless it says so.
    watch nothing, and say nothing. Mainnet has no seed program. The seed client
    has to become optional and those three have to run on whichever programs
    are configured. Code, not a decision; missing from step 1.
+   *Built 2026-09-29 (`13b4e3b`, `96c2096`).* Doing it found a second bug
+   underneath: the worker's `portsOf` took any object without a `seed` key
+   for a lone seed client, so `{ deposit }` on its own - mainnet's only
+   shape - would have sent every deposit agent's op to the seed program. A
+   test now covers it, and fails on the old code. Smoke-tested by booting the
+   api with the deposit program alone and a key holding no SOL: it seeded
+   the deposit house, ran the worker and the alarms, and sent nothing.
 8. **An empty database is seeded with a seed-program house roster.** On an
    empty `agents` table the api creates 24 house agents (`--roster`, default
    24) with the default funding, which is `seed`. On mainnet that is a roster
@@ -165,3 +177,16 @@ unless it says so.
    wrong ones first. The start command should pass `--roster 0` and the
    deposit roster come from `scripts/seed-deposit-house.ts create`, or the
    default should follow the configured flow. Code; missing from step 1.
+   *Built 2026-09-29 (`96c2096`): the default follows the configured flow.*
+9. **The clearing account needs the settler's signature.** Setup opened it
+   from the settler's key file - which, with the settler living only on the
+   api, does not exist anywhere setup runs. The api now opens it at start
+   when it is missing (`96c2096`), and `chain-setup.ts` takes the settler by
+   public key alone (`CHAIN_SETTLER_PUBKEY`, `dc6d4cf`). Anything else the
+   settler must sign once has the same problem: it has to happen on the
+   server.
+10. **`scripts/deploy.sh` knows one environment.** Its web path names
+    production, and it refuses anything not on `origin/main`. A second
+    environment - this one, and mainnet's - runs a build with a different
+    program ID (finding 2), which is not main. The script needs an
+    environment argument, and to accept a pushed branch outside production.
