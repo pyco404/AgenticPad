@@ -134,6 +134,15 @@ const EXIT_WINDOW = Number(process.env["CHAIN_EXIT_WINDOW_SLOTS"] ?? 4_500);
   }
 }
 
+// The clearing account hourly net settlement passes through. Opened once, by
+// the settler, like a vault; without it every net settlement is refused.
+{
+  const client = new ChainClient(connection, settler, mint, tokenProgram);
+  const held = await client.clearingBalance();
+  if (held === null) console.log(`clearing ${pdas.clearing().toBase58()}  opened (${await client.openClearing()})`);
+  else console.log(`clearing ${pdas.clearing().toBase58()}  already open, holding ${held} base units`);
+}
+
 // The settler pays rent for each vault, settlement, withdrawal and rental record it creates.
 const have = await sol(settler.publicKey);
 if (have < SETTLER_FLOOR) {

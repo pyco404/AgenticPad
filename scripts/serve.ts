@@ -459,9 +459,17 @@ if (chain && rpc) {
     }
   }
 
+  // Hourly net settlement lands through the clearing account. Without it every
+  // net settlement is refused, and the lag alarm would be the first to say so,
+  // an hour late: said here instead, where it is known at once.
+  if (depositClient && (await depositClient.clearingBalance()) === null) {
+    console.error("netting: NO CLEARING ACCOUNT on the deposit program - net settlements will be refused until scripts/chain-setup.ts opens it");
+  }
+
   startChainWorker(db, depositClient ? { seed: chain, deposit: depositClient } : chain, {
     intervalMs: Number(process.env["CHAIN_INTERVAL_MS"] ?? 5000),
     exitIntervalMs,
+    onCut: (c) => console.log(`chain: netted ${c.rows} matches from ${c.cuts} hour${c.cuts === 1 ? "" : "s"} into ${c.ops} settlements`),
     onPass: (r) => {
       if (r.confirmed || r.alreadyOnChain || r.error) {
         const held = r.stoppedAt ? `, stopped: ${r.error!.slice(0, 160)}` : r.deferred ? `, ${r.deferred} refused for now: ${r.error!.slice(0, 160)}` : "";
