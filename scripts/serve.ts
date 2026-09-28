@@ -1,8 +1,10 @@
 import "./env.js";
+import { existsSync } from "node:fs";
 import { connect, migrate } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
 import { assignMissingMarks, createAgent, STAKE_BANDS } from "../src/db/runner.js";
 import { refreshTrueRatings } from "../src/db/rating.js";
+import { ensureDepositHouse } from "../src/db/house.js";
 import { agents, AUTOPLAY_INTERVAL_MS } from "../src/db/schema.js";
 import { mulberry32, PRESET_NAMES } from "../src/index.js";
 import { nameFactory } from "./names.js";
@@ -21,10 +23,22 @@ if (!process.env["DATABASE_URL"] && !process.argv.includes("--memory")) {
 const { db } = await connect();
 if (process.argv.includes("--migrate")) await migrate(db);
 
+// Which programs this server settles to. The seed program only where its
+// settler key is here: mainnet has none, and a server that assumed one would
+// crash looking for .keys/settler.json or, worse, run and settle nothing.
+const seedKeyPath = process.env["CHAIN_SETTLER_KEYPAIR"] ?? ".keys/settler.json";
+const seedProgram = Boolean(process.env["CHAIN_RPC_URL"]) && (Boolean(process.env["CHAIN_SETTLER_SECRET"]) || existsSync(seedKeyPath));
+const depositProgram = Boolean(process.env["CHAIN_RPC_URL"]) && Boolean(process.env["CHAIN_STAKE_MINT"]);
+
 // The house roster: unowned preset agents spread across the ceiling bands, so a
 // first player has someone to meet in every band. Only when the roster is empty.
+// On the deposit program alone (mainnet) that is the deposit house - never a
+// roster on a seed program that is not there.
 const rosterSize = arg("--roster", 24);
-if (rosterSize > 0 && (await db.select({ id: agents.id }).from(agents).limit(1)).length === 0) {
+if (rosterSize > 0 && depositProgram && !seedProgram && (await db.select({ id: agents.id }).from(agents).limit(1)).length === 0) {
+  const { roster } = await ensureDepositHouse(db, nameFactory(mulberry32(Date.now() % 1_000_000)));
+  console.log(`Seeded the deposit program's house roster: ${roster.length} agents, vaults opened by the worker`);
+} else if (rosterSize > 0 && (await db.select({ id: agents.id }).from(agents).limit(1)).length === 0) {
   const nextName = nameFactory(mulberry32(Date.now() % 1_000_000));
   const bands = STAKE_BANDS.map((b) => b.name);
   for (let i = 0; i < rosterSize; i++) {
@@ -92,14 +106,15 @@ if (autoplayMs > 0) {
 // way; without a chain the outbox simply waits, and withdrawals are unavailable.
 const rpc = process.env["CHAIN_RPC_URL"];
 let chain: import("../src/chain/seed-settlement.js").SeedChainClient | undefined;
-if (rpc) {
+if (rpc && !seedProgram) console.log("Seed program: off - no seed settler key here (CHAIN_SETTLER_SECRET)");
+if (rpc && seedProgram) {
   const { Connection, Keypair } = await import("@solana/web3.js");
   const { SeedChainClient, loadKeypair } = await import("../src/chain/seed-settlement.js");
   // A host has no key file: CHAIN_SETTLER_SECRET carries the same JSON byte array.
   const secret = process.env["CHAIN_SETTLER_SECRET"];
   const settler = secret
     ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret) as number[]))
-    : loadKeypair(process.env["CHAIN_SETTLER_KEYPAIR"] ?? ".keys/settler.json");
+    : loadKeypair(seedKeyPath);
   chain = new SeedChainClient(new Connection(rpc, "confirmed"), settler);
 }
 
@@ -366,8 +381,8 @@ if (depositFlow) {
       for (const u of tops.unread) console.warn(`deposits: ${u.id.slice(0, 8)} not decided this pass: ${u.why}`);
       // Money that reached a vault by some other route than this server. It is
       // the agent's either way, and refusing to count it would strand it.
-      if (chain && depositClient) {
-        const { credited, refused } = await creditSurplus(db, { seed: chain, deposit: depositClient });
+      if (depositClient) {
+        const { credited, refused } = await creditSurplus(db, { ...(chain ? { seed: chain } : {}), deposit: depositClient });
         for (const c of credited) console.log(`chain: credited ${c.amount} that arrived in ${c.agentId.slice(0, 8)}'s vault`);
         // Not credited, and worth saying out loud: the seed programme's settler
         // can mint, and that key is exposed, so this may be invented money.
@@ -388,12 +403,15 @@ if (depositFlow) {
 // The settler pays for every account this system opens, so it running dry stops
 // everything while nothing else looks wrong. It was down to 0.001 SOL on
 // 2026-09-25 and nothing had said so.
-if (chain && rpc) {
+// Every program this server has, whichever they are: seed, deposit, or both.
+const chainPorts = { ...(chain ? { seed: chain } : {}), ...(depositClient ? { deposit: depositClient } : {}) };
+const settlers = [...(chain ? [["seed", chain.signer] as const] : []), ...(depositClient ? [["deposit", depositClient.signer] as const] : [])];
+
+if (rpc && settlers.length) {
   const { watchSettlerSol, SETTLER_SOL_FLOOR } = await import("../src/chain/worker.js");
   const { Connection, LAMPORTS_PER_SOL } = await import("@solana/web3.js");
   const conn = new Connection(rpc, "confirmed");
-  const keys: [string, import("@solana/web3.js").PublicKey][] = [["seed", chain.signer.publicKey]];
-  if (depositClient) keys.push(["deposit", depositClient.signer.publicKey]);
+  const keys: [string, import("@solana/web3.js").PublicKey][] = settlers.map(([which, k]) => [which, k.publicKey]);
   for (const [which, key] of keys) {
     watchSettlerSol(async () => (await conn.getBalance(key, "confirmed")) / LAMPORTS_PER_SOL, {
       onLow: (sol) =>
@@ -409,9 +427,9 @@ if (chain && rpc) {
 // Vaults holding less than the ledger says. Nothing looked at this before: a
 // stolen settler key can settle between any two vaults it likes, and would have
 // drained them without anything in the system noticing.
-if (chain && rpc) {
+if (rpc && settlers.length) {
   const { watchDrift } = await import("../src/chain/worker.js");
-  watchDrift(db, depositClient ? { seed: chain, deposit: depositClient } : chain, {
+  watchDrift(db, chainPorts, {
     onDrift: (mismatches) => {
       const worst = mismatches.slice(0, 5).map((m) => `${m.name} ledger ${m.ledger} vs vault ${m.chain ?? "none"}`);
       console.error(
@@ -423,9 +441,8 @@ if (chain && rpc) {
   });
 }
 
-if (chain && rpc) {
+if (rpc && settlers.length) {
   const { startChainWorker } = await import("../src/chain/worker.js");
-  const settler = chain.signer;
   // web3.js confirms a transaction by racing a block-height poll it never
   // awaits, so a flaky RPC can reject outside any of our try blocks and would
   // otherwise kill the API. Nothing is lost by carrying on: every ledger write
@@ -462,11 +479,19 @@ if (chain && rpc) {
   // Hourly net settlement lands through the clearing account. Without it every
   // net settlement is refused, and the lag alarm would be the first to say so,
   // an hour late: said here instead, where it is known at once.
+  //
+  // Opened here when it is missing: it is opened by the settler, and where the
+  // settler's secret lives only on this service (the mainnet way) this is the
+  // one place that can sign for it.
   if (depositClient && (await depositClient.clearingBalance()) === null) {
-    console.error("netting: NO CLEARING ACCOUNT on the deposit program - net settlements will be refused until scripts/chain-setup.ts opens it");
+    try {
+      console.log(`netting: opened the clearing account (${await depositClient.openClearing()})`);
+    } catch (error) {
+      console.error(`netting: NO CLEARING ACCOUNT on the deposit program, and opening it failed - net settlements will be refused: ${String(error).slice(0, 160)}`);
+    }
   }
 
-  startChainWorker(db, depositClient ? { seed: chain, deposit: depositClient } : chain, {
+  startChainWorker(db, chainPorts, {
     intervalMs: Number(process.env["CHAIN_INTERVAL_MS"] ?? 5000),
     exitIntervalMs,
     onCut: (c) => console.log(`chain: netted ${c.rows} matches from ${c.cuts} hour${c.cuts === 1 ? "" : "s"} into ${c.ops} settlements`),
@@ -494,7 +519,7 @@ if (chain && rpc) {
   });
   // Hosted RPC URLs carry an API key in the query string; keep it out of the logs.
   const shown = new URL(rpc);
-  console.log(`Settling to ${shown.origin}${shown.pathname} as ${settler.publicKey.toBase58()}`);
+  console.log(`Settling to ${shown.origin}${shown.pathname} as ${settlers.map(([which, k]) => `${which} ${k.publicKey.toBase58()}`).join(", ")}`);
 }
 console.log(`Oxude on ${url}`);
 console.log(process.env["ANTHROPIC_API_KEY"] ? "Briefs: on" : "Briefs: off, no ANTHROPIC_API_KEY in the environment or .env; presets only");
