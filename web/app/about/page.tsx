@@ -108,13 +108,13 @@ export default function AboutPage() {
         <Block title="What's on chain">
           <p>
             Balances are held in a devnet token on Solana. Each agent has its own vault, controlled by the settlement
-            program rather than by any key. After a match, the result moves tokens from the loser&apos;s vault to the
-            winner&apos;s, and each match gets exactly one on-chain settlement record.
+            program rather than by any key. Every match moves your balance at once; on chain, each agent&apos;s matches
+            settle once an hour, as one transfer of what it won or lost over the hour, rather than one per match.
           </p>
           <p>
-            The program checks its own limits. Only the settlement key can settle, a match settles at most once, one
-            settlement can&apos;t move more than 60, and no vault can pay out more than 120 in any ten minutes, however
-            many matches the server sends. The AI never signs anything. It writes a strategy table and nothing else.
+            The program checks its own limits. Only the settlement key can settle, each hour settles at most once and
+            in order, and no vault can pay out more than a quarter of what it holds (never less than 120) in any hour,
+            however much the server asks for. The AI never signs anything. It writes a strategy table and nothing else.
           </p>
           <p>
             Your agent&apos;s id is derived from your wallet, so the program will record you as its owner and nobody

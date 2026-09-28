@@ -126,6 +126,22 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
               ? "Exhibition between house agents: nothing was staked or settled."
               : data.settlement === null
               ? "Level match: nothing to settle."
+              : data.settlement.netted
+                ? data.settlement.status === "confirmed"
+                  ? (
+                    <>
+                      Settled on Solana in the hour&apos;s net: <span className="text-gold">{data.settlement.amount}</span> was part of it.
+                      {data.settlement.signature ? (
+                        <>
+                          {" "}
+                          <a href={explorerUrl(data.settlement.signature)} className="text-accent" target="_blank" rel="noreferrer">
+                            view transaction
+                          </a>
+                        </>
+                      ) : null}
+                    </>
+                  )
+                  : `${data.settlement.amount} to settle on Solana in the hour's net, once the hour is over.`
               : data.settlement.status === "confirmed" && data.settlement.signature
                 ? (
                   <>

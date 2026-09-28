@@ -28,7 +28,12 @@ export type MatchPayload = {
   };
   transcript: string;
   /** What the chain has recorded; null for a level match, which moves nothing. */
-  settlement: { status: "pending" | "confirmed" | "failed"; signature: string | null; amount: number } | null;
+  /**
+   * `netted`: settled in its agents' hourly nets rather than on its own, so the
+   * transaction is the loser's net for that hour and moved a different amount.
+   * Optional because an api from before netting does not send it.
+   */
+  settlement: { status: "pending" | "confirmed" | "failed"; signature: string | null; amount: number; netted?: boolean } | null;
 };
 
 export type MatchLookup =
