@@ -5,7 +5,7 @@ import { agents, chainOps, ledger, matches, ratings } from "../src/db/schema.js"
 import { balanceOf } from "../src/db/ledger.js";
 import { createAgent, pickOpponent, playableBands, runExhibition, runMatch } from "../src/db/runner.js";
 import { agentRecord, matchActivity, recentMatches } from "../src/db/feed.js";
-import { DEPOSIT_HOUSE, ensureDepositHouse, pickHousePair, startHouseExhibitions } from "../src/db/house.js";
+import { DEPOSIT_HOUSE, ensureDepositHouse, pickHousePair, retireSeedHouse, startHouseExhibitions } from "../src/db/house.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
 import { record, StakeError } from "../src/db/ledger.js";
 import { someWallet } from "./helpers.js";
@@ -322,6 +322,37 @@ describe("house agents with no balance", () => {
       const pick = await pickOpponent(db, me.id, { minCandidates: 1 });
       expect(pick.opponentId).toBe(fine.id);
     }
+    await close();
+  });
+});
+
+describe("retiring the seed house", () => {
+  it("retires only seed-program house agents, reports first, and leaves every balance alone", async () => {
+    const { db, close } = await fresh();
+    const seedA = await createAgent(db, { name: "SeedA", presetName: "Mirage" });
+    const seedB = await createAgent(db, { name: "SeedB", presetName: "Bully" });
+    const depA = await createAgent(db, { name: "DepA", presetName: "Mirage", funding: "deposit" });
+    const depB = await createAgent(db, { name: "DepB", presetName: "Bully", funding: "deposit" });
+    const player = await createAgent(db, { name: "Player", presetName: "Anchor", ownerId: someWallet() });
+    const before = await balanceOf(db, seedA.id);
+
+    const report = await retireSeedHouse(db, { apply: false });
+    expect(report.map((r) => r.id).sort()).toEqual([seedA.id, seedB.id].sort());
+    expect((await db.select().from(agents).where(eq(agents.id, seedA.id)))[0]!.retiredAt).toBeNull();
+
+    const retired = await retireSeedHouse(db, { apply: true });
+    expect(retired.map((r) => r.id).sort()).toEqual([seedA.id, seedB.id].sort());
+    const [row] = await db.select().from(agents).where(eq(agents.id, seedA.id));
+    expect(row!.retiredReason).toBe("closed");
+    // The ledger still matches the vault, so a drain still shows as a shortfall.
+    expect(await balanceOf(db, seedA.id)).toBe(before);
+    expect((await db.select().from(agents).where(eq(agents.id, player.id)))[0]!.retiredAt).toBeNull();
+
+    // Exhibitions carry on, on the deposit program only.
+    for (let i = 0; i < 10; i++) {
+      expect((await pickHousePair(db))!.sort()).toEqual([depA.id, depB.id].sort());
+    }
+    expect(await retireSeedHouse(db, { apply: true })).toEqual([]);
     await close();
   });
 });

@@ -184,3 +184,32 @@ export async function ensureDepositHouse(
   }
   return { created, roster };
 }
+
+/**
+ * Retires every house agent still playing on the seed program, which is closing
+ * (docs/cutover.md). House agents have no rental, so the season boundary that
+ * retires the seed players never reaches them.
+ *
+ * Only `retired_at` changes. The ledger balance is left exactly as it is, so it
+ * still matches the vault: the vault is on a program whose settler key is
+ * exposed and cannot be rotated, and reconciliation keeps checking it, which
+ * makes a drain show up as a shortfall rather than as a ledger that was quietly
+ * zeroed first. Nothing is moved on chain - there is no owner to sign a
+ * withdrawal, and the tokens were minted free.
+ *
+ * With `apply` false it only reports who would be retired.
+ */
+export async function retireSeedHouse(
+  db: Db,
+  options: { apply: boolean; now?: Date },
+): Promise<{ id: string; name: string; band: BandName }[]> {
+  const seedHouse = and(isNull(agents.ownerId), isNull(agents.retiredAt), eq(agents.funding, "seed"));
+  if (!options.apply) {
+    return db.select({ id: agents.id, name: agents.name, band: agents.band }).from(agents).where(seedHouse);
+  }
+  return db
+    .update(agents)
+    .set({ retiredAt: options.now ?? new Date(), retiredReason: "closed" })
+    .where(seedHouse)
+    .returning({ id: agents.id, name: agents.name, band: agents.band });
+}

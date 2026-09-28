@@ -217,9 +217,11 @@ export type AgentEventSource = "owner" | "autoplay" | "season" | "exit";
  * Why an agent stopped. "unpaid" is a rental whose transaction never landed:
  * the agent existed only so its vault address could be derived, was never
  * funded, and never played - so it is retired rather than left holding its
- * owner's one-agent slot for ever.
+ * owner's one-agent slot for ever. "closed" is a house agent on the seed
+ * program, retired when that program closed (docs/cutover.md): its balance
+ * stays where it is, so a drain of its vault still reads as a shortfall.
  */
-export type RetiredReason = "broke" | "withdrawn" | "lapsed" | "unpaid";
+export type RetiredReason = "broke" | "withdrawn" | "lapsed" | "unpaid" | "closed";
 
 /**
  * An agent's character: its portrait, its name's origin, its bio. Kept in a
