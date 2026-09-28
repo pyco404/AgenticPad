@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import bs58 from "bs58";
 import { Keypair, PublicKey, Transaction, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { PROGRAM_ID, pdas as realPdas } from "../src/chain/settlement.js";
+import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { ChainClient, PROGRAM_ID, pdas as realPdas } from "../src/chain/settlement.js";
+import { Connection } from "@solana/web3.js";
+import { uuidBytes } from "../src/chain/common.js";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -109,12 +111,16 @@ describe("addresses", () => {
     expect((await exitPage.pdas.exitConfig())[0]).toBe(realPdas.exitConfig().toBase58());
   });
 
-  it("finds the same associated token account", async () => {
+  it("finds the same associated token account, under either token program", async () => {
     for (let i = 0; i < 25; i++) {
       const owner = Keypair.generate().publicKey;
       const mint = Keypair.generate().publicKey;
       expect(await exitPage.associatedTokenAddress(owner.toBase58(), mint.toBase58())).toBe(
         getAssociatedTokenAddressSync(mint, owner).toBase58(),
+      );
+      // Token-2022 accounts live at different addresses for the same owner and mint.
+      expect(await exitPage.associatedTokenAddress(owner.toBase58(), mint.toBase58(), exitPage.TOKEN_2022_PROGRAM_ID)).toBe(
+        getAssociatedTokenAddressSync(mint, owner, false, TOKEN_2022_PROGRAM_ID).toBase58(),
       );
     }
   });
@@ -122,6 +128,7 @@ describe("addresses", () => {
   it("uses the program id this repo builds", () => {
     expect(exitPage.PROGRAM_ID).toBe(PROGRAM_ID.toBase58());
     expect(exitPage.TOKEN_PROGRAM_ID).toBe(TOKEN_PROGRAM_ID.toBase58());
+    expect(exitPage.TOKEN_2022_PROGRAM_ID).toBe(TOKEN_2022_PROGRAM_ID.toBase58());
   });
 });
 
@@ -170,7 +177,7 @@ describe("the transaction the wallet is asked to sign", () => {
     const destination = Keypair.generate().publicKey.toBase58();
     const agentId = randomUUID();
     for (const ix of [
-      await exitPage.claimExitIx({ owner, agentId, destination }),
+      await exitPage.claimExitIx({ owner, agentId, destination, mint: Keypair.generate().publicKey.toBase58() }),
       await exitPage.closeExitIx({ owner, agentId }),
     ]) {
       const mine = exitPage.buildMessage({ payer: owner, instructions: [ix], recentBlockhash: blockhash });
@@ -181,11 +188,59 @@ describe("the transaction the wallet is asked to sign", () => {
     }
   });
 
+  it("builds claim_exit exactly as the program's own IDL does, under either token program", async () => {
+    // The page writes its accounts out by hand, so they have to match the
+    // program's order and flags exactly - including the mint a checked
+    // transfer now names. Anchor builds the reference from the built IDL.
+    for (const tokenProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+      const owner = Keypair.generate();
+      const mint = Keypair.generate().publicKey;
+      const agentId = randomUUID();
+      const client = new ChainClient(new Connection("http://127.0.0.1:1"), owner, mint, tokenProgram);
+      const destination = getAssociatedTokenAddressSync(mint, owner.publicKey, false, tokenProgram);
+      const theirs = await client.program.methods
+        .claimExit(uuidBytes(agentId))
+        .accountsPartial({
+          owner: owner.publicKey,
+          config: realPdas.config(),
+          agentOwner: realPdas.owner(agentId),
+          vault: realPdas.vault(agentId),
+          destination,
+          exit: realPdas.exit(agentId),
+          mint,
+          tokenProgram,
+        })
+        .instruction();
+      const mine = await exitPage.claimExitIx({
+        owner: owner.publicKey.toBase58(),
+        agentId,
+        destination: await exitPage.associatedTokenAddress(owner.publicKey.toBase58(), mint.toBase58(), tokenProgram.toBase58()),
+        mint: mint.toBase58(),
+        tokenProgram: tokenProgram.toBase58(),
+      });
+      expect(asLibrary(mine).keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual(
+        theirs.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]),
+      );
+      expect(Buffer.from(mine.data).toString("hex")).toBe(theirs.data.toString("hex"));
+    }
+  });
+
+  it("refuses to build a claim without the mint", async () => {
+    await expect(
+      exitPage.claimExitIx({ owner: Keypair.generate().publicKey.toBase58(), agentId: randomUUID(), destination: Keypair.generate().publicKey.toBase58() } as never),
+    ).rejects.toThrow(/mint/);
+  });
+
   it("agrees on a message with several instructions and a repeated account", async () => {
     const owner = Keypair.generate().publicKey.toBase58();
     const agentId = randomUUID();
     const ixs = [
-      await exitPage.claimExitIx({ owner, agentId, destination: Keypair.generate().publicKey.toBase58() }),
+      await exitPage.claimExitIx({
+        owner,
+        agentId,
+        destination: Keypair.generate().publicKey.toBase58(),
+        mint: Keypair.generate().publicKey.toBase58(),
+      }),
       await exitPage.closeExitIx({ owner, agentId }),
       {
         programId: exitPage.SYSTEM_PROGRAM_ID,

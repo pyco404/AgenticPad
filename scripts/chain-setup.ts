@@ -3,7 +3,7 @@ import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, se
 import { getMint } from "@solana/spl-token";
 import { existsSync } from "node:fs";
 import { loadKeypair, v2SettlerKeyPath } from "../src/chain/common.js";
-import { ChainClient, DEVNET_CHIP_RATE, PROGRAM_ID, pdas, STAKE_DECIMALS } from "../src/chain/settlement.js";
+import { ChainClient, DEVNET_CHIP_RATE, PROGRAM_ID, pdas, STAKE_DECIMALS, tokenProgramOf } from "../src/chain/settlement.js";
 import { bandByName } from "../src/db/schema.js";
 
 // Initialises the deposit-funded settlement program on a cluster, idempotently,
@@ -55,6 +55,8 @@ function stakeMint(): PublicKey {
 
 const sol = async (key: PublicKey) => (await connection.getBalance(key, "confirmed")) / LAMPORTS_PER_SOL;
 const mint = stakeMint();
+// Whichever program owns the mint: SPL Token on devnet, likely Token-2022 for $OX.
+const tokenProgram = await tokenProgramOf(connection, mint);
 
 console.log(`cluster  ${rpc}`);
 console.log(`program  ${PROGRAM_ID.toBase58()}`);
@@ -87,7 +89,7 @@ if (token.mintAuthority !== null) {
 }
 
 if (await connection.getAccountInfo(pdas.config(), "confirmed")) {
-  const config = await new ChainClient(connection, admin, mint).config();
+  const config = await new ChainClient(connection, admin, mint, tokenProgram).config();
   if (config.settler.toBase58() !== settler.publicKey.toBase58()) {
     console.error(`Already initialised with a different settler: ${config.settler.toBase58()}`);
     console.error(`This run is using ${settlerKey}, which is ${settler.publicKey.toBase58()}.`);
@@ -110,7 +112,7 @@ if (await connection.getAccountInfo(pdas.config(), "confirmed")) {
   console.log(`config   ${pdas.config().toBase58()}  already initialised`);
   console.log(`         chip rate ${rate} base units, limit ${config.maxSettlement.toNumber() / rate} chips, rent ${config.rent.toNumber() / rate} chips`);
 } else {
-  const signature = await new ChainClient(connection, admin, mint).initialize(settler.publicKey, MAX_SETTLEMENT, RENT, CHIP_RATE);
+  const signature = await new ChainClient(connection, admin, mint, tokenProgram).initialize(settler.publicKey, MAX_SETTLEMENT, RENT, CHIP_RATE);
   console.log(`config   ${pdas.config().toBase58()}  initialised (${signature})`);
   console.log(`         chip rate ${CHIP_RATE} base units, limit ${bandByName("C").worstMatch} chips, rent ${RENT_CHIPS} chips`);
 }
@@ -121,7 +123,7 @@ if (await connection.getAccountInfo(pdas.config(), "confirmed")) {
 // set-exit-window's job, and that has rules of its own.
 const EXIT_WINDOW = Number(process.env["CHAIN_EXIT_WINDOW_SLOTS"] ?? 4_500);
 {
-  const client = new ChainClient(connection, admin, mint);
+  const client = new ChainClient(connection, admin, mint, tokenProgram);
   const live = await client.exitWindow();
   if (live === null) {
     const signature = await client.initExitConfig(EXIT_WINDOW);

@@ -6,6 +6,7 @@
  */
 export const PROGRAM_ID: string;
 export const TOKEN_PROGRAM_ID: string;
+export const TOKEN_2022_PROGRAM_ID: string;
 export const SYSTEM_PROGRAM_ID: string;
 export const ASSOCIATED_TOKEN_PROGRAM_ID: string;
 export const DISCRIMINATORS: Record<"request_exit" | "claim_exit" | "close_exit", number[]>;
@@ -16,7 +17,8 @@ export function isOnCurve(bytes: Uint8Array): boolean;
 export function findProgramAddress(seeds: Uint8Array[], programId: string): Promise<[string, number]>;
 export function uuidBytes(uuid: string): Uint8Array;
 export function uuidFromBytes(bytes: Uint8Array | number[]): string;
-export function associatedTokenAddress(owner: string, mint: string): Promise<string>;
+/** `tokenProgram`: whichever program owns the mint; SPL Token when omitted. */
+export function associatedTokenAddress(owner: string, mint: string, tokenProgram?: string): Promise<string>;
 export function compactU16(n: number): Uint8Array;
 
 export const pdas: {
@@ -31,7 +33,7 @@ export type AccountMeta = { pubkey: string; signer: boolean; writable: boolean }
 export type Instruction = { programId: string; keys: AccountMeta[]; data: Uint8Array };
 
 export function requestExitIx(input: { owner: string; agentId: string; amount: number }): Promise<Instruction>;
-export function claimExitIx(input: { owner: string; agentId: string; destination: string }): Promise<Instruction>;
+export function claimExitIx(input: { owner: string; agentId: string; destination: string; mint: string; tokenProgram?: string }): Promise<Instruction>;
 export function closeExitIx(input: { owner: string; agentId: string }): Promise<Instruction>;
 export function buildMessage(input: { payer: string; instructions: Instruction[]; recentBlockhash: string }): Uint8Array;
 /** The message as a whole unsigned transaction, in the wire format a wallet decodes. */

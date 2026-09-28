@@ -5,7 +5,7 @@ import { nameFactory } from "./names.js";
 import { connect } from "../src/db/client.js";
 import { ensureDepositHouse, type HouseSeat } from "../src/db/house.js";
 import { refreshTrueRatings } from "../src/db/rating.js";
-import { ChainClient, stakeMintOf } from "../src/chain/settlement.js";
+import { ChainClient, stakeMintOf, tokenProgramOf } from "../src/chain/settlement.js";
 
 /**
  * The house roster on the deposit program, in two steps that run in two places.
@@ -47,7 +47,8 @@ if (mode === "create") {
   const treasury = Keypair.fromSecretKey(
     Uint8Array.from(JSON.parse(readFileSync(process.env["TREASURY_KEY"] ?? ".keys/treasury.json", "utf8"))),
   );
-  const client = new ChainClient(connection, treasury, await stakeMintOf(connection));
+  const mint = await stakeMintOf(connection);
+  const client = new ChainClient(connection, treasury, mint, await tokenProgramOf(connection, mint));
   const rate = (await client.config()).chipRate.toNumber();
   const counts = { funded: 0, alreadyFull: 0, notOpenYet: 0 };
   for (const seat of roster) {

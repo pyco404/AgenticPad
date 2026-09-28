@@ -54,7 +54,10 @@
 
 use anchor_lang::prelude::*;
 use solana_sha256_hasher::hashv;
-use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount, Transfer};
+// The token *interface*, not the original token program alone: the stake token
+// may be an SPL Token mint (as on devnet) or a Token-2022 one (as new pump.fun
+// tokens are), and every account and instruction here works with either.
+use anchor_spl::token_interface::{self, Burn, Mint, TokenAccount, TokenInterface, TransferChecked};
 
 declare_id!("HTs42VFpHS4XT9Cr8xH7cJEMgqPL9uuzZn6QHGwtvkdy");
 
@@ -264,7 +267,7 @@ pub mod oxude_settlement {
     /// never be left behind by a rental that did not happen.
     pub fn pay_rent(ctx: Context<PayRent>, rental_id: [u8; 16], amount: u64) -> Result<()> {
         require!(amount == ctx.accounts.config.rent, OxudeError::WrongRent);
-        token::burn(
+        token_interface::burn(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
                 Burn {
@@ -369,15 +372,13 @@ pub mod oxude_settlement {
     /// agent money, which is nobody's loss but the depositor's.
     pub fn deposit(ctx: Context<Deposit>, agent_id: [u8; 16], amount: u64) -> Result<()> {
         require!(amount > 0, OxudeError::ZeroAmount);
-        token::transfer(
-            CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.source.to_account_info(),
-                    to: ctx.accounts.vault.to_account_info(),
-                    authority: ctx.accounts.depositor.to_account_info(),
-                },
-            ),
+        move_tokens(
+            &ctx.accounts.token_program,
+            &ctx.accounts.mint,
+            ctx.accounts.source.to_account_info(),
+            ctx.accounts.vault.to_account_info(),
+            ctx.accounts.depositor.to_account_info(),
+            &[],
             amount,
         )?;
         emit!(Deposited { agent_id, depositor: ctx.accounts.depositor.key(), amount });
@@ -432,16 +433,13 @@ pub mod oxude_settlement {
 
         let bump = ctx.accounts.config.bump;
         let signer: &[&[&[u8]]] = &[&[CONFIG_SEED, &[bump]]];
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.from_vault.to_account_info(),
-                    to: ctx.accounts.to_vault.to_account_info(),
-                    authority: ctx.accounts.config.to_account_info(),
-                },
-                signer,
-            ),
+        move_tokens(
+            &ctx.accounts.token_program,
+            &ctx.accounts.mint,
+            ctx.accounts.from_vault.to_account_info(),
+            ctx.accounts.to_vault.to_account_info(),
+            ctx.accounts.config.to_account_info(),
+            signer,
             amount,
         )?;
 
@@ -477,16 +475,13 @@ pub mod oxude_settlement {
 
         let bump = ctx.accounts.config.bump;
         let signer: &[&[&[u8]]] = &[&[CONFIG_SEED, &[bump]]];
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.vault.to_account_info(),
-                    to: ctx.accounts.destination.to_account_info(),
-                    authority: ctx.accounts.config.to_account_info(),
-                },
-                signer,
-            ),
+        move_tokens(
+            &ctx.accounts.token_program,
+            &ctx.accounts.mint,
+            ctx.accounts.vault.to_account_info(),
+            ctx.accounts.destination.to_account_info(),
+            ctx.accounts.config.to_account_info(),
+            signer,
             amount,
         )?;
 
@@ -597,16 +592,13 @@ pub mod oxude_settlement {
 
         let bump = ctx.accounts.config.bump;
         let signer: &[&[&[u8]]] = &[&[CONFIG_SEED, &[bump]]];
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.vault.to_account_info(),
-                    to: ctx.accounts.destination.to_account_info(),
-                    authority: ctx.accounts.config.to_account_info(),
-                },
-                signer,
-            ),
+        move_tokens(
+            &ctx.accounts.token_program,
+            &ctx.accounts.mint,
+            ctx.accounts.vault.to_account_info(),
+            ctx.accounts.destination.to_account_info(),
+            ctx.accounts.config.to_account_info(),
+            signer,
             amount,
         )?;
 
@@ -779,6 +771,29 @@ pub fn exit_payout(asked: u64, held: u64, min_stake: u64) -> u64 {
     } else {
         pay
     }
+}
+
+/// Moves `amount` of the stake token with `transfer_checked`, which Token-2022
+/// requires and the original token program accepts. The mint and its decimals
+/// travel with the transfer, so it is checked against the token it claims to be.
+fn move_tokens<'info>(
+    token_program: &Interface<'info, TokenInterface>,
+    mint: &InterfaceAccount<'info, Mint>,
+    from: AccountInfo<'info>,
+    to: AccountInfo<'info>,
+    authority: AccountInfo<'info>,
+    signer: &[&[&[u8]]],
+    amount: u64,
+) -> Result<()> {
+    token_interface::transfer_checked(
+        CpiContext::new_with_signer(
+            token_program.to_account_info(),
+            TransferChecked { from, mint: mint.to_account_info(), to, authority },
+            signer,
+        ),
+        amount,
+        mint.decimals,
+    )
 }
 
 /// Today's UTC day number, from the cluster's clock.
@@ -1031,14 +1046,14 @@ pub struct PayRent<'info> {
     #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = settler @ OxudeError::NotSettler, has_one = mint)]
     pub config: Account<'info, Config>,
     #[account(mut)]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     /// The renter's own token account, and nobody else's.
     #[account(
         mut,
         token::mint = config.mint,
         constraint = source.owner == renter.key() @ OxudeError::NotRentersAccount
     )]
-    pub source: Account<'info, TokenAccount>,
+    pub source: InterfaceAccount<'info, TokenAccount>,
     #[account(
         init,
         payer = settler,
@@ -1048,7 +1063,7 @@ pub struct PayRent<'info> {
     )]
     pub rental: Account<'info, Rental>,
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -1067,7 +1082,7 @@ pub struct Initialize<'info> {
     pub config: Account<'info, Config>,
     /// The stake token: an ordinary mint made outside this program, whose mint
     /// authority has already been given up. Checked in `initialize`.
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1078,18 +1093,19 @@ pub struct OpenVault<'info> {
     pub settler: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = settler @ OxudeError::NotSettler, has_one = mint)]
     pub config: Account<'info, Config>,
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(
         init,
         payer = settler,
         token::mint = mint,
         token::authority = config,
+        token::token_program = token_program,
         seeds = [VAULT_SEED, agent_id.as_ref()],
         bump
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -1099,16 +1115,17 @@ pub struct OpenOwnedVault<'info> {
     pub settler: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = settler @ OxudeError::NotSettler, has_one = mint)]
     pub config: Account<'info, Config>,
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(
         init,
         payer = settler,
         token::mint = mint,
         token::authority = config,
+        token::token_program = token_program,
         seeds = [VAULT_SEED, agent_id.as_ref()],
         bump
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
     #[account(
         init,
         payer = settler,
@@ -1118,7 +1135,7 @@ pub struct OpenOwnedVault<'info> {
     )]
     pub agent_owner: Account<'info, AgentOwner>,
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -1134,12 +1151,16 @@ pub struct Deposit<'info> {
         token::mint = config.mint,
         constraint = source.owner == depositor.key() @ OxudeError::NotDepositorsAccount
     )]
-    pub source: Account<'info, TokenAccount>,
+    pub source: InterfaceAccount<'info, TokenAccount>,
     /// Seeded by the agent id, so the event cannot name one agent while the
     /// money goes to another.
     #[account(mut, seeds = [VAULT_SEED, agent_id.as_ref()], bump, token::mint = config.mint)]
-    pub vault: Account<'info, TokenAccount>,
-    pub token_program: Program<'info, Token>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
+    /// The stake token, which a checked transfer names: the config's own mint,
+    /// under the token program passed alongside it.
+    #[account(address = config.mint, mint::token_program = token_program)]
+    pub mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -1150,9 +1171,9 @@ pub struct Settle<'info> {
     #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = settler @ OxudeError::NotSettler)]
     pub config: Account<'info, Config>,
     #[account(mut, seeds = [VAULT_SEED, from_agent.as_ref()], bump, token::mint = config.mint)]
-    pub from_vault: Account<'info, TokenAccount>,
+    pub from_vault: InterfaceAccount<'info, TokenAccount>,
     #[account(mut, seeds = [VAULT_SEED, to_agent.as_ref()], bump, token::mint = config.mint)]
-    pub to_vault: Account<'info, TokenAccount>,
+    pub to_vault: InterfaceAccount<'info, TokenAccount>,
     /// The paying vault's outflow window, made the first time it pays.
     #[account(
         init_if_needed,
@@ -1178,7 +1199,11 @@ pub struct Settle<'info> {
     #[account(mut, seeds = [BUDGET_SEED, to_agent.as_ref()], bump)]
     pub to_budget: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
+    /// The stake token, which a checked transfer names: the config's own mint,
+    /// under the token program passed alongside it.
+    #[account(address = config.mint, mint::token_program = token_program)]
+    pub mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -1194,14 +1219,14 @@ pub struct Withdraw<'info> {
     #[account(seeds = [OWNER_SEED, agent_id.as_ref()], bump = agent_owner.bump, has_one = owner @ OxudeError::NotOwner)]
     pub agent_owner: Account<'info, AgentOwner>,
     #[account(mut, seeds = [VAULT_SEED, agent_id.as_ref()], bump, token::mint = config.mint)]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
     /// The owner's own token account for the game currency, and nobody else's.
     #[account(
         mut,
         token::mint = config.mint,
         constraint = destination.owner == owner.key() @ OxudeError::NotOwnersAccount
     )]
-    pub destination: Account<'info, TokenAccount>,
+    pub destination: InterfaceAccount<'info, TokenAccount>,
     #[account(
         init,
         payer = settler,
@@ -1211,7 +1236,11 @@ pub struct Withdraw<'info> {
     )]
     pub withdrawal: Account<'info, Withdrawal>,
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
+    /// The stake token, which a checked transfer names: the config's own mint,
+    /// under the token program passed alongside it.
+    #[account(address = config.mint, mint::token_program = token_program)]
+    pub mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 /// A live or spent exit, one per agent.
@@ -1288,7 +1317,7 @@ pub struct RequestExit<'info> {
     #[account(seeds = [OWNER_SEED, agent_id.as_ref()], bump = agent_owner.bump, has_one = owner @ OxudeError::NotOwner)]
     pub agent_owner: Account<'info, AgentOwner>,
     #[account(seeds = [VAULT_SEED, agent_id.as_ref()], bump, token::mint = config.mint)]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
     #[account(
         init,
         payer = owner,
@@ -1310,14 +1339,14 @@ pub struct ClaimExit<'info> {
     #[account(seeds = [OWNER_SEED, agent_id.as_ref()], bump = agent_owner.bump, has_one = owner @ OxudeError::NotOwner)]
     pub agent_owner: Account<'info, AgentOwner>,
     #[account(mut, seeds = [VAULT_SEED, agent_id.as_ref()], bump, token::mint = config.mint)]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
     /// The owner's own token account for the game currency, and nobody else's.
     #[account(
         mut,
         token::mint = config.mint,
         constraint = destination.owner == owner.key() @ OxudeError::NotOwnersAccount
     )]
-    pub destination: Account<'info, TokenAccount>,
+    pub destination: InterfaceAccount<'info, TokenAccount>,
     #[account(
         mut,
         seeds = [EXIT_SEED, agent_id.as_ref()],
@@ -1325,7 +1354,11 @@ pub struct ClaimExit<'info> {
         has_one = owner @ OxudeError::NotOwner
     )]
     pub exit: Account<'info, Exit>,
-    pub token_program: Program<'info, Token>,
+    /// The stake token, which a checked transfer names: the config's own mint,
+    /// under the token program passed alongside it.
+    #[account(address = config.mint, mint::token_program = token_program)]
+    pub mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]

@@ -6,6 +6,7 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
   getAccount,
   getAssociatedTokenAddressSync,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   TokenAccountNotFoundError,
   TokenInvalidAccountOwnerError,
@@ -86,6 +87,20 @@ export type LossBudgetState = {
 /** What opening a vault needs: the id, and the owner and salt it was derived from (src/agent-id.ts). */
 export type OpenVaultInput = { agentId: string; owner: string | null; salt: string };
 
+/**
+ * The token program a mint lives under: whichever program owns the mint
+ * account. The stake token may be an SPL Token mint or a Token-2022 one, and
+ * nothing else about it says which.
+ */
+export async function tokenProgramOf(connection: Connection, mint: PublicKey): Promise<PublicKey> {
+  const info = await connection.getAccountInfo(mint, "confirmed");
+  if (!info) throw new Error(`no mint at ${mint.toBase58()}`);
+  if (!info.owner.equals(TOKEN_PROGRAM_ID) && !info.owner.equals(TOKEN_2022_PROGRAM_ID)) {
+    throw new Error(`${mint.toBase58()} is not a token mint: it belongs to ${info.owner.toBase58()}`);
+  }
+  return info.owner;
+}
+
 /** The stake token as the config records it. Read once at startup, then held. */
 export async function stakeMintOf(connection: Connection): Promise<PublicKey> {
   const config = await new Program<OxudeSettlement>(
@@ -138,6 +153,13 @@ export class ChainClient {
     readonly signer: Keypair,
     /** The stake token. External to the program, so it has to be told. */
     readonly mint: PublicKey,
+    /**
+     * The token program the stake token lives under: the original SPL Token
+     * program for the devnet mint, Token-2022 for a new pump.fun token. Every
+     * token account, transfer and read goes through it. `tokenProgramOf`
+     * reads it from the mint, which is the way to be sure.
+     */
+    readonly tokenProgram: PublicKey = TOKEN_PROGRAM_ID,
   ) {
     const provider = new AnchorProvider(connection, new Wallet(signer), { commitment: "confirmed" });
     this.program = new Program<OxudeSettlement>(idl as OxudeSettlement, provider);
@@ -145,7 +167,7 @@ export class ChainClient {
 
   /** The owner's associated token account for the stake token. */
   tokenAccount(owner: string | PublicKey): PublicKey {
-    return getAssociatedTokenAddressSync(this.mint, typeof owner === "string" ? new PublicKey(owner) : owner);
+    return getAssociatedTokenAddressSync(this.mint, typeof owner === "string" ? new PublicKey(owner) : owner, false, this.tokenProgram);
   }
 
   /**
@@ -223,7 +245,7 @@ export class ChainClient {
         source: this.tokenAccount(renter),
         rental: pdas.rental(input.rentalId),
         systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        tokenProgram: this.tokenProgram,
       })
       .instruction();
   }
@@ -276,7 +298,7 @@ export class ChainClient {
         vault: pdas.vault(input.agentId),
         agentOwner: pdas.owner(input.agentId),
         systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        tokenProgram: this.tokenProgram,
       })
       .instruction();
     const fund = await this.depositInstruction({ agentId: input.agentId, depositor: owner, amount: input.deposit });
@@ -288,7 +310,7 @@ export class ChainClient {
     const transaction = new Transaction({ feePayer: this.signer.publicKey, blockhash, lastValidBlockHeight })
       // The owner may not have an account for the stake token yet if they were
       // sent tokens by some other route; opening it here is idempotent.
-      .add(createAssociatedTokenAccountIdempotentInstruction(this.signer.publicKey, source, owner, this.mint))
+      .add(createAssociatedTokenAccountIdempotentInstruction(this.signer.publicKey, source, owner, this.mint, this.tokenProgram))
       .add(fee, open, fund, commit, budget);
     transaction.partialSign(this.signer);
     return { transaction, lastValidBlockHeight };
@@ -347,7 +369,7 @@ export class ChainClient {
       mint: this.mint,
       vault: pdas.vault(input.agentId),
       systemProgram: SystemProgram.programId,
-      tokenProgram: TOKEN_PROGRAM_ID,
+      tokenProgram: this.tokenProgram,
     };
     if (input.owner === null) {
       return this.program.methods.openVault(uuidBytes(input.agentId), salt).accountsPartial(accounts).rpc();
@@ -373,7 +395,8 @@ export class ChainClient {
         config: pdas.config(),
         source: this.tokenAccount(depositor),
         vault: pdas.vault(input.agentId),
-        tokenProgram: TOKEN_PROGRAM_ID,
+        mint: this.mint,
+        tokenProgram: this.tokenProgram,
       })
       .instruction();
   }
@@ -446,7 +469,8 @@ export class ChainClient {
         vault: pdas.vault(agentId),
         destination,
         exit: pdas.exit(agentId),
-        tokenProgram: TOKEN_PROGRAM_ID,
+        mint: this.mint,
+        tokenProgram: this.tokenProgram,
       })
       .preInstructions([
         createAssociatedTokenAccountIdempotentInstruction(
@@ -454,6 +478,7 @@ export class ChainClient {
           destination,
           this.signer.publicKey,
           this.mint,
+          this.tokenProgram,
         ),
       ])
       .rpc();
@@ -502,7 +527,8 @@ export class ChainClient {
         config: pdas.config(),
         source: this.tokenAccount(this.signer.publicKey),
         vault: pdas.vault(input.agentId),
-        tokenProgram: TOKEN_PROGRAM_ID,
+        mint: this.mint,
+        tokenProgram: this.tokenProgram,
       })
       .rpc();
   }
@@ -528,7 +554,8 @@ export class ChainClient {
         fromBudget: pdas.budget(input.fromAgent),
         toBudget: pdas.budget(input.toAgent),
         systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        mint: this.mint,
+        tokenProgram: this.tokenProgram,
       })
       .rpc();
   }
@@ -585,7 +612,7 @@ export class ChainClient {
    */
   async vaultBalance(agentId: string): Promise<number | null> {
     try {
-      const account = await getAccount(this.connection, pdas.vault(agentId), "confirmed");
+      const account = await getAccount(this.connection, pdas.vault(agentId), "confirmed", this.tokenProgram);
       return Number(account.amount);
     } catch (error) {
       if (error instanceof TokenAccountNotFoundError || error instanceof TokenInvalidAccountOwnerError) return null;
@@ -664,12 +691,13 @@ export class ChainClient {
         destination,
         withdrawal: pdas.withdrawal(input.withdrawalId),
         systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        mint: this.mint,
+        tokenProgram: this.tokenProgram,
       })
       .instruction();
     const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash("confirmed");
     const transaction = new Transaction({ feePayer: this.signer.publicKey, blockhash, lastValidBlockHeight }).add(
-      createAssociatedTokenAccountIdempotentInstruction(this.signer.publicKey, destination, owner, this.mint),
+      createAssociatedTokenAccountIdempotentInstruction(this.signer.publicKey, destination, owner, this.mint, this.tokenProgram),
       withdraw,
     );
     transaction.partialSign(this.signer);
@@ -703,7 +731,7 @@ export class ChainClient {
 
   async tokenBalance(owner: string): Promise<number> {
     try {
-      return Number((await getAccount(this.connection, this.tokenAccount(owner), "confirmed")).amount);
+      return Number((await getAccount(this.connection, this.tokenAccount(owner), "confirmed", this.tokenProgram)).amount);
     } catch {
       return 0;
     }

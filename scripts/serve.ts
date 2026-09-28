@@ -117,7 +117,7 @@ let depositFlow: import("../src/http/server.js").AppOptions["deposit"];
 let depositClient: import("../src/chain/settlement.js").ChainClient | undefined;
 if (rpc && process.env["CHAIN_STAKE_MINT"]) {
   const { Connection, Keypair, PublicKey } = await import("@solana/web3.js");
-  const { ChainClient } = await import("../src/chain/settlement.js");
+  const { ChainClient, tokenProgramOf } = await import("../src/chain/settlement.js");
   const { loadKeypair, v2SettlerKeyPath } = await import("../src/chain/common.js");
   try {
     // The deposit program has a settler of its own. The seed program's cannot be
@@ -131,11 +131,12 @@ if (rpc && process.env["CHAIN_STAKE_MINT"]) {
     const settler = secret
       ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret) as number[]))
       : loadKeypair(v2SettlerKeyPath());
-    const client = new ChainClient(
-      new Connection(rpc, "confirmed"),
-      settler,
-      new PublicKey(process.env["CHAIN_STAKE_MINT"]),
-    );
+    const connection = new Connection(rpc, "confirmed");
+    const mint = new PublicKey(process.env["CHAIN_STAKE_MINT"]);
+    // Read from the mint, never assumed: the stake token may live under the
+    // original token program or Token-2022, and the wrong one reads every
+    // vault as absent.
+    const client = new ChainClient(connection, settler, mint, await tokenProgramOf(connection, mint));
     const config = await client.config();
     const mode = process.env["FUNDING_MODE"] === "deposit";
     const allowed = new Set(

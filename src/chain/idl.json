@@ -135,8 +135,14 @@
           }
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "mint",
+          "docs": [
+            "The stake token, which a checked transfer names: the config's own mint,",
+            "under the token program passed alongside it."
+          ]
+        },
+        {
+          "name": "token_program"
         }
       ],
       "args": [
@@ -446,8 +452,14 @@
           }
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "mint",
+          "docs": [
+            "The stake token, which a checked transfer names: the config's own mint,",
+            "under the token program passed alongside it."
+          ]
+        },
+        {
+          "name": "token_program"
         }
       ],
       "args": [
@@ -733,8 +745,7 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "token_program"
         }
       ],
       "args": [
@@ -838,8 +849,7 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "token_program"
         }
       ],
       "args": [
@@ -967,8 +977,7 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "token_program"
         }
       ],
       "args": [
@@ -1813,8 +1822,14 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "mint",
+          "docs": [
+            "The stake token, which a checked transfer names: the config's own mint,",
+            "under the token program passed alongside it."
+          ]
+        },
+        {
+          "name": "token_program"
         }
       ],
       "args": [
@@ -1996,8 +2011,14 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "mint",
+          "docs": [
+            "The stake token, which a checked transfer names: the config's own mint,",
+            "under the token program passed alongside it."
+          ]
+        },
+        {
+          "name": "token_program"
         }
       ],
       "args": [

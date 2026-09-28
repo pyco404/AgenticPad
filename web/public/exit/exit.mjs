@@ -15,6 +15,11 @@
 
 export const PROGRAM_ID = "HTs42VFpHS4XT9Cr8xH7cJEMgqPL9uuzZn6QHGwtvkdy";
 export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+/**
+ * Token-2022, which new pump.fun tokens launch on. The stake token lives under
+ * one or the other, and whichever owns its mint account is the one to use.
+ */
+export const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 export const SYSTEM_PROGRAM_ID = "11111111111111111111111111111111";
 export const ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 
@@ -185,9 +190,9 @@ export const pdas = {
 };
 
 /** The owner's token account for a mint, as the associated token program derives it. */
-export async function associatedTokenAddress(owner, mint) {
+export async function associatedTokenAddress(owner, mint, tokenProgram = TOKEN_PROGRAM_ID) {
   const [address] = await findProgramAddress(
-    [base58Decode(owner), base58Decode(TOKEN_PROGRAM_ID), base58Decode(mint)],
+    [base58Decode(owner), base58Decode(tokenProgram), base58Decode(mint)],
     ASSOCIATED_TOKEN_PROGRAM_ID,
   );
   return address;
@@ -343,7 +348,9 @@ export async function requestExitIx({ owner, agentId, amount }) {
 }
 
 /** Claims an exit whose window has passed. Signed by the owner and nobody else. */
-export async function claimExitIx({ owner, agentId, destination }) {
+export async function claimExitIx({ owner, agentId, destination, mint, tokenProgram = TOKEN_PROGRAM_ID }) {
+  // The program names the mint in a checked transfer, so a claim needs it.
+  if (!mint) throw new Error("claimExitIx needs the stake token's mint");
   const [config] = await pdas.config();
   const [agentOwner] = await pdas.owner(agentId);
   const [vault] = await pdas.vault(agentId);
@@ -357,7 +364,8 @@ export async function claimExitIx({ owner, agentId, destination }) {
       rw(vault),
       rw(destination),
       rw(exit),
-      ro(TOKEN_PROGRAM_ID),
+      ro(mint),
+      ro(tokenProgram),
     ],
     data: concat([Uint8Array.from(DISCRIMINATORS.claim_exit), uuidBytes(agentId)]),
   };

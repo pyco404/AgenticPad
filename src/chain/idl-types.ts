@@ -141,8 +141,14 @@ export type OxudeSettlement = {
           }
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "mint",
+          "docs": [
+            "The stake token, which a checked transfer names: the config's own mint,",
+            "under the token program passed alongside it."
+          ]
+        },
+        {
+          "name": "tokenProgram"
         }
       ],
       "args": [
@@ -452,8 +458,14 @@ export type OxudeSettlement = {
           }
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "mint",
+          "docs": [
+            "The stake token, which a checked transfer names: the config's own mint,",
+            "under the token program passed alongside it."
+          ]
+        },
+        {
+          "name": "tokenProgram"
         }
       ],
       "args": [
@@ -739,8 +751,7 @@ export type OxudeSettlement = {
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "tokenProgram"
         }
       ],
       "args": [
@@ -844,8 +855,7 @@ export type OxudeSettlement = {
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "tokenProgram"
         }
       ],
       "args": [
@@ -973,8 +983,7 @@ export type OxudeSettlement = {
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "tokenProgram"
         }
       ],
       "args": [
@@ -1819,8 +1828,14 @@ export type OxudeSettlement = {
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "mint",
+          "docs": [
+            "The stake token, which a checked transfer names: the config's own mint,",
+            "under the token program passed alongside it."
+          ]
+        },
+        {
+          "name": "tokenProgram"
         }
       ],
       "args": [
@@ -2002,8 +2017,14 @@ export type OxudeSettlement = {
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "mint",
+          "docs": [
+            "The stake token, which a checked transfer names: the config's own mint,",
+            "under the token program passed alongside it."
+          ]
+        },
+        {
+          "name": "tokenProgram"
         }
       ],
       "args": [

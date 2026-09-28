@@ -53,4 +53,10 @@ if [ -n "$(find chain/programs -name '*.rs' -newer "$SO" -print -quit)" ]; then
   echo ""
 fi
 
+# Twice: the stake token may live under either token program, and every path
+# the program has must work under both. SPL Token is what devnet uses today;
+# Token-2022 is what new pump.fun tokens, and so most likely $OX, launch on.
+echo "── chain tests: SPL Token stake mint ──"
 CHAIN=1 npx vitest run test/chain.test.ts
+echo "── chain tests: Token-2022 stake mint, with pump.fun's metadata extensions ──"
+CHAIN=1 CHAIN_TOKEN=2022 npx vitest run test/chain.test.ts

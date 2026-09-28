@@ -224,8 +224,13 @@ function ClaimButton({
           const account = await rpc("getAccountInfo", [configAddress, { encoding: "base64" }]);
           if (!account?.value) throw new Error("the program has no config on this network");
           const data = Uint8Array.from(atob(account.value.data[0]), (c: string) => c.charCodeAt(0));
-          const destination = await associatedTokenAddress(owner, decodeConfig(data).mint);
-          return claimExitIx({ owner, agentId, destination });
+          const mint = decodeConfig(data).mint;
+          // Whichever program owns the mint: SPL Token or Token-2022.
+          const mintAccount = await rpc("getAccountInfo", [mint, { encoding: "base64" }]);
+          const tokenProgram: string | undefined = mintAccount?.value?.owner;
+          if (!tokenProgram) throw new Error("the stake token's mint was not found on this network");
+          const destination = await associatedTokenAddress(owner, mint, tokenProgram);
+          return claimExitIx({ owner, agentId, destination, mint, tokenProgram });
         })
       }
       disabled={busy}
