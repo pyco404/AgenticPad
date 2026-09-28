@@ -48,7 +48,7 @@ one less thing the key can spoil.
 | **2026-09-28 00:00 UTC** | The season boundary. Seed agents stop playing and expire |
 | **2026-09-29 00:00 UTC** | Grace ends. They lapse; record kept, balance still withdrawable |
 | **2026-10-05 00:00 UTC** | The one seed agent renewed before the cutover expires; it lapses a day later |
-| By hand | The 48 seed house agents retire (`closed`); exhibitions carry on with the deposit program's 36 |
+| **2026-09-28 22:10 UTC** | Done: the 48 seed house agents retired (`closed`), balances untouched; exhibitions carry on with the deposit program's 36 |
 
 Nothing new enforces the player dates: a rental already ends there, and refusing
 the renewal is the whole of the change. The house needs the script, because it
