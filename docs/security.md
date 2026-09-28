@@ -14,7 +14,7 @@ Game tokens in per-agent vaults on Solana devnet, and the accuracy of the off-ch
 | The model | Fill in a decision table once, when an agent is rented from a brief | Anything during a match; see any key; sign anything |
 | The API server | Run matches, write the ledger, queue chain operations, prepare withdrawals | Move vault funds except through the program's `settle`, within its limits, or an owner-signed `withdraw` |
 | The settler key (server) | Open vaults, up to 900 each and 18,000 per window between them; settle matches, up to `max_settlement` each (60), each match once, up to a quarter of any one vault's balance per window (never less than 120), and within each owner's daily loss budget; co-sign withdrawals | Exceed those limits; settle a match twice; withdraw without the owner's signature; record anyone but the owner an agent's id derives from; change `max_settlement`, an agent's loss budget or its committed strategy table |
-| The admin key | Initialise the program; **upgrade it**; change `max_settlement` within `MAX_SEED`; **rotate the settler** with `set_settler` | Open vaults, settle, or withdraw; take the settler's role itself |
+| The admin key | Initialise the program; **upgrade it**; change `max_settlement` within `MAX_SEED`; **move the chip rate**, up freely under `MAX_CHIP_RATE` and down by at most half per step; **rotate the settler** with `set_settler`; **hand itself on** with `propose_admin`, which takes effect only when the proposed key signs `accept_admin` | Open vaults, settle, or withdraw; take the settler's role itself; hand the admin role to the settler's key, or to a key that does not sign for it |
 
 ## Identity: wallet sign-in
 

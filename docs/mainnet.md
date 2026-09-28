@@ -25,7 +25,7 @@ Every mainnet key is freshly generated. None of the devnet keys are reused: the 
 | **Program keypair** | Nothing but fix the program's address, once, at deploy. | Generated on a clean machine and kept private until the deploy — anyone holding it could deploy to that address first. Powerless afterwards. |
 | **Deploy key** | Pays for and signs the deploy's ~600 buffer writes, which a hardware wallet cannot practically sign. | A throwaway on the deploy machine. The upgrade authority moves to the hardware wallet straight after, and this key is emptied. |
 | **Upgrade authority** | Replace the program's code — and so take everything ([security.md](security.md) limitation 2). | A hardware wallet, used only for upgrades. |
-| **Config admin** | Set the chip rate weekly, the rent, the per-match limit and the exit window; rotate the settler; with `set_admin`, hand itself on. | A second hardware wallet, used weekly, with a tested seed backup. |
+| **Config admin** | Set the chip rate weekly, the rent, the per-match limit and the exit window; rotate the settler; hand itself on, in two steps (propose, then the new key accepts). | A second hardware wallet, used weekly, with a tested seed backup. |
 | **Settler** | Settle within the outflow cap and the owners' loss budgets, co-sign withdrawals, and pay every fee and account rent. | Hot, but only as a secret on the mainnet api service — never written to a laptop. Holds a small SOL float, topped up from the ops wallet. The admin can rotate it. |
 | **Ops wallet** | Hold the SOL that funds the deploy and tops up the settler. | A hardware wallet. |
 
@@ -37,8 +37,8 @@ The daily and weekly reward wallets and the platform wallet ([economy.md](econom
 
 1. **Code, before anything touches mainnet**, each tested on devnet:
    1. ~~Token-2022 support~~ — built and on devnet (2026-09-28). The chain suite runs in full against both token programs.
-   2. The chip-rate rule: raise freely, lower by at most half per step.
-   3. `set_admin`.
+   2. ~~The chip-rate rule: raise freely, lower by at most half per step~~ — built (2026-09-28), not yet on devnet.
+   3. ~~`set_admin`~~ — built as a two-step handover (2026-09-28), not yet on devnet: the admin proposes (`propose_admin`) and the new key accepts by signing (`accept_admin`), so a mistyped address can never become the admin.
    4. Hourly net settlement, and the per-agent per-period limit it needs in place of the per-match one ([economy.md](economy.md#open-questions), question 4).
    5. House agents with no balance.
    6. The chip rate throughout the server: much of it still assumes the devnet rate, and the season-boundary hook that would set the new rate does nothing yet.
@@ -85,7 +85,7 @@ House vaults are gone from this list with decision 5.
 ## What cannot be undone
 
 - **The program ID**, once owners have deposited: every vault, owner record and loss budget derives from it.
-- **`initialize`**: the $OX mint is fixed for the program's life. The admin is too, until `set_admin` exists — which is why it is on the build list.
+- **`initialize`**: the $OX mint is fixed for the program's life. The admin is not: the two-step handover moves it, and only to a key that signs to accept.
 - **The first chip rate** is free at initialise; after that the rate rule governs how fast it can be corrected.
 - **The creator-fee split** and its three addresses.
 - **Burns**: every rental fee.
