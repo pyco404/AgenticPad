@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import pg from "pg";
+import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { balanceOf, balancesOf, record } from "../src/db/ledger.js";
 import { createAgent, hasBudgetRoom, hasOutflowRoom, leaderboard, lostToday, playableBands, publicAgent, runMatch } from "../src/db/runner.js";
@@ -11,7 +12,8 @@ import { seasonStatement } from "../src/db/statement.js";
 import { seasonAt } from "../src/season.js";
 import { someWallet } from "./helpers.js";
 import { volume } from "../src/db/admin.js";
-import { solvency } from "../src/chain/worker.js";
+import { settlementLag, solvency } from "../src/chain/worker.js";
+import { cutDue, NET_PERIOD_MS } from "../src/db/netting.js";
 import { FakeChain } from "./fake-chain.js";
 
 /**
@@ -109,6 +111,36 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     // And the ladder, whose figures come from bigint rating columns.
     const rows = await leaderboard(db, 10);
     for (const row of rows) expect(typeof row.cumulativeNet).toBe("number");
+    await close();
+  });
+
+  it("numbers net settlements and reads the hour's net outflow as numbers", async () => {
+    const { db, close } = await fresh();
+    const made = [];
+    for (const [name, presetName] of [["NetA", "Anchor"], ["NetB", "Bully"]] as const) {
+      const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit", band: "B" });
+      await record(db, [{ agentId: agent.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
+      made.push(agent);
+    }
+    const [a, b] = made;
+    let moved = 0;
+    for (let seed = 1; moved < 2 && seed < 200; seed++) {
+      const m = await runMatch(db, a!.id, b!.id, { seed });
+      if (m.settled.A !== 0) moved++;
+      // Cut after the first, so the second numbers on from a max(batch).
+      if (moved === 1) await cutDue(db, new Date(Date.now() + NET_PERIOD_MS));
+    }
+    // The hour's net, a greatest(0, sum(...)::bigint).
+    expect(typeof (await hasOutflowRoom(db, a!.id, 20))).toBe("boolean");
+    // min() over a computed timestamp.
+    expect(typeof (await settlementLag(db))).toBe("number");
+    await cutDue(db, new Date(Date.now() + 2 * NET_PERIOD_MS));
+    const nets = await db.select().from(chainOps).where(eq(chainOps.kind, "net"));
+    for (const agent of [a!, b!]) {
+      const batches = nets.filter((n) => n.agentId === agent.id).map((n) => n.batch);
+      expect(batches.every((x) => typeof x === "number")).toBe(true);
+      expect([...batches].sort()).toEqual(batches.map((_, i) => i + 1));
+    }
     await close();
   });
 

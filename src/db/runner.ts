@@ -43,6 +43,7 @@ import { recordEvent } from "./events.js";
 import { baseUnits, chips, rateOf, type Funding } from "../chips.js";
 import { utcDay } from "../chain/common.js";
 import { rentalEndFor, rentalOpen, rentalOpenSql } from "./rental.js";
+import { periodOf, periodStart } from "./netting.js";
 import { seasonAt } from "../season.js";
 import { bandFactor, standings, type Standing } from "./standings.js";
 
@@ -398,7 +399,9 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
       ]);
     }
     // Queue the same movement for the chain. A level match moves nothing, and
-    // an exhibition never had any to move.
+    // an exhibition never had any to move. On the deposit flow it settles in
+    // its agents' hourly nets (src/db/netting.ts); the seed program has no
+    // net settlement, so its matches still go one by one.
     if (movedA !== 0) {
       const [loser, winner] = movedA > 0 ? [rowB.id, rowA.id] : [rowA.id, rowB.id];
       await tx.insert(chainOps).values({
@@ -407,6 +410,7 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
         fromAgent: loser,
         toAgent: winner,
         amount: Math.abs(movedA),
+        netted: rowA.funding === "deposit",
       });
     }
     await updateRating(tx, rowA.id);
@@ -647,21 +651,40 @@ async function recentOpponents(db: Db, agentId: string, limit: number): Promise<
 }
 
 /**
- * What a vault has already committed to pay out inside the chain's current
- * window, as SQL: settlements queued against it in the trailing window,
- * whatever became of them.
+ * What a vault has already committed to pay out inside the chain's window, as
+ * SQL. Matches whatever became of them: pending and netted are money the chain
+ * will be asked for, and a failed one is money it refused, which is the
+ * situation this is here to avoid rather than a reason to try again.
  *
- * Pending and confirmed both count. A pending op is money the chain has not
- * been asked for yet but will be, and a failed one is money it refused, which
- * is the situation this is here to avoid rather than a reason to try again.
+ * On the deposit flow, this hour's **net** loss. The hour's matches settle as
+ * one net payment, sent once the hour is over, so what the program's window
+ * will be asked for is the net of this hour alone - wins count against losses,
+ * and an earlier hour went out in a window of its own.
+ *
+ * On the seed flow, every loss in the trailing window: that program settles
+ * match by match, in a window of ten minutes that no rolling one can line up
+ * with (schema.ts, OUTFLOW_WINDOW_MS).
  */
-const committedOutflow = (agentId: unknown) => sql<number>`coalesce((
-  select sum(${chainOps.amount})::bigint from ${chainOps}
-  where ${chainOps.kind} = 'settle'
-    and ${chainOps.fromAgent} = ${agentId}
-    and ${chainOps.status} <> 'failed'
-    and ${chainOps.createdAt} > now() - interval '${sql.raw(String(Math.round(OUTFLOW_WINDOW_MS / 1000)))} seconds'
-), 0)`;
+const committedOutflow = (agentId: unknown, funding: Funding) => {
+  if (funding === "deposit") {
+    const hour = periodStart(periodOf(new Date())).toISOString();
+    return sql<number>`greatest(0, coalesce((
+      select sum(case when ${chainOps.fromAgent} = ${agentId} then ${chainOps.amount} else -${chainOps.amount} end)::bigint
+      from ${chainOps}
+      where ${chainOps.kind} = 'settle'
+        and ${chainOps.status} <> 'failed'
+        and (${chainOps.fromAgent} = ${agentId} or ${chainOps.toAgent} = ${agentId})
+        and ${chainOps.createdAt} >= ${hour}
+    ), 0))`;
+  }
+  return sql<number>`coalesce((
+    select sum(${chainOps.amount})::bigint from ${chainOps}
+    where ${chainOps.kind} = 'settle'
+      and ${chainOps.fromAgent} = ${agentId}
+      and ${chainOps.status} <> 'failed'
+      and ${chainOps.createdAt} > now() - interval '${sql.raw(String(Math.round(OUTFLOW_WINDOW_MS / 1000)))} seconds'
+  ), 0)`;
+};
 
 /**
  * An agent's net loss on one UTC day, in base units, as SQL: what it has lost
@@ -751,7 +774,7 @@ export async function hasOutflowRoom(db: Db, agentId: string, worstMatch: number
   if (!agent) return false;
   const rate = rateOf(agent);
   const [row] = await db
-    .select({ balance: sql<number>`coalesce(sum(${ledger.amount})::bigint, 0)`, spent: committedOutflow(agentId) })
+    .select({ balance: sql<number>`coalesce(sum(${ledger.amount})::bigint, 0)`, spent: committedOutflow(agentId, agent.funding) })
     .from(ledger)
     .where(eq(ledger.agentId, agentId));
   const balance = Number(row?.balance ?? 0);
@@ -801,7 +824,8 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
       // Each candidate's own unit: its funding flow decides how many base
       // units a chip of its balance is.
       funding: agents.funding,
-      spent: committedOutflow(agents.id),
+      // Every candidate is on this agent's flow (below), so one mirror serves.
+      spent: committedOutflow(agents.id, me.funding),
       lossBudget: agents.lossBudget,
       lossBudgetNext: agents.lossBudgetNext,
       lossBudgetNextFromDay: agents.lossBudgetNextFromDay,
@@ -851,7 +875,9 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   });
   if (!(await hasOutflowRoom(db, agentId, worstMatch))) {
     throw new StakeError(
-      `${me.name} has settled as much as its vault can pay out in one window. It plays again within fifteen minutes.`,
+      `${me.name} has settled as much as its vault can pay out in one window. It plays again ${
+        me.funding === "deposit" ? "when the hour turns" : "within fifteen minutes"
+      }.`,
     );
   }
   if (!(await hasBudgetRoom(db, agentId, worstMatch))) {

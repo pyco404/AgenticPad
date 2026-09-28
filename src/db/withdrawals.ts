@@ -6,6 +6,7 @@ import { balanceOf, record } from "./ledger.js";
 import { exitState, isExiting, type ExitState } from "./exits.js";
 import { agents, chainOps, STAKE_BANDS, withdrawals, type WithdrawalStatus } from "./schema.js";
 import { baseUnits, chips, rateOf } from "../chips.js";
+import { requestEarlySettlement } from "./netting.js";
 
 /**
  * The least a vault can be left with and still be worth keeping, in **chips**:
@@ -122,7 +123,8 @@ export async function withdrawable(db: Db, agentId: string, now = new Date()): P
   const minToKeep = baseUnits(MIN_TO_KEEP_PLAYING_CHIPS, rateOf(agent));
   const balance = await balanceOf(db, agentId);
   const pending = await unsettledOps(db, agentId);
-  const locked = pending.filter((op) => op.kind === "settle").reduce((sum, op) => sum + op.amount, 0);
+  const settling = pending.filter((op) => op.kind === "settle" || op.kind === "net");
+  const locked = settling.reduce((sum, op) => sum + op.amount, 0);
   let reason: string | null = null;
   // A lapsed agent retired because its rental ran out, not because its money
   // did: the balance is still the owner's, and taking all of it is the one
@@ -132,7 +134,13 @@ export async function withdrawable(db: Db, agentId: string, now = new Date()): P
   else if (!agent.ownerId) reason = "house agents have no owner";
   else if (await isExiting(db, agentId)) reason = "an exit is waiting on chain: claim or cancel it first";
   else if (await openWithdrawal(db, agentId)) reason = "a withdrawal is already on its way";
-  else if (pending.some((op) => op.kind === "settle")) reason = "a match is still settling on chain";
+  else if (settling.length > 0) {
+    reason = "a match is still settling on chain";
+    // Matches waiting for their hour to be netted would otherwise hold the
+    // money until it turns. An owner looking at this wants it now, so ask for
+    // this agent to be settled on the next pass.
+    await requestEarlySettlement(db, agentId, now);
+  }
   else if (pending.length > 0 || !(await ownerRegistered(db, agentId))) reason = "the vault is still being set up on chain";
   else if (balance <= 0) reason = "nothing to withdraw";
   const available = reason ? 0 : balance;

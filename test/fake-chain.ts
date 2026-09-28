@@ -1,6 +1,6 @@
 import { agentIdFor } from "../src/agent-id.js";
 import type { ChainPort } from "../src/chain/worker.js";
-import type { ChainExit } from "../src/chain/settlement.js";
+import type { ChainExit, NetSettleInput } from "../src/chain/settlement.js";
 import type { SeedOpenVaultInput } from "../src/chain/seed-settlement.js";
 
 /**
@@ -16,6 +16,8 @@ export class FakeChain implements ChainPort {
   failNext: string | null = null;
   /** Agents whose vault has paid out its limit for this window: the program refuses, for now. */
   throttled = new Set<string>();
+  /** Refuses every net receipt, as clearing short of a cut's payments would. */
+  refuseReceipts = false;
   /** Simulates a submission that landed but whose confirmation was lost. */
   landButThrow = false;
 
@@ -43,6 +45,37 @@ export class FakeChain implements ChainPort {
     this.settled.add(input.matchId);
     if (this.landButThrow) throw new Error("timed out waiting for confirmation");
     return `sig-settle-${input.matchId}`;
+  }
+  /** The clearing account net settlement passes through. */
+  clearing = 0;
+  /** Each agent's last net settlement number. */
+  batches = new Map<string, number>();
+  async settleNet(input: NetSettleInput) {
+    this.calls.push(`net ${input.pays ? "pay" : "receive"} ${input.agentId.slice(0, 4)} #${input.batch}`);
+    if (this.failNext) throw new Error(this.failNext);
+    const last = this.batches.get(input.agentId) ?? 0;
+    if (input.batch !== last + 1) throw new Error("Error Code: BatchOutOfOrder");
+    const vault = this.vaults.get(input.agentId);
+    if (vault === undefined) throw new Error("Error Code: AccountNotInitialized");
+    if (input.pays) {
+      if (this.throttled.has(input.agentId)) throw new Error("Error Code: OutflowLimit");
+      if (vault < input.amount) throw new Error("Error Code: InsufficientVault");
+      this.vaults.set(input.agentId, vault - input.amount);
+      this.clearing += input.amount;
+    } else {
+      if (this.refuseReceipts || this.clearing < input.amount) throw new Error("Error Code: ClearingShort");
+      this.clearing -= input.amount;
+      this.vaults.set(input.agentId, vault + input.amount);
+    }
+    this.batches.set(input.agentId, input.batch);
+    if (this.landButThrow) throw new Error("timed out waiting for confirmation");
+    return `sig-net-${input.agentId}-${input.batch}`;
+  }
+  async netBatch(agentId: string) {
+    return this.batches.get(agentId) ?? 0;
+  }
+  async clearingBalance() {
+    return this.clearing;
   }
   async hasVault(agentId: string) {
     return this.vaults.has(agentId);

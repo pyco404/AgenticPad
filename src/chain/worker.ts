@@ -1,13 +1,14 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import type { SeedOpenVaultInput } from "./seed-settlement.js";
-import type { ChainExit } from "./settlement.js";
+import type { ChainExit, NetSettleInput } from "./settlement.js";
 import { balancesOf, record } from "../db/ledger.js";
 import { agents, chainOps, deposits, exits, rentals, withdrawals, type ChainOpRow } from "../db/schema.js";
 import { chipRate, type Funding } from "../chips.js";
 import { utcDay } from "./common.js";
 import { expireWithdrawal, markWithdrawn } from "../db/withdrawals.js";
 import { ingestExits, type ExitPass } from "../db/exits.js";
+import { cutDue, dueAtSql, type CutResult } from "../db/netting.js";
 
 /**
  * Drains the outbox into the settlement program, in order.
@@ -33,6 +34,12 @@ import { ingestExits, type ExitPass } from "../db/exits.js";
  * Every op is idempotent against the chain: if a previous attempt landed but
  * its confirmation was lost, the vault or the settlement record already exists,
  * and the op is marked confirmed instead of being sent again.
+ *
+ * Net settlements (src/db/netting.ts) keep two orders of their own, and the
+ * worker keeps them by holding an op back rather than sending it into a
+ * refusal. An agent's net ops land in batch order, so one held back holds back
+ * that agent's later ones. And a cut's receipts wait until all its payments
+ * have landed, because until then clearing does not hold them.
  */
 
 /**
@@ -71,6 +78,15 @@ export type ChainPort = {
   exits?(): Promise<ChainExit[]>;
   /** The live exit window in slots, or null where exits are not turned on. */
   exitWindow?(): Promise<number | null>;
+  /**
+   * Net settlement, on the program that has it. Absent on the seed program,
+   * whose agents settle match by match: none of their rows is ever netted.
+   */
+  settleNet?(input: NetSettleInput): Promise<string>;
+  /** The agent's last net settlement number on chain; 0 before its first. */
+  netBatch?(agentId: string): Promise<number>;
+  /** What the clearing account holds, or null where there is none. */
+  clearingBalance?(): Promise<number | null>;
 };
 
 export type DrainResult = {
@@ -85,11 +101,16 @@ export type DrainResult = {
 async function alreadyDone(chain: ChainPort, op: ChainOpRow): Promise<boolean> {
   if (op.kind === "open_vault") return chain.hasVault(op.agentId!);
   if (op.kind === "register_owner") return (await chain.ownerOf(op.agentId!)) !== null;
+  if (op.kind === "net") return chain.netBatch ? (await chain.netBatch(op.agentId!)) >= op.batch! : false;
   return chain.isSettled(op.matchId!);
 }
 
 async function submit(chain: ChainPort, op: ChainOpRow): Promise<string> {
   if (op.kind === "open_vault") return chain.openVault({ agentId: op.agentId!, owner: op.owner, salt: op.salt!, amount: op.amount });
+  if (op.kind === "net") {
+    if (!chain.settleNet) throw new Error("this program has no net settlement");
+    return chain.settleNet({ agentId: op.agentId!, batch: op.batch!, amount: op.amount, pays: op.fromAgent !== null, day: op.day! });
+  }
   return chain.settle({
     matchId: op.matchId!,
     fromAgent: op.fromAgent!,
@@ -119,7 +140,7 @@ async function submit(chain: ChainPort, op: ChainOpRow): Promise<string> {
 function unsendable(op: ChainOpRow, vaultless: ReadonlySet<string>): string | null {
   if (op.kind === "open_vault" && !op.salt) return "queued before ids were derived from owners: it has no salt, so no vault can be opened under it";
   if (op.kind === "register_owner") return "owners are recorded as their vault opens; register_owner is no longer an instruction";
-  if (op.kind === "settle") {
+  if (op.kind === "settle" || op.kind === "net") {
     const missing = [op.fromAgent, op.toAgent].filter((id) => id && vaultless.has(id));
     if (missing.length > 0) return `its vault${missing.length > 1 ? "s" : ""} can never open, so this can never settle on chain`;
   }
@@ -166,8 +187,10 @@ async function fundingOf(db: Db, ops: readonly ChainOpRow[]): Promise<Map<string
  * the emergency, and a hundred that arrived this second is a busy Tuesday.
  */
 export async function settlementLag(db: Db, now = new Date()): Promise<number | null> {
+  // From when each op is *due*, not when it was written: a match waiting for
+  // its hour to be netted is not late until the hour is over.
   const [row] = await db
-    .select({ oldest: sql<string | null>`min(${chainOps.createdAt})` })
+    .select({ oldest: sql<string | null>`min(${dueAtSql})` })
     .from(chainOps)
     .where(eq(chainOps.status, "pending"));
   if (!row?.oldest) return null;
@@ -175,9 +198,11 @@ export async function settlementLag(db: Db, now = new Date()): Promise<number | 
 }
 
 /**
- * How long an op may wait before something is wrong. Generous next to the
- * worker's five-second pass and the program's ten-minute outflow window, so a
- * throttled vault waiting its turn never trips it.
+ * How long an op may wait past its due time before something is wrong.
+ * Generous next to the worker's five-second pass. A vault the program throttles
+ * waits for the next hour's outflow window and will trip it; the ledger's
+ * mirror of that window is there to make that rare, and when it happens it is
+ * worth knowing about.
  */
 export const SETTLEMENT_LAG_ALARM_MS = 15 * 60 * 1000;
 
@@ -344,7 +369,8 @@ export async function drainChainOps(
   const pending = await db
     .select()
     .from(chainOps)
-    .where(eq(chainOps.status, "pending"))
+    // A netted match is never sent: its agents' net ops carry it.
+    .where(and(eq(chainOps.status, "pending"), eq(chainOps.netted, false)))
     .orderBy(asc(chainOps.seq))
     .limit(options.limit ?? 100);
   // The flow of every agent these ops touch, in one query rather than one per op.
@@ -352,7 +378,23 @@ export async function drainChainOps(
 
   const vaultless = await vaultlessAgents(db);
   const result: DrainResult = { confirmed: 0, alreadyOnChain: 0, deferred: 0, stoppedAt: null, error: null };
+  // Payments still to land in each cut. A cut's payments come before its
+  // receipts in the outbox, so any that are still pending are in this page.
+  const unpaid = new Map<string, number>();
+  for (const op of pending) if (op.kind === "net" && op.fromAgent) unpaid.set(op.cut!, (unpaid.get(op.cut!) ?? 0) + 1);
+  // Agents with a net op that did not land this pass: their later ones wait.
+  const held = new Set<string>();
   for (const op of pending) {
+    if (op.kind === "net") {
+      const waiting = held.has(op.agentId!) || (op.toAgent !== null && (unpaid.get(op.cut!) ?? 0) > 0);
+      if (waiting) {
+        held.add(op.agentId!);
+        continue;
+      }
+    }
+    const landed = () => {
+      if (op.kind === "net" && op.fromAgent) unpaid.set(op.cut!, unpaid.get(op.cut!)! - 1);
+    };
     try {
       const funding = flows.get(op.id) ?? "seed";
       const chain = ports[funding];
@@ -361,6 +403,7 @@ export async function drainChainOps(
         // program, which holds none of this agent's accounts.
         const why = `no ${funding} settlement client is configured on this server`;
         await db.update(chainOps).set({ lastError: why, updatedAt: new Date() }).where(eq(chainOps.id, op.id));
+        if (op.kind === "net") held.add(op.agentId!);
         result.error ??= why;
         result.deferred++;
         continue;
@@ -380,6 +423,7 @@ export async function drainChainOps(
         continue;
       }
       if (await alreadyDone(chain, op)) {
+        landed();
         // Without the signature the match page cannot link the transaction.
         const signature =
           op.kind === "settle" && chain.settlementSignature ? await chain.settlementSignature(op.matchId!) : null;
@@ -395,6 +439,7 @@ export async function drainChainOps(
         .update(chainOps)
         .set({ status: "confirmed", signature, attempts: op.attempts + 1, lastError: null, updatedAt: new Date() })
         .where(eq(chainOps.id, op.id));
+      landed();
       result.confirmed++;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -404,6 +449,7 @@ export async function drainChainOps(
         .where(eq(chainOps.id, op.id));
       result.error ??= message;
       if (refusedByProgram(message)) {
+        if (op.kind === "net") held.add(op.agentId!);
         result.deferred++;
         continue;
       }
@@ -493,7 +539,8 @@ export async function reconcile(
     .where(
       and(
         sql`exists (select 1 from ${chainOps} where ${chainOps.agentId} = ${agents.id} and ${chainOps.kind} = 'open_vault' and ${chainOps.status} = 'confirmed')`,
-        sql`not exists (select 1 from ${chainOps} where ${chainOps.status} <> 'confirmed' and (${chainOps.agentId} = ${agents.id} or ${chainOps.fromAgent} = ${agents.id} or ${chainOps.toAgent} = ${agents.id}))`,
+        // A netted match is done as a row; its agents' net ops are what is still to land.
+        sql`not exists (select 1 from ${chainOps} where ${chainOps.status} not in ('confirmed', 'netted') and (${chainOps.agentId} = ${agents.id} or ${chainOps.fromAgent} = ${agents.id} or ${chainOps.toAgent} = ${agents.id}))`,
       ),
     );
 
@@ -738,6 +785,19 @@ export async function solvency(db: Db, chain: ChainPort | ChainPorts): Promise<S
     flow.counted++;
     counted++;
   }
+  // Clearing holds what an hour's losers have paid and its winners have not yet
+  // been paid: players' money between two vaults, so it counts on the chain
+  // side. Without it every netted hour would read as a shortfall until its
+  // receipts landed.
+  for (const funding of Object.keys(byFlow) as Funding[]) {
+    const port = ports[funding];
+    if (!port?.clearingBalance) continue;
+    try {
+      byFlow[funding]!.chain += (await port.clearingBalance()) ?? 0;
+    } catch {
+      unreachable++;
+    }
+  }
   for (const flow of Object.values(byFlow)) flow.difference = flow.chain - flow.ledger;
 
   // A settlement's flow is its agents': both sides of a match are on one
@@ -844,6 +904,8 @@ export function startChainWorker(
   options: {
     intervalMs?: number;
     onPass?: (result: DrainResult) => void;
+    /** A pass cut some hours' matches into net settlements. */
+    onCut?: (result: CutResult) => void;
     /**
      * The outbox has been stuck for too long, or has started moving again.
      * Called once when it starts and once when it clears, never on every pass:
@@ -874,6 +936,13 @@ export function startChainWorker(
   const alarmAfter = options.lagAlarmMs ?? SETTLEMENT_LAG_ALARM_MS;
   const pass = async () => {
     if (stopped) return;
+    try {
+      // Net first, so what an hour owes goes out in the same pass it closes.
+      const cut = await cutDue(db);
+      if (cut.cuts > 0) options.onCut?.(cut);
+    } catch (error) {
+      options.onPass?.({ confirmed: 0, alreadyOnChain: 0, deferred: 0, stoppedAt: null, error: `cut: ${String(error)}` });
+    }
     try {
       const result = await drainChainOps(db, chain);
       options.onPass?.(result);
@@ -946,12 +1015,44 @@ export function startChainWorker(
   };
 }
 
-/** What the chain has recorded for one match, for the transcript and share page. */
-export async function settlementStatus(db: Db, matchId: string) {
+export type SettlementStatus = {
+  status: "pending" | "confirmed" | "failed";
+  signature: string | null;
+  amount: number;
+  /** Settled as part of its agents' hourly nets rather than on its own. */
+  netted: boolean;
+};
+
+/**
+ * What the chain has recorded for one match, for the transcript and share page.
+ *
+ * A netted match is settled once both its agents' net settlements for its cut
+ * have landed. Either may not exist - an agent whose hour came to nothing moved
+ * nothing - and the transaction shown is the loser's payment, which is where
+ * the money left, or failing that the winner's receipt.
+ */
+export async function settlementStatus(db: Db, matchId: string): Promise<SettlementStatus | null> {
   const [op] = await db
-    .select({ status: chainOps.status, signature: chainOps.signature, amount: chainOps.amount })
+    .select({
+      status: chainOps.status,
+      signature: chainOps.signature,
+      amount: chainOps.amount,
+      netted: chainOps.netted,
+      cut: chainOps.cut,
+      fromAgent: chainOps.fromAgent,
+      toAgent: chainOps.toAgent,
+    })
     .from(chainOps)
     .where(and(eq(chainOps.kind, "settle"), eq(chainOps.matchId, matchId)))
     .limit(1);
-  return op ?? null;
+  if (!op) return null;
+  const base = { amount: op.amount, netted: op.netted };
+  if (op.status !== "netted") return { ...base, status: op.status === "failed" ? "failed" : op.status === "confirmed" ? "confirmed" : "pending", signature: op.signature };
+  const nets = await db
+    .select({ status: chainOps.status, signature: chainOps.signature, agentId: chainOps.agentId })
+    .from(chainOps)
+    .where(and(eq(chainOps.kind, "net"), eq(chainOps.cut, op.cut!), inArray(chainOps.agentId, [op.fromAgent!, op.toAgent!])));
+  const status = nets.some((n) => n.status === "failed") ? "failed" : nets.every((n) => n.status === "confirmed") ? "confirmed" : "pending";
+  const shown = nets.find((n) => n.agentId === op.fromAgent) ?? nets.find((n) => n.agentId === op.toAgent);
+  return { ...base, status, signature: status === "confirmed" ? (shown?.signature ?? null) : null };
 }

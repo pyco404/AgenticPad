@@ -1,6 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { agents, chainOps, deposits, matches, rentals, withdrawals } from "./schema.js";
+import { dueAtSql } from "./netting.js";
 import { chipRate, chips, DEVNET_CHIP_RATE } from "../chips.js";
 
 /**
@@ -61,7 +62,8 @@ export async function troubledOps(db: Db, stuckAfterMs = 15 * 60_000, now = new 
     .from(chainOps)
     .leftJoin(agents, eq(agents.id, sql`coalesce(${chainOps.agentId}, ${chainOps.fromAgent})`))
     .where(
-      sql`${chainOps.status} = 'failed' or (${chainOps.status} = 'pending' and ${chainOps.createdAt} < ${cutoff})`,
+      // Stuck from when it was due: a match waiting for its hour to be netted is not late yet.
+      sql`${chainOps.status} = 'failed' or (${chainOps.status} = 'pending' and ${dueAtSql} < ${cutoff})`,
     )
     .orderBy(desc(chainOps.createdAt))
     .limit(100);
@@ -106,7 +108,7 @@ export async function oldestPending(db: Db, now = new Date()): Promise<OpTrouble
     .from(chainOps)
     .leftJoin(agents, eq(agents.id, sql`coalesce(${chainOps.agentId}, ${chainOps.fromAgent})`))
     .where(eq(chainOps.status, "pending"))
-    .orderBy(chainOps.createdAt)
+    .orderBy(dueAtSql)
     .limit(1);
   if (!r) return null;
   return {
