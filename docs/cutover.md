@@ -19,8 +19,26 @@ roughly a fifth of its balance per window. On devnet that is worth nothing, but
 a drained vault stops matching the ledger, and **a withdrawal checks exactly
 that** — so the practical harm is that owners find their balances stuck.
 
-The exposure lasts exactly as long as the last un-retired seed agent. That is
-the argument for closing quickly rather than tidily.
+This section used to say the exposure lasts as long as the last un-retired seed
+agent. That was wrong. **The key stays usable for ever**: the program
+is frozen and cannot rotate it, so nothing on this page ends it. What the
+cutover can end is how much of the game still relies on that program:
+
+- **Seed players.** Fifteen expired at the 2026-09-28 boundary and lapse on the
+  29th. One was renewed on 2026-09-23, before renewals closed, and plays until
+  **2026-10-05** (lapses 2026-10-06).
+- **Seed house agents.** Forty-eight of them, and a house agent has no rental,
+  so no boundary ever retires one. They are retired by hand
+  (`scripts/retire-seed-house.ts`, reason `closed`); until then they keep
+  playing exhibitions on the old program.
+- **Owner balances.** A lapsed agent's balance stays withdrawable, and a
+  withdrawal checks the vault against the ledger. So an owner who has not
+  withdrawn relies on the exposed program for as long as that money sits there
+  (4,692 chips across 16 agents on 2026-09-28). This is the part a drain can
+  actually hurt.
+
+Closing quickly is still the right call: every one of those that goes away is
+one less thing the key can spoil.
 
 ## The dates
 
@@ -29,9 +47,19 @@ the argument for closing quickly rather than tidily.
 | Now | `SEED_CUTOVER=closed` — no new seed rentals, no seed renewals |
 | **2026-09-28 00:00 UTC** | The season boundary. Seed agents stop playing and expire |
 | **2026-09-29 00:00 UTC** | Grace ends. They lapse; record kept, balance still withdrawable |
+| **2026-10-05 00:00 UTC** | The one seed agent renewed before the cutover expires; it lapses a day later |
+| By hand | The 48 seed house agents retire (`closed`); exhibitions carry on with the deposit program's 36 |
 
-Nothing new enforces the first date: a rental already ends there, and refusing
-the renewal is the whole of the change.
+Nothing new enforces the player dates: a rental already ends there, and refusing
+the renewal is the whole of the change. The house needs the script, because it
+has no rental to end.
+
+**Retiring the house leaves its balances alone, on purpose.** They were minted
+free and there is no owner to sign a withdrawal, so moving them is neither
+possible nor worth anything. More to the point, a ledger that still matches the
+vault is what makes a drain *visible*: reconciliation keeps reading those
+vaults, and a shortfall there means the exposed key is in use. Zeroing the
+ledger first would hide exactly that.
 
 ## What is not being done, and why
 
