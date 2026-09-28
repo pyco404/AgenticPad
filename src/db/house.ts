@@ -2,8 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { randomInt } from "node:crypto";
 import type { Db } from "./client.js";
 import { createAgent, runExhibition } from "./runner.js";
-import { agents, canAffordBand, chainOps, ledger, matches, STAKE_BANDS, type BandName } from "./schema.js";
-import { rateOf } from "../chips.js";
+import { agents, chainOps, matches, STAKE_BANDS, type BandName } from "./schema.js";
 import { PRESET_NAMES, type PresetName } from "../presets.js";
 
 /**
@@ -27,20 +26,14 @@ export async function pickHousePair(
   db: Db,
   random: (n: number) => number = (n) => randomInt(n),
 ): Promise<[string, string] | null> {
-  // Joined rather than correlated, as in playableBands.
-  const balances = db
-    .select({ agentId: ledger.agentId, balance: sql<number>`sum(${ledger.amount})::bigint`.as("balance") })
-    .from(ledger)
-    .groupBy(ledger.agentId)
-    .as("balances");
   const rows = await db
-    .select({ id: agents.id, band: agents.band, funding: agents.funding, balance: balances.balance })
+    .select({ id: agents.id, band: agents.band, funding: agents.funding })
     .from(agents)
-    .innerJoin(balances, eq(balances.agentId, agents.id))
     .where(and(isNull(agents.ownerId), isNull(agents.retiredAt)));
 
-  // Only agents that could actually play their own band, and only groups with
-  // at least two of them - a lone agent has nobody to meet. Grouped by band
+  // Only groups with at least two agents - a lone agent has nobody to meet.
+  // No balance is asked of anyone: an exhibition moves nothing, and house
+  // agents need no money. Grouped by band
   // *and* program: runExhibition refuses a pair under different programs, and
   // the least-played agent is picked first, so a fresh deposit-program agent
   // offered seed-program opponents would be refused, stay least-played, and be
@@ -48,9 +41,6 @@ export async function pickHousePair(
   const groupOf = new Map<string, string>();
   const byGroup = new Map<string, string[]>();
   for (const r of rows) {
-    // Each house agent in its own units: a seed chip is one base unit, a
-    // deposit chip a million.
-    if (!canAffordBand(Number(r.balance), r.band, rateOf(r))) continue;
     const group = `${r.band}:${r.funding}`;
     groupOf.set(r.id, group);
     byGroup.set(group, [...(byGroup.get(group) ?? []), r.id]);
@@ -123,12 +113,13 @@ export function startHouseExhibitions(
 }
 
 /**
- * The house roster on the deposit program: three of each preset in every band,
- * each starting with enough chips to last at its band's stakes. From the
- * week-long survival sweep (src/survival.ts, SURVIVAL_BY_SEED): 900 in A
- * survives 99.1% of the time, 1,350 in B 95.0%, 1,800 in C 91.7% - and a house
- * agent plays only when someone presses Play against it, far slower than the
- * autoplay pace that sweep assumes.
+ * The house roster on the deposit program: three of each preset in every band.
+ *
+ * House agents never stake, so they need no balance (docs/mainnet.md, decision
+ * 5): matchmaking, exhibitions and retirement ask nothing of it. `chips` is
+ * what the devnet roster was funded with before that was so, and what the
+ * optional `fund` step of scripts/seed-deposit-house.ts still tops a vault up
+ * to; a mainnet roster is not funded at all.
  */
 export const DEPOSIT_HOUSE = {
   perPreset: 3,
@@ -139,15 +130,13 @@ export type HouseSeat = { id: string; name: string; band: BandName; presetName: 
 
 /**
  * Creates whatever the deposit-program house roster is missing, and returns
- * all of it for funding.
+ * all of it.
  *
- * The deposit program cannot mint, so a house agent here is made in two parts:
- * the agent and a pending `open_vault` op, written together - the op carries
- * the salt its id derives from, and the outbox worker opens the vault - and
- * then a deposit into that vault from the treasury, made separately
- * (scripts/seed-deposit-house.ts). The ledger follows the deposit through the
- * sweep's credit for money that reaches a vault by another route, so nothing
- * here writes a balance.
+ * Each agent is written together with a pending `open_vault` op - the op
+ * carries the salt its id derives from, and the outbox worker opens the vault.
+ * Nothing needs to go into that vault: a house agent never stakes. Nothing here
+ * writes a balance; if a vault is ever funded anyway, the sweep's credit for
+ * money that reaches a vault by another route brings the ledger along.
  *
  * Idempotent: an agent counts once it has its op, so running this again after
  * a failure creates only what is still missing.
@@ -183,7 +172,7 @@ export async function ensureDepositHouse(
         const row = await db.transaction(async (tx) => {
           const agent = await createAgent(tx as unknown as Db, { name: nextName(), presetName, band, funding: "deposit" });
           // No owner, and no amount: the program opens a house vault empty,
-          // and the treasury's deposit is what fills it.
+          // and a house agent needs nothing in it.
           await tx.insert(chainOps).values({ kind: "open_vault", agentId: agent.id, owner: null, salt: agent.salt, amount: 0 });
           return agent;
         });

@@ -438,12 +438,10 @@ export async function runExhibition(db: Db, agentAId: string, agentBId: string, 
   }
   const band = rowA.band;
   const rules = bandRules(band);
-  const balances = await balancesOf(db, [rowA.id, rowB.id]);
-  const stake = stakeBetween(
-    { name: rowA.name, balance: balances.get(rowA.id) ?? 0, funding: rowA.funding },
-    { name: rowB.name, balance: balances.get(rowB.id) ?? 0, funding: rowB.funding },
-    band,
-  );
+  // Nothing moves in an exhibition, so nothing is asked of either balance:
+  // house agents need none. The stake is the band's worst match, which is what
+  // the match row shows so it reads like any other.
+  const stake = bandByName(band).worstMatch;
   assertSameFlow(rowA, rowB);
   const seed = options.seed ?? newSeed();
   const log = playMatch(resolveAgent(rowA), resolveAgent(rowB), { seed, ...rules });
@@ -573,9 +571,10 @@ export async function playableBands(
     .groupBy(ledger.agentId)
     .as("balances");
   const rows = await db
-    .select({ band: agents.band, funding: agents.funding, balance: balances.balance })
+    .select({ band: agents.band, funding: agents.funding, balance: balances.balance, ownerId: agents.ownerId })
     .from(agents)
-    .innerJoin(balances, eq(balances.agentId, agents.id))
+    // Left: a house agent needs no balance, and may have no ledger rows at all.
+    .leftJoin(balances, eq(balances.agentId, agents.id))
     .where(
       and(
         ne(agents.id, agentId),
@@ -593,7 +592,10 @@ export async function playableBands(
     band: b.name,
     // Each row's balance is in its own agent's units, so each is converted at
     // its own rate rather than the band's cover being converted once.
-    count: rows.filter((r) => r.band === b.name && canAffordBand(Number(r.balance), b.name, rateOf(r))).length,
+    // A house agent is always ready: it never stakes, so no balance is asked of it.
+    count: rows.filter(
+      (r) => r.band === b.name && (r.ownerId === null || canAffordBand(Number(r.balance ?? 0), b.name, rateOf(r))),
+    ).length,
   }));
 }
 
@@ -806,10 +808,13 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
       lostToday: netLossOn(agents.id, utcDay(new Date())),
     })
     .from(agents)
-    .innerJoin(solvent, eq(solvent.agentId, agents.id))
+    // Left, not inner: a house agent never stakes, so it needs no balance to be
+    // offered. Players still do - that is the condition below.
+    .leftJoin(solvent, eq(solvent.agentId, agents.id))
     .where(
       and(
         ne(agents.id, agentId),
+        or(isNull(agents.ownerId), isNotNull(solvent.agentId)),
         isNull(agents.retiredAt),
         // An expired agent is not matchable: it could not be recorded anyway.
         rentalOpenSql(),
@@ -834,6 +839,9 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   // program would refuse that settlement, so the ledger must not make it.
   const today = utcDay(new Date());
   const candidates = all.filter((c) => {
+    // A house opponent pays nothing - its matches never stake - so neither the
+    // chain's outflow window nor a loss budget has anything to say about it.
+    if (c.ownerId === null) return true;
     const rate = rateOf(c);
     const worst = baseUnits(worstMatch, rate);
     return (

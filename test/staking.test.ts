@@ -344,10 +344,11 @@ describe("running out", () => {
 
   it("is never offered as an opponent once it cannot cover a stake", async () => {
     const { db: d, close: c } = await fresh();
-    const seeker = await createAgent(d, { name: "Seeker", presetName: "Anchor" });
-    const broke = await createAgent(d, { name: "Broke", presetName: "Bully", startingBalance: bandByName("B").worstMatch - 1 });
+    // Players' agents: a house agent is never asked for a balance, since it never stakes.
+    const seeker = await createAgent(d, { name: "Seeker", presetName: "Anchor", ownerId: someWallet() });
+    const broke = await createAgent(d, { name: "Broke", presetName: "Bully", ownerId: someWallet(), startingBalance: bandByName("B").worstMatch - 1 });
     const solvent = [];
-    for (let i = 0; i < 5; i++) solvent.push(await createAgent(d, { name: `Solvent ${i}`, presetName: "Hammer" }));
+    for (let i = 0; i < 5; i++) solvent.push(await createAgent(d, { name: `Solvent ${i}`, presetName: "Hammer", ownerId: someWallet() }));
     await refreshTrueRatings(d);
 
     for (let i = 0; i < 20; i++) {

@@ -566,22 +566,25 @@ export function createApp(options: AppOptions): Server {
     return { ...row, balance: toChips(row.balance, rateOf(row)), balanceBaseUnits: row.balance };
   }
 
-  function bandStatus(row: { band: BandName; balance: number; presetName: string | null; funding: Funding }) {
+  function bandStatus(row: { band: BandName; balance: number; presetName: string | null; funding: Funding; house?: boolean }) {
     const rate = rateOf(row);
-    const open = affordableBands(row.balance, rate);
+    // A house agent never stakes, so no balance is asked of it: every band is
+    // open to it, whatever it holds - usually nothing.
+    const covers = (band: BandName) => row.house === true || canAffordBand(row.balance, band, rate);
+    const open = row.house === true ? STAKE_BANDS.map((b) => b.name) : affordableBands(row.balance, rate);
     return {
       band: row.band,
       worstMatch: bandByName(row.band).worstMatch,
-      canPlay: canAffordBand(row.balance, row.band, rate),
+      canPlay: covers(row.band),
       /** Bands this balance covers, cheapest upward. Empty means nothing is left but withdrawing. */
       affordable: open,
       /** The best band still open, when the current one is not. Null when none is. */
-      fallback: canAffordBand(row.balance, row.band, rate) ? null : (open.at(-1) ?? null),
+      fallback: covers(row.band) ? null : (open.at(-1) ?? null),
       bands: STAKE_BANDS.map((b) => ({
         name: b.name,
         stakes: { ante: b.ante, baseBet: b.baseBet, raisedBet: b.raisedBet },
         worstMatch: b.worstMatch,
-        affordable: canAffordBand(row.balance, b.name, rate),
+        affordable: covers(b.name),
         survival: survivalFor(b.name, (row.presetName as PresetName | null) ?? null),
         medianHours: SURVIVAL[b.name].medianHours,
       })),

@@ -17,7 +17,9 @@ import { ChainClient, stakeMintOf, tokenProgramOf } from "../src/chain/settlemen
  *
  *              npx tsx scripts/seed-deposit-house.ts create > house.json
  *
- *   fund     Where the treasury key is. Tops each open vault up to its target
+ *   fund     Optional, and devnet only: house agents need no balance (they
+ *            never stake), so a mainnet roster is never funded. Where the
+ *            treasury key is, tops each open vault up to its target
  *            from the treasury; a vault the worker has not opened yet is
  *            reported and skipped, so run it again once it has. Idempotent:
  *            it deposits only the difference. The ledger follows through the

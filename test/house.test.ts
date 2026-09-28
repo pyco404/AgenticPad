@@ -3,12 +3,11 @@ import { count, eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
 import { agents, chainOps, ledger, matches, ratings } from "../src/db/schema.js";
 import { balanceOf } from "../src/db/ledger.js";
-import { createAgent, runExhibition, runMatch } from "../src/db/runner.js";
+import { createAgent, pickOpponent, playableBands, runExhibition, runMatch } from "../src/db/runner.js";
 import { agentRecord, matchActivity, recentMatches } from "../src/db/feed.js";
 import { DEPOSIT_HOUSE, ensureDepositHouse, pickHousePair, startHouseExhibitions } from "../src/db/house.js";
-import { record } from "../src/db/ledger.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
-import { StakeError } from "../src/db/ledger.js";
+import { record, StakeError } from "../src/db/ledger.js";
 import { someWallet } from "./helpers.js";
 
 const fresh = async () => {
@@ -129,21 +128,20 @@ describe("house exhibitions", () => {
     await close();
   });
 
-  it("leaves out a band with nobody to pair, and anyone too poor for their own band", async () => {
+  it("leaves out a band with nobody to pair, and asks no balance of anyone", async () => {
     const { db, close } = await fresh();
     const b1 = await createAgent(db, { name: "B1", presetName: "Anchor", band: "B" });
-    const b2 = await createAgent(db, { name: "B2", presetName: "Bully", band: "B" });
+    // Too little to cover a band B match - and it does not matter: an
+    // exhibition moves nothing, so a house agent needs no money to play one.
+    const poor = await createAgent(db, { name: "Poor", presetName: "Mirage", band: "B", startingBalance: 39 });
     // Alone in band C: there is no one it could meet.
     const lonely = await createAgent(db, { name: "C1", presetName: "Hammer", band: "C" });
-    // In band B with too little to cover a band B match.
-    const poor = await createAgent(db, { name: "Poor", presetName: "Mirage", band: "B", startingBalance: 39 });
 
     for (let k = 0; k < 20; k++) {
       const pair = await pickHousePair(db);
       expect(pair).not.toBeNull();
-      expect([...pair!].sort()).toEqual([b1.id, b2.id].sort());
+      expect([...pair!].sort()).toEqual([b1.id, poor.id].sort());
       expect(pair).not.toContain(lonely.id);
-      expect(pair).not.toContain(poor.id);
     }
     await close();
   });
@@ -251,6 +249,78 @@ describe("the house on the deposit program", () => {
       expect(pair).not.toBeNull();
       expect(funding.get(pair![0])).toBe(funding.get(pair![1]));
       await runExhibition(db, pair![0], pair![1], { seed: i + 1 });
+    }
+    await close();
+  });
+});
+
+describe("house agents with no balance", () => {
+  // They never stake, so nothing may be asked of their balance: on mainnet
+  // they hold none (docs/mainnet.md, decision 5). A deposit-program house agent
+  // is written with no ledger rows at all, which is the case these cover.
+  const houseWithNothing = (db: Awaited<ReturnType<typeof fresh>>["db"], name: string, band: "A" | "B" | "C" = "B") =>
+    createAgent(db, { name, presetName: "Bully", band, funding: "deposit" });
+  const player = async (db: Awaited<ReturnType<typeof fresh>>["db"], name: string) => {
+    const row = await createAgent(db, { name, presetName: "Anchor", ownerId: someWallet(), funding: "deposit" });
+    await record(db, [{ agentId: row.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
+    return row;
+  };
+
+  it("is offered to a player who asks for the house, and played, with nothing moving", async () => {
+    const { db, close } = await fresh();
+    const me = await player(db, "Me");
+    const house = await houseWithNothing(db, "Empty");
+    expect(await balanceOf(db, house.id)).toBe(0);
+    const pick = await pickOpponent(db, me.id, { allowHouse: true, minCandidates: 1 });
+    expect(pick.opponentId).toBe(house.id);
+    const played = await runMatch(db, me.id, house.id, { seed: 3 });
+    expect(played.match.exhibition).toBe(true);
+    // Not retired as broke for holding nothing: it was never meant to hold anything.
+    const [after] = await db.select().from(agents).where(eq(agents.id, house.id));
+    expect(after!.retiredAt).toBeNull();
+    expect(await balanceOf(db, me.id)).toBe(baseUnits(900, DEVNET_CHIP_RATE));
+    await close();
+  });
+
+  it("is still never offered to autoplay, which meets players only", async () => {
+    const { db, close } = await fresh();
+    const me = await player(db, "Me");
+    await houseWithNothing(db, "Empty");
+    await expect(pickOpponent(db, me.id, { spread: true })).rejects.toThrow(/no opponent/);
+    await close();
+  });
+
+  it("plays exhibitions against another with nothing", async () => {
+    const { db, close } = await fresh();
+    const a = await houseWithNothing(db, "EmptyA");
+    const b = await houseWithNothing(db, "EmptyB");
+    const pair = await pickHousePair(db);
+    expect([...pair!].sort()).toEqual([a.id, b.id].sort());
+    await runExhibition(db, a.id, b.id, { seed: 1 });
+    expect((await db.select({ n: count() }).from(matches))[0]!.n).toBe(1);
+    await close();
+  });
+
+  it("counts toward a band's ready agents when the house is allowed, and not otherwise", async () => {
+    const { db, close } = await fresh();
+    const me = await player(db, "Me");
+    await houseWithNothing(db, "Empty", "C");
+    const withHouse = await playableBands(db, me.id, me.ownerId, "deposit", true);
+    const without = await playableBands(db, me.id, me.ownerId, "deposit", false);
+    expect(withHouse.find((b) => b.band === "C")?.count).toBe(1);
+    expect(without.find((b) => b.band === "C")?.count).toBe(0);
+    await close();
+  });
+
+  it("does not excuse a player: one that cannot cover its band is still never offered", async () => {
+    const { db, close } = await fresh();
+    const me = await player(db, "Me");
+    const skint = await createAgent(db, { name: "Skint", presetName: "Hammer", ownerId: someWallet(), funding: "deposit" });
+    await record(db, [{ agentId: skint.id, amount: baseUnits(39, DEVNET_CHIP_RATE), reason: "deposit" }]);
+    const fine = await player(db, "Fine");
+    for (let i = 0; i < 10; i++) {
+      const pick = await pickOpponent(db, me.id, { minCandidates: 1 });
+      expect(pick.opponentId).toBe(fine.id);
     }
     await close();
   });

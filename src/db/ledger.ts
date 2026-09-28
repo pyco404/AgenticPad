@@ -108,8 +108,15 @@ export const settle = (net: number): number => net;
  * owner's choice, so nothing here spends it on their behalf.
  */
 export async function retireIfBroke(db: Writable, agentId: string): Promise<boolean> {
-  const [row] = await db.select({ funding: agents.funding }).from(agents).where(eq(agents.id, agentId)).limit(1);
+  const [row] = await db
+    .select({ funding: agents.funding, ownerId: agents.ownerId })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1);
   if (!row) return false;
+  // A house agent never stakes, so it holds nothing and never needs to: it is
+  // never broke, however empty its balance.
+  if (row.ownerId === null) return false;
   const balance = await balanceOf(db, agentId);
   if (affordableBands(balance, rateOf(row)).length > 0) return false;
   await db.update(agents).set({ retiredAt: new Date(), retiredReason: "broke" }).where(eq(agents.id, agentId));
