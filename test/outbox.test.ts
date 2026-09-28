@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { asc, eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { agents, chainOps, deposits, STARTING_BALANCE } from "../src/db/schema.js";
-import { balanceOf } from "../src/db/ledger.js";
+import { balanceOf, record } from "../src/db/ledger.js";
 import { createAgent, runMatch } from "../src/db/runner.js";
 import {
   creditSurplus,
@@ -602,3 +602,77 @@ describe("watching for vaults that fall short", () => {
   });
 });
 
+
+describe("reconcile and failed ops", () => {
+  // Two players, their vaults open, one match between them whose settlement
+  // the chain will never take - the shape of the five cross-program
+  // settlements of 2026-09-25.
+  async function deadSettlement() {
+    const { db: d, close: c } = await fresh();
+    const a = await createAgent(d, { name: "A", presetName: "Bully", ownerId: someWallet() });
+    const b = await createAgent(d, { name: "B", presetName: "Anchor", ownerId: someWallet() });
+    const chain = new FakeChain();
+    await drainChainOps(d, chain);
+    let moved = 0;
+    let matchId = "";
+    for (let seed = 1; seed <= 60 && moved === 0; seed++) {
+      const { match, settled } = await runMatch(d, a.id, b.id, { seed });
+      moved = settled.A;
+      matchId = match.id;
+      if (moved === 0) await drainChainOps(d, chain);
+    }
+    await d.update(chainOps).set({ status: "failed", lastError: "can never settle" }).where(eq(chainOps.matchId, matchId));
+    return { d, c, a, b, chain, moved, matchId };
+  }
+
+  it("keeps out an agent whose failed settlement still stands in the ledger", async () => {
+    const { d, c, a, b, chain } = await deadSettlement();
+    const check = await reconcile(d, chain);
+    expect(check.checked).toBe(0);
+    expect(check.mismatches.map((m) => m.agentId)).not.toContain(a.id);
+    expect(check.mismatches.map((m) => m.agentId)).not.toContain(b.id);
+    await c();
+  });
+
+  it("compares both agents again once the ledger has reversed it, with no note needed", async () => {
+    const { d, c, a, b, chain, moved, matchId } = await deadSettlement();
+    await record(d, [
+      { agentId: a.id, amount: -moved, reason: "adjustment", matchId },
+      { agentId: b.id, amount: moved, reason: "adjustment", matchId },
+    ]);
+    // A note is not what decides it: the op's last_error says nothing about a reversal.
+    const clean = await reconcile(d, chain);
+    expect(clean.checked).toBe(2);
+    expect(clean.mismatches).toEqual([]);
+
+    // And so a drain of either vault is seen.
+    chain.vaults.set(b.id, (await chain.vaultBalance(b.id))! - 5);
+    const drained = await reconcile(d, chain);
+    expect(drained.mismatches.map((m) => m.agentId)).toEqual([b.id]);
+    await c();
+  });
+
+  it("keeps an agent out while the reversal is only half done", async () => {
+    const { d, c, a, b, chain, moved, matchId } = await deadSettlement();
+    await record(d, [{ agentId: a.id, amount: -moved, reason: "adjustment", matchId }]);
+    const check = await reconcile(d, chain);
+    // A is back to zero on this match and is compared; B still carries the movement.
+    expect(check.checked).toBe(1);
+    expect(check.mismatches).toEqual([]);
+    const involved = [...check.mismatches, ...check.surpluses, ...check.unverified].map((m) => m.agentId);
+    expect(involved).not.toContain(b.id);
+    await c();
+  });
+
+  it("still keeps out an agent with an op in flight", async () => {
+    const { d, c, a, b, chain, moved, matchId } = await deadSettlement();
+    await record(d, [
+      { agentId: a.id, amount: -moved, reason: "adjustment", matchId },
+      { agentId: b.id, amount: moved, reason: "adjustment", matchId },
+    ]);
+    await runMatch(d, a.id, b.id, { seed: 1000 });
+    const check = await reconcile(d, chain);
+    expect(check.checked).toBe(0);
+    await c();
+  });
+});
