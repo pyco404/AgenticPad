@@ -39,7 +39,7 @@ The daily and weekly reward wallets and the platform wallet ([economy.md](econom
    1. ~~Token-2022 support~~ — built and on devnet (2026-09-28). The chain suite runs in full against both token programs.
    2. ~~The chip-rate rule: raise freely, lower by at most half per step~~ — built (2026-09-28), not yet on devnet.
    3. ~~`set_admin`~~ — built as a two-step handover (2026-09-28), not yet on devnet: the admin proposes (`propose_admin`) and the new key accepts by signing (`accept_admin`), so a mistyped address can never become the admin.
-   4. Hourly net settlement, and the per-agent per-period limit it needs in place of the per-match one ([economy.md](economy.md#open-questions), question 4).
+   4. ~~Hourly net settlement, and the per-agent per-period limit it needs~~ — built (2026-09-28), not yet on devnet. The limit is option B: the outflow window is one UTC hour, a quarter of the vault per hour. Each agent's net for an hour moves in one `settle_net` transfer through a clearing account the program owns ([economy.md](economy.md#open-questions), question 4).
    5. ~~House agents with no balance~~ — built (2026-09-28): matchmaking, exhibitions and retirement ask nothing of a house agent's balance.
    6. The chip rate throughout the server: much of it still assumes the devnet rate, and the season-boundary hook that would set the new rate does nothing yet.
    7. A mainnet exit page: the mainnet program ID and a mainnet RPC as its defaults.
@@ -62,13 +62,13 @@ Rent is from mainnet as of 2026-09-28. It has been lowered network-wide before; 
 
 | Item | SOL |
 |---|---|
-| Program data account, **sized once netting is built, from the verifiable build**, not fixed in advance. The figure here is 700,000 bytes; the binary is already 636,640 bytes without netting (594 KB was the Token-2022 build alone), which leaves 63 KB, not the 106 KB this was sized for. Rent is about 0.254 SOL per extra 50 KB | 3.557 at 700,000 bytes, permanent |
-| Deploy buffer, refunded when the deploy succeeds | ~3.0, temporary |
+| Program data account, **sized from the verifiable build**. With netting the binary is 709,632 bytes (ordinary build; the verifiable one is to be measured), past the 700,000 this was first sized at. At 800,000 bytes, leaving about 90 KB for later upgrades; rent is about 0.254 SOL per 50 KB | ~4.07 at 800,000 bytes, permanent |
+| Deploy buffer, refunded when the deploy succeeds | ~3.6, temporary |
 | Deploy transaction fees | ~0.01 |
 | Config and exit-window accounts | ~0.002 |
 | Settler starting float | 1–2 |
-| **Needed on hand** | **~7.6–8.6**, at 700,000 bytes |
-| **Spent for good** | **~3.6**, at 700,000 bytes |
+| **Needed on hand** | **~8.7–9.7**, at 800,000 bytes |
+| **Spent for good** | **~4.1**, at 800,000 bytes |
 
 House vaults are gone from this list with decision 5.
 
@@ -77,7 +77,7 @@ House vaults are gone from this list with decision 5.
 | Per | SOL |
 |---|---|
 | Rental | ~0.0055, or ~0.007 when the owner has no $OX token account yet |
-| Settlement | ~0.00103 each. With hourly netting that is at most 24 per agent per day, and only for agents that played, instead of up to 144 |
+| Settlement | The transaction fee, ~0.000005, at most 24 per agent per day and only for agents that played. Net settlement creates no record per settlement; its one per-agent account (~0.0011) and the outflow window's are paid the first time an agent settles |
 | Withdrawal | ~0.0012, or ~0.0026 with a new token account |
 | Deposit | ~0.000005 |
 | Exit | nothing — the owner pays |
@@ -95,5 +95,6 @@ House vaults are gone from this list with decision 5.
 ## Still open
 
 - **The chip rate's number**, until $OX has a real price (decision 1). Where the weekly average comes from is [economy.md](economy.md#open-questions) question 2; pump.fun's bonding curve has no pool to average over until the token graduates.
-- **The per-agent per-period settlement limit** that replaces the per-match one under netting (question 4).
+- **The exit window, now shorter than the outflow window.** Thirty minutes was sized to clear a ten-minute outflow window. It is now an hour, so a payment refused by the cap can wait past an exit's window, and the claim would take money owed to that hour's winners ([security.md](security.md) limitation 12). Lengthening it to about ninety minutes (13,500 slots) restores the margin, at the cost of a longer wait on the path owners use only when this server is not there; `set_exit_window` can lengthen it at any time.
+- **What `max_settlement` is for, under netting.** Decision 9's 60-chip per-match limit binds `settle`, one match at a time. Net settlement does not use it: an hour's net is many matches, and the hourly outflow cap bounds it instead. On mainnet, where every match nets, the per-match limit bounds nothing. It could be dropped, or become an absolute per-hour ceiling beside the proportional cap (the pre-mainnet item in security.md).
 - **The legal review** ([economy.md](economy.md#open-questions) question 5), which the audit decision does not touch.

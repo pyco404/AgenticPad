@@ -66,7 +66,7 @@ The PDA **is not closed on claim.** It keeps `claimed_slot` and
 A separate `close_exit` reclaims the rent to the owner, callable once the
 server has ingested, or by anyone after a long delay.
 
-Window in slots, not wall clock, to match `WINDOW_SLOTS` and
+Window in slots, not wall clock, to match the outflow window of the time (1,500 slots; it is now a clock hour) and
 `MIN_RATE_INTERVAL_SLOTS`. If slots run slow the window is longer than 30
 minutes, which is the safe direction: more time to settle, and the player waits.
 
