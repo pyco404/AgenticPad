@@ -40,7 +40,7 @@ The daily and weekly reward wallets and the platform wallet ([economy.md](econom
    2. ~~The chip-rate rule: raise freely, lower by at most half per step~~ — built (2026-09-28), not yet on devnet.
    3. ~~`set_admin`~~ — built as a two-step handover (2026-09-28), not yet on devnet: the admin proposes (`propose_admin`) and the new key accepts by signing (`accept_admin`), so a mistyped address can never become the admin.
    4. Hourly net settlement, and the per-agent per-period limit it needs in place of the per-match one ([economy.md](economy.md#open-questions), question 4).
-   5. House agents with no balance.
+   5. ~~House agents with no balance~~ — built (2026-09-28): matchmaking, exhibitions and retirement ask nothing of a house agent's balance.
    6. The chip rate throughout the server: much of it still assumes the devnet rate, and the season-boundary hook that would set the new rate does nothing yet.
    7. A mainnet exit page: the mainnet program ID and a mainnet RPC as its defaults.
 2. **Build verifiably** (`anchor build --verifiable`), so anyone can check the deployed bytecode against the source.
