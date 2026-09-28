@@ -518,9 +518,40 @@ export type Surplus = {
 };
 
 /**
+ * Whether a failed op's movement has been undone in the ledger, for one agent:
+ * there are ledger rows tied to it - by its match, or by its withdrawal - and
+ * for this agent they net to zero.
+ *
+ * reconcile() skips an agent with an op still in flight, and one with a failed
+ * op whose movement stands, because there the ledger and the vault differ by
+ * design. A failed op that was reversed is neither: the ledger is back where
+ * the chain is, so the agent is compared again. Leaving it out for ever is how
+ * a drain goes unseen - two agents sat outside every check for days after
+ * five cross-program settlements from 2026-09-25 failed and were reversed.
+ *
+ * Read from the ledger alone, never from a status or a note: the reversal of
+ * those five carried a note on two of them and none on the other three. An op
+ * with no ledger rows of its own - an open_vault - is never counted as
+ * reversed; there is nothing to have reversed.
+ */
+function reversedFor(op: ReturnType<typeof sql>, agentId: typeof agents.id) {
+  return sql`(
+    (${op}.match_id is not null
+      and exists (select 1 from ledger l where l.match_id = ${op}.match_id and l.agent_id = ${agentId})
+      and (select sum(l.amount) from ledger l where l.match_id = ${op}.match_id and l.agent_id = ${agentId}) = 0)
+    or
+    (${op}.withdrawal_id is not null
+      and exists (select 1 from ledger l where l.withdrawal_id = ${op}.withdrawal_id and l.agent_id = ${agentId})
+      and (select sum(l.amount) from ledger l where l.withdrawal_id = ${op}.withdrawal_id and l.agent_id = ${agentId}) = 0)
+  )`;
+}
+
+/**
  * Compares each agent's vault with its ledger balance, for agents whose ops
- * have all been confirmed. The ledger is authoritative; a mismatch is a bug to
- * investigate, never something to "fix" by overwriting either side.
+ * have all landed: confirmed, netted into an hour's net op, or failed and
+ * reversed in the ledger (`reversedFor`). The ledger is authoritative; a
+ * mismatch is a bug to investigate, never something to "fix" by overwriting
+ * either side.
  */
 export async function reconcile(
   db: Db,
@@ -539,8 +570,15 @@ export async function reconcile(
     .where(
       and(
         sql`exists (select 1 from ${chainOps} where ${chainOps.agentId} = ${agents.id} and ${chainOps.kind} = 'open_vault' and ${chainOps.status} = 'confirmed')`,
-        // A netted match is done as a row; its agents' net ops are what is still to land.
-        sql`not exists (select 1 from ${chainOps} where ${chainOps.status} not in ('confirmed', 'netted') and (${chainOps.agentId} = ${agents.id} or ${chainOps.fromAgent} = ${agents.id} or ${chainOps.toAgent} = ${agents.id}))`,
+        // A netted match is done as a row; its agents' net ops are what is still
+        // to land. A failed op stops keeping an agent out once the ledger shows
+        // it reversed (`reversedFor`); in flight, or failed and standing, it does.
+        sql`not exists (
+          select 1 from chain_ops o
+          where (o.agent_id = ${agents.id} or o.from_agent = ${agents.id} or o.to_agent = ${agents.id})
+            and o.status not in ('confirmed', 'netted')
+            and not (o.status = 'failed' and ${reversedFor(sql`o`, agents.id)})
+        )`,
       ),
     );
 
