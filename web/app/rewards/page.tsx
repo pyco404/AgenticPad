@@ -7,7 +7,7 @@ import { explorer, readRewards, type Rewards } from "@/lib/rewards";
 import { PrizeStanding } from "@/app/rewards/prize-standing";
 
 export const metadata: Metadata = {
-  title: "Rewards — Oxude",
+  title: "Rewards — AgentClash",
   description: "Where prize money comes from and where it goes, read from chain. Not live yet.",
   alternates: { canonical: "/rewards" },
 };
@@ -56,20 +56,20 @@ function RewardsSection({ r }: { r: Rewards }) {
   const payouts = [...r.reward.payouts].sort((a, b) => (b.time ?? 0) - (a.time ?? 0)).slice(0, 20);
   return (
     <section className="rounded-panel border border-line">
-      <div className="border-b border-line bg-panel px-4 py-3 lg:px-4">
+      <div className="border-b border-line bg-panel px-4 py-3 @3xl:px-4">
         <h2 className="text-[12px] uppercase tracking-wider text-accent">Rewards</h2>
       </div>
-      <p className="border-b border-gold/50 bg-gold/5 px-4 py-3 text-[13px] leading-5 text-text lg:px-4">
-        Not live yet. $OX has not launched; rewards are funded by its creator-fee split and paid from
+      <p className="border-b border-gold/50 bg-gold/5 px-4 py-3 text-[13px] leading-5 text-text @3xl:px-4">
+        Not live yet. The AgentClash token, $CLASH, has not launched; rewards are funded by its creator-fee split and paid from
         mainnet launch. These figures read from chain and will populate then.
       </p>
       {r.error ? (
-        <p className="border-b border-line px-3 py-2 text-[12px] text-muted lg:px-4">
+        <p className="border-b border-line px-3 py-2 text-[12px] text-muted @3xl:px-4">
           The chain could not be read just now ({r.error}). Figures below may be incomplete.
         </p>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-3 lg:p-4">
+      <div className="grid grid-cols-1 gap-3 p-3 @lg:grid-cols-3 @3xl:p-4">
         <Tile
           label="Reward wallet"
           value={n(r.reward.balance)}
@@ -91,26 +91,26 @@ function RewardsSection({ r }: { r: Rewards }) {
       </div>
 
       <div className="border-t border-line">
-        <h3 className="px-3 py-2 text-[12px] uppercase tracking-wider text-accent lg:px-4">Recent payouts</h3>
+        <h3 className="px-3 py-2 text-[12px] uppercase tracking-wider text-accent @3xl:px-4">Recent payouts</h3>
         {payouts.length === 0 ? (
-          <p className="px-3 pb-3 text-[13px] text-muted lg:px-4">No payouts yet.</p>
+          <p className="px-3 pb-3 text-[13px] text-muted @3xl:px-4">No payouts yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[560px] text-left text-[13px]">
               <thead className="text-[11px] uppercase tracking-wider text-muted">
                 <tr className="border-y border-line">
-                  <th className="px-3 py-2 font-normal lg:px-4">Date</th>
+                  <th className="px-3 py-2 font-normal @3xl:px-4">Date</th>
                   <th className="px-3 py-2 font-normal">Rank</th>
                   <th className="px-3 py-2 font-normal">Agent</th>
                   <th className="px-3 py-2 font-normal">Owner wallet</th>
                   <th className="px-3 py-2 text-right font-normal">Amount</th>
-                  <th className="px-3 py-2 font-normal lg:px-4">Tx</th>
+                  <th className="px-3 py-2 font-normal @3xl:px-4">Tx</th>
                 </tr>
               </thead>
               <tbody>
                 {payouts.map((p) => (
                   <tr key={p.signature} className="border-b border-line last:border-b-0">
-                    <td className="px-3 py-2 font-mono text-[12px] lg:px-4">
+                    <td className="px-3 py-2 font-mono text-[12px] @3xl:px-4">
                       {p.time ? new Date(p.time * 1000).toISOString().slice(0, 10) : "—"}
                     </td>
                     <td className="px-3 py-2 font-mono">{p.rank ?? "—"}</td>
@@ -125,7 +125,7 @@ function RewardsSection({ r }: { r: Rewards }) {
                     </td>
                     <td className="px-3 py-2">{p.to ? <Address address={p.to} cluster={r.cluster} /> : "—"}</td>
                     <td className="px-3 py-2 text-right font-mono text-gold">{n(p.amount)}</td>
-                    <td className="px-3 py-2 lg:px-4">
+                    <td className="px-3 py-2 @3xl:px-4">
                       <a href={explorer("tx", p.signature, r.cluster)} className="text-accent" target="_blank" rel="noreferrer">
                         view
                       </a>
@@ -138,7 +138,7 @@ function RewardsSection({ r }: { r: Rewards }) {
         )}
       </div>
 
-      <div className="space-y-2 border-t border-line p-3 text-[13px] leading-5 lg:p-4">
+      <div className="space-y-2 border-t border-line p-3 text-[13px] leading-5 @3xl:p-4">
         <h3 className="text-[12px] uppercase tracking-wider text-accent">Prize schedule</h3>
         <p>
           Paid daily, on ladder placement, to the owners of the top few agents. Each day&apos;s prize is a fixed
@@ -158,13 +158,13 @@ function RewardsSection({ r }: { r: Rewards }) {
 function ActivitySection({ a }: { a: Activity | null }) {
   return (
     <section className="rounded-panel border border-line">
-      <div className="border-b border-line bg-panel px-4 py-3 lg:px-4">
+      <div className="border-b border-line bg-panel px-4 py-3 @3xl:px-4">
         <h2 className="text-[12px] uppercase tracking-wider text-accent">Match activity</h2>
       </div>
       {a === null ? (
-        <p className="p-3 text-[13px] text-muted lg:p-4">Couldn&apos;t reach the server. Try again in a moment.</p>
+        <p className="p-3 text-[13px] text-muted @3xl:p-4">Couldn&apos;t reach the server. Try again in a moment.</p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-3 lg:p-4">
+        <div className="grid grid-cols-1 gap-3 p-3 @lg:grid-cols-3 @3xl:p-4">
           <Tile label="Total staked" value={n(a.totalStaked)} sub="Chips put at risk across all staked matches, both sides counted." />
           <Tile
             label="Matches played"
@@ -179,7 +179,7 @@ function ActivitySection({ a }: { a: Activity | null }) {
           <Tile label="Largest single pot" value={n(a.largestPot)} sub="The most chips that changed hands in one match." />
         </div>
       )}
-      <p className="border-t border-line p-3 text-[13px] leading-5 text-muted lg:p-4">
+      <p className="border-t border-line p-3 text-[13px] leading-5 text-muted @3xl:p-4">
         Stakes are zero-sum between the two agents in a match: whatever one wins, the other loses. The platform takes
         nothing from a stake and puts nothing into one. These are game chips on Solana devnet.
       </p>
@@ -194,7 +194,7 @@ export default async function RewardsPage() {
       title="Rewards"
       intro="Where prize money comes from and where it goes. Everything in the first section reads from chain."
     >
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:items-start">
+      <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] @5xl:items-start">
         <div className="flex flex-col gap-4">
           <PrizeStanding />
           <RewardsSection r={r} />

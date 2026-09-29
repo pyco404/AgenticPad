@@ -1,17 +1,21 @@
 import type { ReactNode } from "react";
 
 /**
- * /rewards announces the token before it exists. It is in the sidebar unless
+ * /rewards announces the token before it exists. It is in the nav unless
  * NEXT_PUBLIC_SHOW_REWARDS is "false", so it can be hidden without a code change.
  */
 export const REWARDS_LINKED = process.env.NEXT_PUBLIC_SHOW_REWARDS !== "false";
 
-/** Every page's frame: full width to the right of the sidebar, a title, and an optional one-line intro. */
+/** Every page's frame over the village: its title and intro in a card of their own, then the page's own cards. */
 export function Page({ title, intro, children }: { title?: string; intro?: ReactNode; children: ReactNode }) {
   return (
-    <main className="w-full px-4 pb-10 pt-5 lg:px-10 lg:pt-8">
-      {title ? <h1 className="text-[22px] font-semibold tracking-wide lg:text-[26px]">{title}</h1> : null}
-      {intro ? <p className="mb-4 mt-1 max-w-3xl text-[13px] leading-5 text-muted lg:text-[14px]">{intro}</p> : null}
+    <main className="w-full space-y-3 px-1 pb-4 [&>*]:m-0">
+      {title || intro ? (
+        <header className="hud-card px-4 py-3">
+          {title ? <h1 className="font-pixel text-[24px] font-bold leading-8 text-accent @xl:text-[28px]">{title}</h1> : null}
+          {intro ? <p className="mt-1 max-w-3xl text-[13px] leading-5 text-muted">{intro}</p> : null}
+        </header>
+      ) : null}
       {children}
     </main>
   );
@@ -19,23 +23,28 @@ export function Page({ title, intro, children }: { title?: string; intro?: React
 
 /** A small note under a page's content, specific to that page. */
 export function PageNote({ children }: { children: ReactNode }) {
-  return <p className="mt-6 max-w-3xl border-t border-line pt-4 text-[11px] leading-5 text-muted">{children}</p>;
+  return <p className="hud-card px-4 py-3 text-[11px] leading-5 text-muted">{children}</p>;
 }
 
-/** The footer on every page. */
+const link = "hover:text-text";
+
+/**
+ * The footer: a small chip pinned to the bottom-right of the screen on every
+ * page and every screen, like the village's hint at the bottom-left. The
+ * devnet warning is its point: these balances are worth nothing. The full
+ * note shows on hover.
+ */
 export function SiteFooter() {
   return (
-    <footer className="border-t border-line px-4 py-4 text-[11px] leading-5 text-muted lg:px-10">
-      <p className="flex flex-wrap gap-x-4 gap-y-1">
-        <a href="https://x.com/OxudeOX" className="hover:text-text" target="_blank" rel="noreferrer">
-          X
-        </a>
-        <a href="https://github.com/pyco404/oxude" className="hover:text-text" target="_blank" rel="noreferrer">
-          Source
-        </a>
-        <a href="https://github.com/pyco404/oxude/blob/main/docs/security.md" className="hover:text-text" target="_blank" rel="noreferrer">
-          Security model
-        </a>
+    <footer
+      className="rounded-panel flex h-8 items-center border border-hud-line bg-hud px-2.5 text-[12px] text-muted"
+      title="The game runs on Solana devnet: balances here are test tokens with no value. AgentClash ($CLASH), the real token, has not launched yet; it becomes the game's currency at mainnet launch."
+    >
+      <p className="flex flex-wrap items-center justify-end gap-x-3">
+        <span>Solana devnet · test tokens, no value</span>
+        <a href="https://x.com/OxudeOX" className={link} target="_blank" rel="noreferrer">X</a>
+        <a href="https://github.com/pyco404/oxude" className={link} target="_blank" rel="noreferrer">Source</a>
+        <a href="https://github.com/pyco404/oxude/blob/main/docs/security.md" className={link} target="_blank" rel="noreferrer">Security</a>
       </p>
     </footer>
   );

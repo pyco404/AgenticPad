@@ -17,5 +17,5 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   // Pages only; static assets are the same everywhere.
-  matcher: ["/((?!_next/|favicon|oxude-).*)"],
+  matcher: ["/((?!_next/|favicon|agentclash-).*)"],
 };

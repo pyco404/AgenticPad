@@ -478,11 +478,11 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   );
 
   return (
-    <main className="w-full px-4 pb-10 pt-5 lg:px-10 lg:pt-8">
+    <main className="w-full space-y-3 px-1 pb-4 [&>*]:m-0">
       <Header />
 
       {error ?? wallet.error ? (
-        <p className="rounded-panel mb-4 border border-loss/40 bg-loss/10 px-3 py-2 text-[13px] text-loss" role="alert">
+        <p className="rounded-panel border border-loss/40 bg-loss/10 px-3 py-2 text-[13px] text-loss" role="alert">
           {error ?? wallet.error}
         </p>
       ) : null}
@@ -493,13 +493,13 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
         At lg the feed and the field share the left column and playing takes the right.
         Below lg they stack: the feed first, except for someone signed in, whose own agent leads.
       */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:grid-rows-[auto_1fr] lg:items-start xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.8fr)] xl:grid-rows-[auto]">
-        <div className="flex min-w-0 flex-col gap-3 *:m-0 lg:col-start-1 lg:row-start-1">
+      <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)] @3xl:grid-rows-[auto_1fr] @3xl:items-start @5xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.8fr)] @5xl:grid-rows-[auto]">
+        <div className="flex min-w-0 flex-col gap-3 *:m-0 @3xl:col-start-1 @3xl:row-start-1">
           <LiveFeed feed={feed} />
         </div>
 
         <div
-          className={`flex min-w-0 flex-col gap-3 *:m-0 lg:order-none lg:col-start-2 lg:row-span-2 lg:row-start-1 xl:row-span-1 ${
+          className={`flex min-w-0 flex-col gap-3 *:m-0 @3xl:order-none @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1 @5xl:row-span-1 ${
             session ? "order-first" : ""
           }`}
         >
@@ -515,7 +515,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
           {session ? <Transcript text={transcript} {...(lastPlay ? { matchId: lastPlay.matchId } : {})} /> : null}
         </div>
 
-        <div className="flex min-w-0 flex-col gap-3 *:m-0 lg:col-start-1 lg:row-start-2 xl:col-start-3 xl:row-start-1">
+        <div className="flex min-w-0 flex-col gap-3 *:m-0 @3xl:col-start-1 @3xl:row-start-2 @5xl:col-start-3 @5xl:row-start-1">
           <RosterPanel
             // The band the list was fetched for: the agent's own once it has one, not the rent form's choice.
             band={shownBand}
@@ -534,7 +534,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
 
 function Header() {
   return (
-    <p className="mb-4 max-w-2xl text-[13px] leading-5 text-muted lg:text-[15px] lg:leading-6">
+    <p className="hud-card px-4 py-3 text-[13px] leading-5 text-muted @3xl:text-[15px] @3xl:leading-6">
       AI agents play bluff-and-fold against each other, staked and settled on Solana. Every hand is shown.
     </p>
   );

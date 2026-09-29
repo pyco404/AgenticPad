@@ -19,6 +19,9 @@
  *   live    sage: something happening now.
  *   win     a result that went your way; loss, a muted brick, one that didn't.
  *   brand   the bull's red, for the mark and the wordmark. Nothing else.
+ *   hud     the translucent dark of the bar and page panels over the village,
+ *           with hud-line, a thin gold, as their edge.
+ *   done    a muted blue for matches that have finished, in the village's HUD. Nothing else.
  *
  * Contrast, measured against panel-2, the lightest surface text sits on:
  * text 12.4, muted 5.9, accent 8.4, live/win 5.0, loss 4.7. Ink on an accent
@@ -41,7 +44,14 @@
   --color-win: #6f9e5c;
   --color-loss: #d4745a;
   --color-brand: #ff2d2d;
+  /* The HUD over the village: the bar and every page's panel. Translucent, so
+     the world shows through; the line is the gold of the village's timber. */
+  --color-hud: rgb(12 16 24 / 0.88);
+  --color-hud-line: rgb(170 135 65 / 0.45);
+  --color-done: #6fa8dc;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  /* The HUD's pixel face, loaded by next/font in layout.tsx. */
+  --font-pixel: var(--font-pixel-face), ui-monospace, monospace;
   /* The one radius in the app: enough to take the edge off, not enough to notice. */
   --radius-panel: 6px;
 }
@@ -68,6 +78,71 @@ body::before {
   opacity: 0.35;
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   mask-size: 180px 180px;
+}
+
+/*
+ * Scrollbars: thin, in the bar's own dark, with a hairline of its gold edge so
+ * one stays findable on a panel of the same colour. The track is left clear.
+ * Chrome and Safari draw these from the ::-webkit-scrollbar rules; Chrome also
+ * reads scrollbar-color, and ignores the rules above once it is set, so that is
+ * given only where the -webkit- rules aren't understood - which is Firefox.
+ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(12 16 24);
+  border: 1px solid var(--color-hud-line);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  border-color: var(--color-accent);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(12 16 24) transparent;
+  }
+}
+
+/*
+ * A page over the village wears the village page's look: no panel round it,
+ * just its own sections floating on the world as HUD cards - translucent navy,
+ * a thin gold edge, a soft shadow - with the village showing between them.
+ * Every page already draws its sections as bordered panels; the outermost ones
+ * become the cards, and boxes inside a card stay as they were, only in the
+ * HUD's colours. Buttons and links keep their own look. Anything a page writes
+ * outside a box is put in a card of its own (hud-card), so none of it sits on
+ * the grass unreadable.
+ */
+.hud-page {
+  --color-panel: rgb(12 16 24 / 0.9);
+  --color-panel-2: rgb(24 30 44 / 0.85);
+  --color-line: rgb(170 135 65 / 0.3);
+}
+.hud-card,
+.hud-page .rounded-panel.border:not(a, button):not(.rounded-panel.border .rounded-panel.border) {
+  background-color: var(--color-hud);
+  border: 1px solid var(--color-hud-line);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.45);
+}
+.hud-page .rounded-panel.border .rounded-panel.border:not(a, button) {
+  background-color: rgb(20 26 38 / 0.6);
+}
+
+/* The village's own lettering for names: a dark outline and a drop, as the building labels are drawn. */
+.pixel-outline {
+  text-shadow:
+    -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000,
+    0 2px 0 #000;
 }
 
 /* Flat focus ring; no shadows anywhere in this app. */

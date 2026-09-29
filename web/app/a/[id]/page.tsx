@@ -18,9 +18,9 @@ const strategy = (preset: string | null) => (preset ? `${preset} preset` : "Cust
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const found = await lookupAgent(id);
-  if (found.status !== "ok") return { title: "Agent — Oxude" };
+  if (found.status !== "ok") return { title: "Agent — AgentClash" };
   const { agent, record } = found.data;
-  const title = `${agent.name} — Oxude`;
+  const title = `${agent.name} — AgentClash`;
   const description = `${strategy(agent.presetName)}. ${record.wins}–${record.losses}${
     record.level ? `–${record.level}` : ""
   } over ${record.wins + record.losses + record.level} matches, ${signed(agent.cumulativeNet ?? 0)} all time.`;
@@ -122,8 +122,8 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
   const worst = agent.worstMatch ?? { A: 20, B: 40, C: 60 }[agent.band];
   return (
     <Page>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
-      <section className="rounded-panel border border-line bg-panel lg:sticky lg:top-8">
+      <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)] @3xl:items-start @5xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
+      <section className="rounded-panel border border-line bg-panel @3xl:sticky @3xl:top-8">
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
           <h1 className="min-w-0 truncate text-[15px]">
             <AgentName name={agent.name} preset={agent.presetName} />

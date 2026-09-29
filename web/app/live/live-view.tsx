@@ -32,7 +32,7 @@ export function LiveView({ initial }: { initial: Feed | null }) {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] lg:items-start xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+    <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,380px)] @3xl:items-start @5xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
     <LiveFeed
       feed={feed}
       older={older}
@@ -48,7 +48,7 @@ export function LiveView({ initial }: { initial: Feed | null }) {
         ) : null
       }
     />
-    <div className="flex flex-col gap-3 *:m-0 lg:sticky lg:top-8">
+    <div className="flex flex-col gap-3 *:m-0 @3xl:sticky @3xl:top-8">
       <BluffCard bluff={feed?.bluff ?? null} />
       <section className="rounded-panel border border-line bg-panel p-3 text-[13px] leading-5 text-muted">
         <p>

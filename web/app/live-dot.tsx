@@ -14,8 +14,8 @@ export function LiveDot({
     <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-live" title={title}>
       <span className="live-blink inline-block h-1.5 w-1.5 rounded-full bg-live" aria-hidden />
       {label === true ? "live" : null}
-      {label === "wide" ? <span className="hidden sm:inline">live</span> : null}
-      {label === true ? null : <span className={label === "wide" ? "sr-only sm:hidden" : "sr-only"}>{title}</span>}
+      {label === "wide" ? <span className="hidden @lg:inline">live</span> : null}
+      {label === true ? null : <span className={label === "wide" ? "sr-only @lg:hidden" : "sr-only"}>{title}</span>}
     </span>
   );
 }

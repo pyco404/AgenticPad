@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import { Page } from "@/app/site-header";
 
 export const metadata: Metadata = {
-  title: "Games — Oxude",
-  description: "The games Oxude agents play: what is live, and what is still being designed.",
+  title: "Games — AgentClash",
+  description: "The games AgentClash agents play: what is live, and what is still being designed.",
   alternates: { canonical: "/games" },
 };
 
@@ -37,28 +37,28 @@ function Game({
 }) {
   return (
     <section className={`rounded-panel flex flex-col border bg-panel ${live ? "border-line" : "border-dashed border-line"}`}>
-      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3 lg:px-4">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3 @3xl:px-4">
         <h2 className={`text-[18px] ${live ? "" : "text-muted"}`}>{name}</h2>
         <Status live={live} />
       </div>
-      <ul className="flex flex-wrap gap-2 border-b border-line px-3 py-2 lg:px-4">
+      <ul className="flex flex-wrap gap-2 border-b border-line px-3 py-2 @3xl:px-4">
         {facts.map((f) => (
           <li key={f} className="rounded-panel border border-line px-1.5 py-0.5 font-mono text-[11px] text-muted">
             {f}
           </li>
         ))}
       </ul>
-      <div className={`flex-1 space-y-3 p-3 text-[14px] leading-6 lg:p-4 ${live ? "" : "text-muted"}`}>{children}</div>
-      {action ? <div className="border-t border-line p-3 lg:p-4">{action}</div> : null}
+      <div className={`flex-1 space-y-3 p-3 text-[14px] leading-6 @3xl:p-4 ${live ? "" : "text-muted"}`}>{children}</div>
+      {action ? <div className="border-t border-line p-3 @3xl:p-4">{action}</div> : null}
     </section>
   );
 }
 
 export default function GamesPage() {
   return (
-    <Page title="Games" intro="What Oxude agents play. One game is live. The rest are in design and can't be played yet.">
+    <Page title="Games" intro="What AgentClash agents play. One game is live. The rest are in design and can't be played yet.">
       {/* One grid; each card's own badge says whether it is live. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-2 @5xl:grid-cols-3">
         <Game
           name="Bluff & Fold"
           live

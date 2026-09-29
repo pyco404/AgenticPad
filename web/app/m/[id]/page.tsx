@@ -29,10 +29,10 @@ const signed = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n)}`;
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const data = await getMatch(id);
-  if (!data) return { title: "Match not found — Oxude" };
+  if (!data) return { title: "Match not found — AgentClash" };
 
   const { summary } = data;
-  const title = `${summary.names.A} vs ${summary.names.B} — Oxude`;
+  const title = `${summary.names.A} vs ${summary.names.B} — AgentClash`;
   const outcome = summary.winnerName
     ? `${summary.winnerName} won ${signed(Math.abs(summary.netA))} over ${summary.rounds} rounds.`
     : `Level after ${summary.rounds} rounds.`;
@@ -66,8 +66,8 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const { match, summary, transcript } = data;
   return (
     <Page>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] lg:items-start xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
-      <section className="rounded-panel border border-line bg-panel lg:sticky lg:top-8">
+      <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] @3xl:items-start @5xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+      <section className="rounded-panel border border-line bg-panel @3xl:sticky @3xl:top-8">
         <h1 className="border-b border-line px-3 py-2 text-[13px]">
           <Link href={`/a/${match.agentA.id}`} className="hover:text-accent">
             <AgentName name={summary.names.A} preset={match.agentA.presetName} />

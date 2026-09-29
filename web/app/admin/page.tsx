@@ -3,7 +3,7 @@ import { Page } from "@/app/site-header";
 import { AdminPanel } from "./panel";
 
 export const metadata: Metadata = {
-  title: "Admin — Oxude",
+  title: "Admin — AgentClash",
   // Not indexed and not linked from anywhere: the only way here is to know.
   robots: { index: false, follow: false },
 };

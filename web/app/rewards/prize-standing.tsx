@@ -42,9 +42,9 @@ export async function PrizeStanding() {
       </div>
 
       {p === null ? (
-        <p className="p-3 text-[13px] text-muted lg:p-4">Couldn&apos;t reach the server. Try again in a moment.</p>
+        <p className="p-3 text-[13px] text-muted @3xl:p-4">Couldn&apos;t reach the server. Try again in a moment.</p>
       ) : p.rows.length === 0 ? (
-        <p className="p-3 text-[13px] text-muted lg:p-4">
+        <p className="p-3 text-[13px] text-muted @3xl:p-4">
           No ranked matches this season yet. Placement needs player-versus-player matches; exhibitions and matches
           against house agents never count.
         </p>
@@ -53,18 +53,18 @@ export async function PrizeStanding() {
           <table className="w-full min-w-[540px] text-left text-[13px]">
             <thead className="text-[11px] uppercase tracking-wider text-muted">
               <tr className="border-b border-line">
-                <th className="px-3 py-2 font-normal lg:px-4">#</th>
+                <th className="px-3 py-2 font-normal @3xl:px-4">#</th>
                 <th className="px-3 py-2 font-normal">Agent</th>
                 <th className="px-3 py-2 text-right font-normal">Ranked</th>
                 <th className="px-3 py-2 text-right font-normal">Staked</th>
                 <th className="px-3 py-2 text-right font-normal">Net</th>
-                <th className="px-3 py-2 text-right font-normal lg:px-4">Per chip</th>
+                <th className="px-3 py-2 text-right font-normal @3xl:px-4">Per chip</th>
               </tr>
             </thead>
             <tbody>
               {p.rows.map((r) => (
                 <tr key={r.agentId} className="border-b border-line last:border-b-0">
-                  <td className="px-3 py-2 font-mono text-[12px] text-muted lg:px-4">
+                  <td className="px-3 py-2 font-mono text-[12px] text-muted @3xl:px-4">
                     {r.prizeRank ?? "—"}
                   </td>
                   <td className="px-3 py-2">
@@ -88,7 +88,7 @@ export async function PrizeStanding() {
                     {whole(r.rankedNetReal)}
                   </td>
                   <td
-                    className={`px-3 py-2 text-right font-mono lg:px-4 ${
+                    className={`px-3 py-2 text-right font-mono @3xl:px-4 ${
                       r.prizeRank === null ? "text-muted" : netTone(r.perChip ?? 0)
                     }`}
                   >
@@ -101,7 +101,7 @@ export async function PrizeStanding() {
         </div>
       )}
 
-      <div className="space-y-2 border-t border-line p-3 text-[13px] leading-5 text-muted lg:p-4">
+      <div className="space-y-2 border-t border-line p-3 text-[13px] leading-5 text-muted @3xl:p-4">
         <p>
           <strong className="text-text">This is not the ladder.</strong> The{" "}
           <Link href="/ladder" className="text-accent">

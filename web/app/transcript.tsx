@@ -33,8 +33,8 @@ export function Transcript({ text, matchId }: { text: string; matchId?: string }
           </button>
         </span>
       </h2>
-      <div className="overflow-x-auto px-3 py-4 sm:px-5 sm:py-6">
-        <pre className="whitespace-pre-wrap break-words font-mono text-[13px] leading-6 sm:text-[14px] sm:leading-7">
+      <div className="overflow-x-auto px-3 py-4 @lg:px-5 @lg:py-6">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[13px] leading-6 @lg:text-[14px] @lg:leading-7">
           {lines.map((line, i) => (
             <span key={i} className={lineClass(line)}>
               {line || " "}

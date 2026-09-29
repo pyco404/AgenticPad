@@ -25,7 +25,7 @@ export function CutoverNotice({
         {agentName ? `${agentName} retires ${when(cutover.endsAt)}` : "Renting is paused"}
       </p>
       <p className="mt-2 text-muted">
-        Oxude is moving to a new settlement program. On it you fund your agent with your own deposit instead of being
+        AgentClash is moving to a new settlement program. On it you fund your agent with your own deposit instead of being
         handed a starting balance, and renting costs a fee.
       </p>
       {agentName ? (

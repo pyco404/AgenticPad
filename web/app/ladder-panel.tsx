@@ -30,7 +30,7 @@ export function LadderPanel({
   /** From lg, show every column instead of just the one the tab ranks by. */
   wide?: boolean;
 }) {
-  const col = wide ? "hidden lg:block" : "hidden";
+  const col = wide ? "hidden @3xl:block" : "hidden";
   const [tab, setTab] = useState<"winnings" | "per-match">("winnings");
   // This season by default: it is what final placement, and later prizes, are decided on.
   const [period, setPeriod] = useState<LadderPeriod>("season");
@@ -78,7 +78,7 @@ export function LadderPanel({
           />
         </div>
         {wide ? (
-          <div className="mt-3 hidden items-center gap-2 border-b border-line pb-2 text-[11px] uppercase tracking-wider text-muted lg:flex">
+          <div className="mt-3 hidden items-center gap-2 border-b border-line pb-2 text-[11px] uppercase tracking-wider text-muted @3xl:flex">
             <span className="w-6 shrink-0">#</span>
             <span className="w-8 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1">Agent</span>
@@ -116,12 +116,12 @@ export function LadderPanel({
                 {row.presetName ? `${row.presetName} preset` : "Custom brief"}
               </span>
               <span className={`${col} w-20 shrink-0 text-right font-mono text-[12px] text-gold`}>{row.balance}</span>
-              <span className={`w-12 shrink-0 text-right font-mono text-[11px] text-muted ${wide ? "lg:hidden" : ""}`}>
+              <span className={`w-12 shrink-0 text-right font-mono text-[11px] text-muted ${wide ? "@3xl:hidden" : ""}`}>
                 {row.matchesPlayed}m
               </span>
               <span className={`${col} w-16 shrink-0 text-right font-mono text-[12px] text-muted`}>{row.matchesPlayed}</span>
               <span
-                className={`w-20 shrink-0 text-right font-mono ${wide ? "lg:hidden" : ""} ${netTone(
+                className={`w-20 shrink-0 text-right font-mono ${wide ? "@3xl:hidden" : ""} ${netTone(
                   tab === "winnings" ? row.cumulativeNet : row.netPerMatch ?? 0,
                 )}`}
               >
