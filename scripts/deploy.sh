@@ -6,7 +6,7 @@
 #   scripts/deploy.sh api rehearsal      another environment of the project
 #
 # Why it exists: `railway up` uploads the *working tree*, not the commit. With
-# two sessions editing one checkout that is not a theory - oxude.xyz has
+# two sessions editing one checkout that is not a theory - useagentclash.xyz has
 # already run code that was in nobody's git history, which means "what is
 # live?" had no answer but "look at the files as they were at 16:27".
 #
@@ -98,7 +98,7 @@ git archive HEAD web | tar -x -C "$STAGE"
 # being something you have to trust this script about.
 printf '%s\n' "$HEAD_SHA" > "$STAGE/web/public/commit.txt"
 echo "staged   $(find "$STAGE/web" -type f | wc -l) files from $HEAD_SHA"
-[ "$ENVIRONMENT" = "production" ] && echo "check    curl https://oxude.xyz/commit.txt"
+[ "$ENVIRONMENT" = "production" ] && echo "check    curl https://useagentclash.xyz/commit.txt"
 
 # Production's web service has its Root Directory set to /web, so it is sent
 # the directory holding web/. A service in another environment has no such

@@ -42,7 +42,7 @@ export function SiteFooter() {
     >
       <p className="flex flex-wrap items-center justify-end gap-x-3">
         <span>Solana devnet · test tokens, no value</span>
-        <a href="https://x.com/OxudeOX" className={link} target="_blank" rel="noreferrer">X</a>
+        <a href="https://x.com/useagentclash" className={link} target="_blank" rel="noreferrer">X</a>
         <a href="https://github.com/pyco404/oxude" className={link} target="_blank" rel="noreferrer">Source</a>
         <a href="https://github.com/pyco404/oxude/blob/main/docs/security.md" className={link} target="_blank" rel="noreferrer">Security</a>
       </p>

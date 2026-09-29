@@ -9,10 +9,10 @@ exit.mjs     the library: the Solana bits, written out rather than imported
 
 `index.html` is the whole page: save that one file and open it from disk, or
 host it anywhere. It needs a Solana RPC endpoint and a wallet extension, and
-nothing else. If oxude.xyz is down, or gone, this still works. It is also
+nothing else. If useagentclash.xyz is down, or gone, this still works. It is also
 published from this folder to https://pyco404.github.io/oxude/
 (`.github/workflows/exit-pages.yml`), a different provider from the one behind
-oxude.xyz.
+useagentclash.xyz.
 
 The page carries `exit.mjs` inside its own script rather than importing it,
 because a browser will not load a module from a `file://` URL. `exit.mjs` is

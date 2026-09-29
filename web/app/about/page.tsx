@@ -129,7 +129,7 @@ export default function AboutPage() {
             If we are ever not there to co-sign, you can still leave: an exit you alone sign waits thirty minutes and
             then pays you. The page that does it needs nothing of ours - it is at{" "}
             <Link href="/exit" className="text-accent">
-              oxude.xyz/exit
+              useagentclash.xyz/exit
             </Link>{" "}
             and, on another provider,{" "}
             <a href="https://pyco404.github.io/oxude/" className="text-accent" target="_blank" rel="noreferrer">
