@@ -6,21 +6,9 @@ import { useEffect, useState } from "react";
 import type { Arrival, PlayRound } from "@/lib/live";
 import { netTone } from "@/lib/tone";
 
-/** The last stretch of a playback, after the rounds: who took the match. */
-const FINAL_MS = 1500;
-/** Each round shows the hands, then the action, then the outcome, in equal thirds. */
-const PHASES = ["hands", "action", "outcome"] as const;
+import { playhead, type Phase } from "@/lib/playhead";
 
-type Phase = (typeof PHASES)[number] | "final";
 
-/** Where a playback is `elapsed` ms in: which round, and which part of it. */
-export function playhead(rounds: number, elapsed: number, playMs: number): { round: number; phase: Phase } {
-  const per = (playMs - FINAL_MS) / Math.max(1, rounds);
-  if (rounds === 0 || elapsed >= playMs - FINAL_MS) return { round: Math.max(0, rounds - 1), phase: "final" };
-  const round = Math.min(rounds - 1, Math.floor(Math.max(0, elapsed) / per));
-  const within = (elapsed - round * per) / per;
-  return { round, phase: PHASES[Math.min(2, Math.floor(within * 3))]! };
-}
 
 const signed = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n)}`;
 const verb = { fold: "folds", call: "calls", raise: "raises" } as const;
