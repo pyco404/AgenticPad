@@ -24,6 +24,11 @@ esac
 
 PROJECT=af965879-57de-4ff2-89a0-efc0c9863fcd
 ENVIRONMENT="${2:-production}"
+# Production's services are api and web. Another environment has services of
+# its own, named for it (rehearsal-api, rehearsal-web): Railway gives an
+# existing service a copy in a new environment only by duplicating production,
+# which would copy production's secrets with it.
+if [ "$ENVIRONMENT" = "production" ]; then RAILWAY_SERVICE="$SERVICE"; else RAILWAY_SERVICE="$ENVIRONMENT-$SERVICE"; fi
 
 # The two services differ in what an uncommitted file means, so they differ in
 # what happens about one. For the api the working tree *is* the upload, so a
@@ -70,13 +75,13 @@ if [ -z "${DEPLOY_UNPUSHED:-}" ]; then
 fi
 
 echo "service  $SERVICE"
-echo "env      $ENVIRONMENT"
+echo "env      $ENVIRONMENT  (service $RAILWAY_SERVICE)"
 echo "commit   $(git log --oneline -1 | cat)"
 
 if [ "$SERVICE" = "api" ]; then
   # The tree is clean, so the upload is HEAD. The root railway.json is the
   # api's config, which is why this one deploys from here.
-  railway up --service api --ci --project "$PROJECT" --environment "$ENVIRONMENT"
+  railway up --service "$RAILWAY_SERVICE" --ci --project "$PROJECT" --environment "$ENVIRONMENT"
   exit $?
 fi
 
@@ -93,7 +98,10 @@ git archive HEAD web | tar -x -C "$STAGE"
 # being something you have to trust this script about.
 printf '%s\n' "$HEAD_SHA" > "$STAGE/web/public/commit.txt"
 echo "staged   $(find "$STAGE/web" -type f | wc -l) files from $HEAD_SHA"
-echo "check    curl https://oxude.xyz/commit.txt"
+[ "$ENVIRONMENT" = "production" ] && echo "check    curl https://oxude.xyz/commit.txt"
 
-cd "$STAGE"
-railway up -s web --ci --project "$PROJECT" --environment "$ENVIRONMENT"
+# Production's web service has its Root Directory set to /web, so it is sent
+# the directory holding web/. A service in another environment has no such
+# setting (the CLI cannot set it), so it is sent web/ itself as the root.
+if [ "$ENVIRONMENT" = "production" ]; then cd "$STAGE"; else cd "$STAGE/web"; fi
+railway up -s "$RAILWAY_SERVICE" --ci --project "$PROJECT" --environment "$ENVIRONMENT"
