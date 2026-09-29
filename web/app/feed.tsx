@@ -73,6 +73,9 @@ export function useFeed(initial: Feed | null, limit = 12, keep = false): LiveFee
 
 /** The latest bluff that worked, big: the one thing a newcomer should read first. */
 export function BluffCard({ bluff }: { bluff: FeedItem | null }) {
+  // "12s ago" is worked out after mount, so the server and the browser render the same markup.
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => setNow(Date.now()), [bluff]);
   if (!bluff || !bluff.headline) return null;
   const net = bluff.beatSeat === "B" ? bluff.netB : bluff.netA;
   const who = bluff.beatSeat === "B" ? bluff.b : bluff.a;
@@ -80,7 +83,7 @@ export function BluffCard({ bluff }: { bluff: FeedItem | null }) {
     <section className="rounded-panel mb-3 border border-line bg-panel">
       <h2 className="flex items-center justify-between border-b border-line px-4 py-3 text-[12px] uppercase tracking-wider text-accent">
         <span>Latest bluff{bluff.exhibition ? " · exhibition" : ""}</span>
-        <span className="font-mono normal-case tracking-normal">{ago(bluff.createdAt)} ago</span>
+        <span className="font-mono normal-case tracking-normal">{now === null ? "" : `${ago(bluff.createdAt, now)} ago`}</span>
       </h2>
       <div className="p-4">
         <p className="text-[20px] leading-7">{bluff.headline}.</p>
