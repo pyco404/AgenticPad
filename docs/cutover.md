@@ -1,6 +1,6 @@
 # The seed flow cutover
 
-Oxude has two settlement programs on devnet. This is the plan for closing the
+AgentClash has two settlement programs on devnet. This is the plan for closing the
 older one, and it is short because the machinery already existed: **every rental
 ends at a season boundary**, so a rental that cannot be renewed simply runs out.
 

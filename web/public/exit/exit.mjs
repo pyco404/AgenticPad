@@ -1,5 +1,5 @@
 /**
- * Everything needed to leave Oxude, owing nothing to Oxude.
+ * Everything needed to leave AgentClash, owing nothing to AgentClash.
  *
  * No npm, no CDN, no build step. This file imports nothing, because the whole
  * point of it is to work on a day when our servers, our domain and our

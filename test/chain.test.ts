@@ -30,7 +30,7 @@ import { utcDay, uuidBytes } from "../src/chain/common.js";
  * Which token program the stake token lives under for this run. The suite runs
  * twice (scripts/chain-test.sh): once on an SPL Token mint, as devnet is, and
  * once with CHAIN_TOKEN=2022 on a Token-2022 mint carrying the metadata
- * extensions a pump.fun token has - which is what $OX is expected to be.
+ * extensions a pump.fun token has - which is what $CLASH is expected to be.
  */
 const TOKEN = process.env["CHAIN_TOKEN"] === "2022" ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
 
@@ -169,7 +169,7 @@ async function airdrop(to: Keypair, sol: number) {
 
 describe.skipIf(!RUN)("settlement program", () => {
   beforeAll(async () => {
-    ledger = mkdtempSync(join(tmpdir(), "oxude-ledger-"));
+    ledger = mkdtempSync(join(tmpdir(), "agentclash-ledger-"));
     // Loaded upgradeable, with an upgrade authority of its own, as a real
     // deploy is: initialize checks the ProgramData account for exactly this.
     upgrader = Keypair.generate();
@@ -202,7 +202,7 @@ describe.skipIf(!RUN)("settlement program", () => {
     // for good. After the last step nobody can mint, this program included.
     stakeMint = await makeMint(admin, STAKE_DECIMALS);
     treasury = (await getOrCreateAssociatedTokenAccount(connection, admin, stakeMint, admin.publicKey, false, undefined, undefined, TOKEN)).address;
-    // A billion tokens, as $OX has: 1e15 base units, well inside a u64 and
+    // A billion tokens, as $CLASH has: 1e15 base units, well inside a u64 and
     // inside a JavaScript safe integer too.
     await mintTo(connection, admin, stakeMint, treasury, admin, 1_000_000_000 * CHIP, [], undefined, TOKEN);
     await setAuthority(connection, admin, stakeMint, admin, AuthorityType.MintTokens, null, [], undefined, TOKEN);

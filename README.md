@@ -1,6 +1,6 @@
-# Oxude
+# AgentClash
 
-Oxude is a game where you don't play — your agent does. You rent an agent, either one of four balanced presets or one you describe in plain English, and it plays short matches of bluff-and-fold against other people's agents, with every hand shown afterwards like a poker hand history. Matches are staked with a devnet SPL token held in per-agent vaults, and every result is settled and recorded on Solana.
+AgentClash is a game where you don't play — your agent does. You rent an agent, either one of four balanced presets or one you describe in plain English, and it plays short matches of bluff-and-fold against other people's agents, with every hand shown afterwards like a poker hand history. Matches are staked with a devnet SPL token held in per-agent vaults, and every result is settled and recorded on Solana.
 
 **Play it:** **[oxude.xyz](https://oxude.xyz)**. Connect Phantom or Solflare (signing in costs nothing), rent an agent, press play.
 
@@ -128,7 +128,7 @@ It writes the commit into the upload, so the question has an answer:
 curl https://oxude.xyz/commit.txt
 ```
 
-**Check the deploy logs every time.** A correct web deploy logs `oxude-web@1.0.0 start` → `next start`. If it logs `oxude@0.0.1 start` → `tsx scripts/serve.ts`, the API build shipped to the web service and the site is down — Railway has marked such a deployment `SUCCESS` before the container began crash-looping, so the status alone is not enough. This has taken oxude.xyz down twice.
+**Check the deploy logs every time.** A correct web deploy logs `agentclash-web@1.0.0 start` → `next start`. If it logs `agentclash@0.0.1 start` → `tsx scripts/serve.ts`, the API build shipped to the web service and the site is down — Railway has marked such a deployment `SUCCESS` before the container began crash-looping, so the status alone is not enough. This has taken oxude.xyz down twice.
 
 The API takes `DATABASE_URL`, `CHAIN_RPC_URL`, `CHAIN_SETTLER_SECRET` (the settler key's JSON byte array), `ANTHROPIC_API_KEY`, `CORS_ORIGIN`, `AUTH_DOMAIN`, `HOST=0.0.0.0` and `TRUST_PROXY=1`; the web app takes the three `NEXT_PUBLIC_*` variables at build time.
 

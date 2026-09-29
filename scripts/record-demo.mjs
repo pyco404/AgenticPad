@@ -12,7 +12,7 @@
 // The wallet is a test stand-in injected into the page (a fresh ed25519 key
 // that signs like Phantom), not the real extension.
 //
-// Output, in demo/: oxude-demo.mp4 (clean), oxude-demo-captions.mp4 (captions
+// Output, in demo/: agentclash-demo.mp4 (clean), agentclash-demo-captions.mp4 (captions
 // burned in, for X), captions.ass, and beats.json (when each step happened, in
 // seconds from the start of the video). Captions are timed to those beats, not
 // generated: each runs from its step until the next one.
@@ -122,14 +122,14 @@ function burnCaptions(beats) {
   writeFileSync(join(OUT, "captions.ass"), ass + "\n");
   execFileSync(
     "ffmpeg",
-    ["-y", "-loglevel", "error", "-i", "oxude-demo.mp4", "-vf", "ass=captions.ass", "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "30", "-movflags", "+faststart", "oxude-demo-captions.mp4"],
+    ["-y", "-loglevel", "error", "-i", "agentclash-demo.mp4", "-vf", "ass=captions.ass", "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "30", "-movflags", "+faststart", "agentclash-demo-captions.mp4"],
     { cwd: OUT },
   );
-  log("wrote", join(OUT, "oxude-demo-captions.mp4"), `(${lines.length} captions)`);
+  log("wrote", join(OUT, "agentclash-demo-captions.mp4"), `(${lines.length} captions)`);
 }
 
 if (CAPTIONS_ONLY) {
-  if (!existsSync(join(OUT, "beats.json")) || !existsSync(join(OUT, "oxude-demo.mp4"))) {
+  if (!existsSync(join(OUT, "beats.json")) || !existsSync(join(OUT, "agentclash-demo.mp4"))) {
     throw new Error("no recording to caption: run without --captions-only first");
   }
   burnCaptions(JSON.parse(readFileSync(join(OUT, "beats.json"), "utf8")));
@@ -323,7 +323,7 @@ try {
   await browser.close();
   const raw = await video.path();
   // A failed run never overwrites a good recording.
-  const name = ok ? "oxude-demo" : "oxude-demo.failed";
+  const name = ok ? "agentclash-demo" : "agentclash-demo.failed";
   const webm = join(OUT, `${name}.webm`);
   renameSync(raw, webm);
   execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", webm, "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "30", "-movflags", "+faststart", join(OUT, `${name}.mp4`)]);
@@ -331,7 +331,7 @@ try {
   log("wrote", join(OUT, `${name}.mp4`));
   if (ok) {
     // Playwright starts the video as the page is created, so beats line up with it; report any drift.
-    const duration = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", join(OUT, "oxude-demo.mp4")]).toString());
+    const duration = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", join(OUT, "agentclash-demo.mp4")]).toString());
     log(`video ${duration.toFixed(1)}s, last beat ${beats.at(-1).t.toFixed(1)}s`);
     writeFileSync(join(OUT, "beats.json"), JSON.stringify(beats, null, 2) + "\n");
     burnCaptions(beats);

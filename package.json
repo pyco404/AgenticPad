@@ -1,8 +1,8 @@
 {
-  "name": "oxude",
+  "name": "agentclash",
   "version": "0.0.1",
   "private": true,
-  "description": "Oxude match engine \u2014 agent-versus-agent betting game.",
+  "description": "AgentClash match engine \u2014 agent-versus-agent betting game.",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

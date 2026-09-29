@@ -19,7 +19,7 @@ import { inlined } from "../scripts/inline-exit.js";
 // out of index.html, and the first check below holds it to exit.mjs exactly.
 const PAGE = readFileSync(new URL("../web/public/exit/index.html", import.meta.url), "utf8");
 const LIBRARY = readFileSync(new URL("../web/public/exit/exit.mjs", import.meta.url), "utf8");
-const scratch = mkdtempSync(join(tmpdir(), "oxude-exit-"));
+const scratch = mkdtempSync(join(tmpdir(), "agentclash-exit-"));
 writeFileSync(join(scratch, "inlined.mjs"), inlined(PAGE));
 const exitPage = (await import(pathToFileURL(join(scratch, "inlined.mjs")).href)) as typeof import("../web/public/exit/exit.mjs");
 

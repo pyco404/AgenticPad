@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { policyAgent, type Policy } from "../agents/policy.js";
 import { seatAveragedNet } from "../exact.js";
-import { OXUDE_RULES } from "../round.js";
+import { AGENTCLASH_RULES } from "../round.js";
 import type { Agent } from "../types.js";
 import type { Db } from "./client.js";
 import { agents, bandByName, matches, STAKE_BANDS, type BandName } from "./schema.js";
@@ -92,7 +92,7 @@ export function trueRatingAgainst(agent: Agent, profile: RosterProfile): number 
   if (profile.agentCount === 0) return 0;
   let total = 0;
   for (const { table, weight } of profile.entries) {
-    total += weight * seatAveragedNet(agent, policyAgent(table), OXUDE_RULES);
+    total += weight * seatAveragedNet(agent, policyAgent(table), AGENTCLASH_RULES);
   }
   return total / profile.agentCount;
 }
@@ -132,7 +132,7 @@ export function rosterWithout(profile: RosterProfile, table: Policy): RosterProf
  * scale and priced in that band's money.
  *
  * The opponents are the band's; the arithmetic is band-neutral. It is always
- * computed at OXUDE_RULES, so two agents are comparable whichever band they
+ * computed at AGENTCLASH_RULES, so two agents are comparable whichever band they
  * play, and `priced` scales the same figures by the band's factor - a band C
  * player wants to know what a match is worth to them. Both come from one
  * calculation, because a band is only a scale.
@@ -153,7 +153,7 @@ export function previewPolicy(table: Policy, profile: RosterProfile) {
     rosterFingerprint: profile.fingerprint,
     /** Per distinct opponent, so a brief can be aimed at what is actually out there. */
     breakdown: profile.entries.map((e) => {
-      const net = seatAveragedNet(agent, policyAgent(e.table), OXUDE_RULES);
+      const net = seatAveragedNet(agent, policyAgent(e.table), AGENTCLASH_RULES);
       return { weight: e.weight, expectedNet: net, pricedNet: net * factor };
     }),
   };

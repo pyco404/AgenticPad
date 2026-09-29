@@ -521,7 +521,7 @@ if (rpc && settlers.length) {
   const shown = new URL(rpc);
   console.log(`Settling to ${shown.origin}${shown.pathname} as ${settlers.map(([which, k]) => `${which} ${k.publicKey.toBase58()}`).join(", ")}`);
 }
-console.log(`Oxude on ${url}`);
+console.log(`AgentClash on ${url}`);
 console.log(process.env["ANTHROPIC_API_KEY"] ? "Briefs: on" : "Briefs: off, no ANTHROPIC_API_KEY in the environment or .env; presets only");
 console.log(`  POST ${url}/agents         wallet session required; {name, presetName} or {name, brief}`);
 console.log(`  GET  ${url}/agents/:id     public, or the owner view for its signed-in owner`);

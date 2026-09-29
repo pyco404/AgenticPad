@@ -2,7 +2,7 @@
 
 A procedure, not a one-off. It is how "non-custodial" stops being a claim about
 the code and becomes something that has been done: an owner takes their money
-out of Oxude with a real wallet, and this server is asked for nothing.
+out of AgentClash with a real wallet, and this server is asked for nothing.
 
 Run it on devnet now, and again on mainnet before anything real is at stake.
 The design it exercises is in [non-custodial-exit.md](non-custodial-exit.md).
@@ -30,7 +30,7 @@ So two things have to happen first, and neither is part of the test:
 
 1. **Fund the wallet with devnet SOL** — https://faucet.solana.com. The exit
    costs about `0.00118` SOL of rent for its record (refunded at step 7) plus
-   three signature fees. Everything else in Oxude is paid for by the settler;
+   three signature fees. Everything else in AgentClash is paid for by the settler;
    this path is the exception, and that is worth feeling once.
 2. **Rent a fresh deposit-funded agent** at 200 chips rent and a 900 chip
    deposit, from the normal rent screen. Renting still costs you no SOL.
@@ -137,7 +137,7 @@ working. Come back and clear it later.
 
 Repeat from step 2 for the remaining **600**, with one change that is the whole
 point: **save `oxude.xyz/exit` and `oxude.xyz/exit/exit.mjs` to a folder on
-your machine and open `index.html` from disk.** No Oxude server is involved in
+your machine and open `index.html` from disk.** No AgentClash server is involved in
 anything but the RPC.
 
 Expect at the end:

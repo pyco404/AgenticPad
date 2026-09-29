@@ -65,7 +65,7 @@ function stakeMint(): PublicKey {
 
 const sol = async (key: PublicKey) => (await connection.getBalance(key, "confirmed")) / LAMPORTS_PER_SOL;
 const mint = stakeMint();
-// Whichever program owns the mint: SPL Token on devnet, likely Token-2022 for $OX.
+// Whichever program owns the mint: SPL Token on devnet, likely Token-2022 for $CLASH.
 const tokenProgram = await tokenProgramOf(connection, mint);
 
 console.log(`cluster  ${rpc}`);
@@ -87,7 +87,7 @@ if (!mintInfo) {
   console.error(`No mint at ${mint.toBase58()} on this cluster. Run scripts/stake-mint.ts.`);
   process.exit(1);
 }
-// The mint's own token program: read as SPL Token, a Token-2022 mint (as $OX
+// The mint's own token program: read as SPL Token, a Token-2022 mint (as $CLASH
 // will be) is "not a mint", and setup stops before it initialises anything.
 const token = await getMint(connection, mint, "confirmed", tokenProgram);
 console.log(`mint     ${mint.toBase58()}  ${token.decimals} decimals, supply ${(Number(token.supply) / 10 ** token.decimals).toLocaleString()}`);

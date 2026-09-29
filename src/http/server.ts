@@ -450,7 +450,7 @@ export function createApp(options: AppOptions): Server {
     if (!viaDeposit && cutover) {
       throw new HttpError(
         503,
-        `Renting is paused while Oxude moves to the new settlement program, where you fund an agent yourself instead of being handed a starting balance. Agents rented before the move play until ${cutover.endsAt.toISOString().slice(0, 16).replace("T", " ")} UTC.`,
+        `Renting is paused while AgentClash moves to the new settlement program, where you fund an agent yourself instead of being handed a starting balance. Agents rented before the move play until ${cutover.endsAt.toISOString().slice(0, 16).replace("T", " ")} UTC.`,
         { cutover },
       );
     }
