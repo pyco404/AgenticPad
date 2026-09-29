@@ -1,36 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, BANDS, type BandName, type FieldAgent } from "@/lib/api";
-import { isPlaying, useLive } from "@/lib/live";
+import { useMemo, useRef } from "react";
+import { BANDS, type BandName, type FieldAgent } from "@/lib/api";
+import { useField, usePlayingNow } from "@/lib/field";
+import { useLive } from "@/lib/live";
 import { presetLabel } from "@/lib/agent-mark";
 import { useFlip, useTicker } from "@/lib/motion";
 import { LiveDot } from "@/app/live-dot";
-
-/** How often the roster is read again. Who is playing needs no poll: the live stream says. */
-const POLL_MS = 5_000;
-
-/**
- * Everyone on the field, kept fresh: re-read on a timer while the tab is
- * visible and straight away when it comes back. `refresh` reads it now.
- */
-function useField(initial: FieldAgent[] | null) {
-  const [agents, setAgents] = useState(initial);
-  const [refresh] = useState(() => () => {
-    if (!document.hidden) api.field().then((r) => setAgents(r.agents), () => {});
-  });
-  useEffect(() => {
-    if (!initial) refresh();
-    const timer = setInterval(refresh, POLL_MS);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, [initial, refresh]);
-  return { agents, refresh };
-}
 
 type Opponent = { id: string; name: string; mark: string | null };
 
@@ -39,24 +16,8 @@ type Slot = { kind: "pair"; key: string; a: FieldAgent; b: FieldAgent } | { kind
 
 export function FieldBoard({ initial }: { initial: FieldAgent[] | null }) {
   const live = useLive();
-  // The stream moves `now` when a playback ends, so this settles without a timer.
-  // Newest first, so an agent in two playbacks at once is shown in the newer.
-  const playing = useMemo(
-    () => live.arrivals.filter((a) => isPlaying(a, live.playMs, live.now)),
-    [live.arrivals, live.playMs, live.now],
-  );
-  const { agents, refresh } = useField(initial);
-
-  // A match with an agent the board has not met: a new rental. Read the field
-  // now, so it arrives with its first match rather than up to a poll later.
-  const stranger = useMemo(() => {
-    if (!agents) return null;
-    const known = new Set(agents.map((a) => a.id));
-    return playing.flatMap((a) => [a.match.a.id, a.match.b.id]).find((id) => !known.has(id)) ?? null;
-  }, [agents, playing]);
-  useEffect(() => {
-    if (stranger) refresh();
-  }, [stranger, refresh]);
+  const playing = usePlayingNow();
+  const agents = useField(initial, playing);
 
   const columns = useMemo(() => {
     const byId = new Map((agents ?? []).map((a) => [a.id, a]));
@@ -131,9 +92,9 @@ export function FieldBoard({ initial }: { initial: FieldAgent[] | null }) {
       {agents === null ? (
         <p className="rounded-panel border border-line bg-panel p-4 text-[13px] text-muted">Couldn&apos;t load the field. Retrying…</p>
       ) : (
-        <div ref={board} className="grid grid-cols-3 gap-2 lg:gap-4">
+        <div ref={board} className="grid grid-cols-3 gap-2 @3xl:gap-4">
           {columns.map(({ band, slots, count, inMatch }) => (
-            <section key={band.name} aria-label={`Band ${band.name}`} className="min-w-0 rounded-panel border border-line bg-panel p-1.5 lg:p-2">
+            <section key={band.name} aria-label={`Band ${band.name}`} className="min-w-0 rounded-panel border border-line bg-panel p-1.5 @3xl:p-2">
               <header className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 px-1 pt-0.5">
                 <h2 className="text-[13px] font-semibold tracking-wide">
                   {band.name} <span className="font-normal text-muted">· {band.label}</span>
@@ -146,15 +107,15 @@ export function FieldBoard({ initial }: { initial: FieldAgent[] | null }) {
               {slots.length === 0 ? (
                 <p className="px-1 pb-1 text-[12px] text-muted">Nobody here.</p>
               ) : (
-                <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
+                <ul className="grid grid-cols-1 gap-1.5 @lg:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
                   {slots.map((slot) =>
                     slot.kind === "pair" ? (
-                      <li key={slot.key} className="col-span-full flex flex-col items-stretch rounded-panel border border-live p-1 sm:flex-row sm:items-center">
+                      <li key={slot.key} className="col-span-full flex flex-col items-stretch rounded-panel border border-live p-1 @lg:flex-row @lg:items-center">
                         <Tile agent={slot.a} state="playing" />
-                        <span aria-hidden className="flex shrink-0 items-center justify-center self-center font-mono text-[10px] uppercase text-live sm:px-1.5">
-                          <span className="hidden h-px w-2 bg-live sm:inline-block" />
-                          <span className="px-1 py-0.5 sm:py-0">vs</span>
-                          <span className="hidden h-px w-2 bg-live sm:inline-block" />
+                        <span aria-hidden className="flex shrink-0 items-center justify-center self-center font-mono text-[10px] uppercase text-live @lg:px-1.5">
+                          <span className="hidden h-px w-2 bg-live @lg:inline-block" />
+                          <span className="px-1 py-0.5 @lg:py-0">vs</span>
+                          <span className="hidden h-px w-2 bg-live @lg:inline-block" />
                         </span>
                         <Tile agent={slot.b} state="playing" />
                       </li>
@@ -201,7 +162,7 @@ function Tile({ agent, state, vs = null }: { agent: FieldAgent; state: keyof typ
       data-flip={agent.id}
       aria-label={label}
       title={label}
-      className={`relative flex min-w-0 flex-1 flex-col items-center gap-1 rounded-panel border px-1.5 py-1.5 text-center sm:flex-row sm:gap-2 sm:px-2 sm:text-left transition-opacity duration-700 hover:border-accent ${
+      className={`relative flex min-w-0 flex-1 flex-col items-center gap-1 rounded-panel border px-1.5 py-1.5 text-center @lg:flex-row @lg:gap-2 @lg:px-2 @lg:text-left transition-opacity duration-700 hover:border-accent ${
         state === "playing"
           ? "field-pulse border-live"
           : state === "retired"
@@ -212,7 +173,7 @@ function Tile({ agent, state, vs = null }: { agent: FieldAgent; state: keyof typ
       <span aria-hidden className="shrink-0 text-[20px] leading-none">
         {agent.mark ?? <span className="font-mono text-[13px] text-muted">{agent.name.slice(0, 1)}</span>}
       </span>
-      <span className="w-full min-w-0 sm:w-auto sm:flex-1">
+      <span className="w-full min-w-0 @lg:w-auto @lg:flex-1">
         <span className="block truncate text-[12px] leading-4 text-text">{agent.name}</span>
         <span className="block truncate font-mono text-[10px] uppercase leading-3 tracking-wider text-muted">
           {state === "retired" ? "retired" : vs ? `vs ${vs.mark ?? vs.name}` : agent.house ? "house" : presetLabel(agent.presetName)}
