@@ -495,9 +495,9 @@ function PhoneStats({ world }: { world: World }) {
   return (
     <div
       aria-live="polite"
-      className="rounded-panel pointer-events-none absolute left-2 top-16 z-10 border border-hud-line bg-hud px-3 py-2 font-mono text-[12px] leading-5 shadow-[0_4px_16px_rgb(0_0_0/0.45)] sm:left-4 sm:top-[4.5rem] sm:min-w-44 sm:px-4 sm:py-3 sm:text-[14px] sm:leading-7"
+      className="rounded-panel pointer-events-none absolute left-2 top-16 z-10 border border-hud-line bg-hud px-3 py-2 font-mono text-[12px] leading-5 shadow-[0_4px_16px_rgb(0_0_0/0.45)] sm:left-4 sm:top-[4.5rem] sm:min-w-32 sm:px-3 sm:py-2 sm:text-[12px] sm:leading-5"
     >
-      <p className="flex items-center gap-1.5 sm:justify-between sm:gap-6">
+      <p className="flex items-center gap-1.5 sm:justify-between sm:gap-4">
         <span className="text-muted">Status:</span>
         <span className="flex items-center gap-1.5">
           <span className={dot} aria-hidden />
@@ -506,7 +506,7 @@ function PhoneStats({ world }: { world: World }) {
       </p>
       <p className="flex gap-3 sm:flex-col sm:gap-0">
         {cells.map((c) => (
-          <span key={c.label} title={c.title} className="sm:flex sm:justify-between sm:gap-6">
+          <span key={c.label} title={c.title} className="sm:flex sm:justify-between sm:gap-4">
             <span className="text-muted">{c.label}:</span> <span className={c.tone}>{n(c.value)}</span>
           </span>
         ))}
