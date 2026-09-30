@@ -119,6 +119,9 @@ export class VillageScene extends Phaser.Scene {
   preload(): void {
     this.load.setPath(`${this.opts.base}/`);
     loadMap(this, this.map);
+    // The places the map does not have bring their own pictures, from the site's root.
+    this.load.setPath("");
+    for (const b of this.opts.buildings) if (b.at && b.image) this.load.image(`building-${b.id}`, b.image);
   }
 
   create(): void {
@@ -126,7 +129,8 @@ export class VillageScene extends Phaser.Scene {
     drawMap(this, this.map);
 
     const labels = new Map(this.opts.buildings.map((b) => [b.id, b]));
-    for (const at of this.map.buildings) {
+    const placed = this.opts.buildings.flatMap((b) => (b.at ? [{ id: b.id, ...b.at }] : []));
+    for (const at of [...this.map.buildings, ...placed]) {
       const def = labels.get(at.id);
       if (!def) continue;
       const click = () => {
@@ -354,6 +358,23 @@ export class VillageScene extends Phaser.Scene {
     this.night?.setVisible(on);
   }
 
+  /** Marks the signed-in owner's agents; an empty set when nobody is signed in. */
+  setMine(ids: ReadonlySet<string>): void {
+    this.mine = new Set(ids);
+    for (const [id, hero] of this.heroes) hero.setMine(this.mine.has(id));
+  }
+
+  /** Brings the camera to the owner's next agent in the village, in turn; false when none is here. */
+  findMine(): boolean {
+    const here = [...this.mine].filter((id) => this.heroes.has(id));
+    if (here.length === 0) return false;
+    this.found = (this.found + 1) % here.length;
+    const hero = this.heroes.get(here[this.found]!)!;
+    this.moved = true;
+    this.centreOn(hero.x, hero.y, this.opts.still ? 0 : 600);
+    return true;
+  }
+
   select(id: string | null, pan: boolean): void {
     if (this.selected) this.heroes.get(this.selected)?.setSelected(false);
     this.selected = id;
@@ -397,6 +418,7 @@ export class VillageScene extends Phaser.Scene {
         });
         this.heroes.set(r.id, hero);
         hero.setLabelScale(this.heroLabelScale());
+        if (this.mine.has(r.id)) hero.setMine(true);
         if (r.id === this.selected) hero.setSelected(true);
       } else {
         hero.setName(r.name);
@@ -597,6 +619,9 @@ export class VillageScene extends Phaser.Scene {
   // --- Fights -------------------------------------------------------------
 
   private brawls = new Map<string, Brawl>();
+  /** The signed-in owner's agents, and which of them "find" went to last. */
+  private mine = new Set<string>();
+  private found = -1;
   /** Matches whose end has already been sounded: both sides leave the arena, but it ends once. */
   private heard = new Set<string>();
 

@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useField, usePlayingNow } from "@/lib/field";
 import { useLive } from "@/lib/live";
+import { api } from "@/lib/api";
+import { useWallet } from "@/app/wallet-context";
 import { prefersReducedMotion } from "@/lib/motion";
 import { sound } from "@/lib/sound";
 import { SiteBar, useNight } from "@/app/site-bar";
@@ -60,6 +62,24 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
   }, []);
 
   const live = useLive();
+  // The signed-in owner's agents, to mark in the village. Read again now and then, so a new rental is marked too.
+  const { session } = useWallet();
+  const [mine, setMine] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!session) return setMine(new Set());
+    let gone = false;
+    const load = () =>
+      api.me(session.token).then(
+        (r) => !gone && setMine(new Set(r.agents.map((a) => (a.id ?? a.agentId)!).filter(Boolean))),
+        () => {},
+      );
+    void load();
+    const timer = setInterval(load, 60_000);
+    return () => {
+      gone = true;
+      clearInterval(timer);
+    };
+  }, [session, path]);
   const playing = usePlayingNow();
   const agents = useField(null, playing);
   // Each match with its playback clock, so the arena keeps the same running score as the live feed.
@@ -153,6 +173,7 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
           go={go}
           openBuilding={setBuilding}
           scrolls={open ? scroller : null}
+          mine={mine}
           onStatus={setVillageStatus}
         />
         <SiteBar night={night} onNight={toggleNight} />
@@ -227,6 +248,7 @@ function Village({
   openBuilding,
   scrolls,
   onStatus,
+  mine,
 }: {
   world: World;
   path: string;
@@ -238,6 +260,8 @@ function Village({
   scrolls: React.RefObject<HTMLDivElement | null> | null;
   /** How the village's own loading is going, for the frame's cover. */
   onStatus: (status: "loading" | "ready" | "failed") => void;
+  /** The signed-in owner's agents. */
+  mine: ReadonlySet<string>;
 }) {
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   useEffect(() => onStatus(status), [status, onStatus]);
@@ -269,7 +293,7 @@ function Village({
   }, [scrolls]);
   const notes = useMemo(() => Object.fromEntries(PLACES.map((p) => [p.id, placeLine(world, p)])), [world]);
   /** The latest of everything the village is told, for when it finishes loading. */
-  const latest = useRef({ world, inset, notes, night, go, openBuilding, agent: agentOf(path) });
+  const latest = useRef({ world, inset, notes, night, go, openBuilding, agent: agentOf(path), mine });
 
   useEffect(() => {
     const el = box.current;
@@ -283,7 +307,7 @@ function Village({
       .then(([{ startVillage }]) =>
         startVillage(el, {
           base: "/village",
-          buildings: PLACES.map(({ id, label, note }) => ({ id, label, note })),
+          buildings: PLACES.map(({ id, label, note, at, image, scale }) => ({ id, label, note, at, image, scale })),
           still: prefersReducedMotion(),
           nameFont: face,
           events: {
@@ -303,6 +327,7 @@ function Village({
           handle.setInsets({ top: BAR, ...now.inset });
           handle.setNotes(now.notes);
           handle.setNight(now.night);
+          handle.setMine(now.mine);
           if (now.world.residents) handle.setResidents(now.world.residents);
           handle.select(now.agent, true);
         },
@@ -332,6 +357,11 @@ function Village({
     latest.current.notes = notes;
     village.current?.setNotes(notes);
   }, [notes]);
+
+  useEffect(() => {
+    latest.current.mine = mine;
+    village.current?.setMine(mine);
+  }, [mine]);
 
   useEffect(() => {
     latest.current.night = night;
@@ -380,7 +410,18 @@ function Village({
         {status === "ready" ? (
           // The footer chip runs along the bottom-right edge, and on a narrower screen reaches under these: they sit
           // above its line - and on a phone with the page closed, above "Show the page", which sits over the chip.
-          <div className={`pointer-events-auto ml-auto flex flex-col gap-1 md:mb-10 ${scrolls ? "mb-9" : "mb-[76px]"}`}>
+          <div className={`pointer-events-auto ml-auto flex flex-col items-end gap-1 md:mb-10 ${scrolls ? "mb-9" : "mb-[76px]"}`}>
+            {mine.size > 0 ? (
+              <button
+                type="button"
+                onClick={() => village.current?.findMine()}
+                aria-label="Find my agent"
+                title="Find my agent"
+                className="rounded-panel mb-1 flex h-9 items-center gap-1.5 border border-accent bg-hud px-2.5 text-[12px] font-medium text-accent shadow-[0_4px_16px_rgb(0_0_0/0.5)] hover:text-text"
+              >
+                <span aria-hidden>▼</span> My agent
+              </button>
+            ) : null}
             {([1, -1] as const).map((step) => (
               <button
                 key={step}

@@ -15,6 +15,10 @@ export type VillageHandle = {
   setInsets: (inset: { top: number; right: number; bottom: number }) => void;
   setNotes: (notes: Record<string, { text: string; lively: boolean }>) => void;
   setNight: (on: boolean) => void;
+  /** The signed-in owner's agents, marked in gold. */
+  setMine: (ids: ReadonlySet<string>) => void;
+  /** Pans to the owner's next agent; false when none of theirs is in the village. */
+  findMine: () => boolean;
   zoom: (step: 1 | -1) => void;
   destroy: () => void;
 };
@@ -91,6 +95,8 @@ export async function startVillage(
     setInsets: (inset) => scene.setInsets(inset),
     setNotes: (notes) => scene.setNotes(notes),
     setNight: (on) => scene.setNight(on),
+    setMine: (ids) => scene.setMine(ids),
+    findMine: () => scene.findMine(),
     zoom: (step) => scene.zoomBy(step),
     destroy: () => {
       observer.disconnect();

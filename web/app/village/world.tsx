@@ -72,6 +72,10 @@ export function placeLine(w: World, place: PlaceInfo): { text: string; lively: b
     return { text: t ? `${matches} live` : "live matches", lively: matches > 0 };
   }
   if (t) return { text: `${t.idle} waiting`, lively: t.idle > 0 };
+  // The Treasury shows the money: every chip staked in a real match, from the live stream's counters.
+  if (place.id === "chapel" && w.counters) {
+    return { text: `${w.counters.totalStaked.toLocaleString("en-US")} chips staked`, lively: w.counters.totalStaked > 0 };
+  }
   if (place.id === "watchtower") {
     const all = worldTally(w);
     return { text: all ? `${all.total} on the field` : place.note, lively: false };

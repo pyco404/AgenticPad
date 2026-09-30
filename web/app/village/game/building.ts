@@ -14,7 +14,15 @@ const SCALE: Record<string, number> = {
   alchemist: 0.35,
 };
 
-export type BuildingLabel = { id: string; label: string; note: string };
+export type BuildingLabel = {
+  id: string;
+  label: string;
+  note: string;
+  /** For a place the map does not have: where it stands, its picture, and how big it is drawn. */
+  at?: { x: number; y: number };
+  image?: string;
+  scale?: number;
+};
 
 /** A building: its image, its name and a line under it, and a door agents gather in front of. */
 export class Building {
@@ -34,7 +42,7 @@ export class Building {
     nameFont: string,
   ) {
     // Bottom-centre, as the map places it.
-    const image = scene.add.image(at.x, at.y, `building-${def.id}`).setOrigin(0.5, 1).setScale(SCALE[def.id] ?? 0.4);
+    const image = scene.add.image(at.x, at.y, `building-${def.id}`).setOrigin(0.5, 1).setScale(def.scale ?? SCALE[def.id] ?? 0.4);
     image.setInteractive({ useHandCursor: true });
     image.on("pointerup", onClick);
     image.on("pointerover", () => image.setTint(0xdddddd));

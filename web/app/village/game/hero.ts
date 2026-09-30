@@ -98,6 +98,12 @@ export class Hero {
   /** On the way somewhere, or out on a stroll: then its name shows, as it does for players' agents always. */
   private walking = false;
   private roaming = false;
+  /** The signed-in owner's own agent: a gold marker over it, and its name always shown in gold. */
+  private mine = false;
+  private marker: Phaser.GameObjects.Text | null = null;
+  private markerTween: Phaser.Tweens.Tween | null = null;
+  /** How far the marker has bobbed, in pixels. */
+  markerBob = 0;
   private labelOffset: number;
   /** In the water: cut off at the chest, bobbing, with a ripple round it. */
   private swimming = false;
@@ -149,6 +155,41 @@ export class Hero {
   /** Keeps the name a readable size on screen as the camera zooms out; 1 at the village's own scale. */
   setLabelScale(scale: number): void {
     this.label.setScale(scale);
+    this.marker?.setScale(scale);
+  }
+
+  /** Marks this as the signed-in owner's agent, or clears the mark. */
+  setMine(on: boolean): void {
+    if (on === this.mine) return;
+    this.mine = on;
+    this.markerTween?.stop();
+    this.markerTween = null;
+    this.marker?.destroy();
+    this.marker = null;
+    this.markerBob = 0;
+    if (on) {
+      this.marker = crispText(this.scene, this.x, this.y, "▼", {
+        fontSize: "16px",
+        fontFamily: MONO,
+        color: "#e8b84b",
+        stroke: "#000000",
+        strokeThickness: 4,
+      }).setOrigin(0.5, 1);
+      if (!this.opts.still) {
+        this.markerTween = this.scene.tweens.add({
+          targets: this,
+          markerBob: { from: 0, to: -5 },
+          duration: 550,
+          yoyo: true,
+          repeat: -1,
+          ease: "Sine.easeInOut",
+          onUpdate: () => this.place(),
+        });
+      }
+    }
+    this.label.setColor(on ? "#e8b84b" : this.opts.nameColour);
+    this.refreshLabel();
+    this.place();
   }
 
   setName(name: string): void {
@@ -196,7 +237,7 @@ export class Hero {
 
   private refreshLabel(): void {
     // Standing at its hall, a house agent's name waits for the pointer: a dozen names there at once would bury the hall.
-    this.label.setVisible(this.opts.named || this.hovered || this.selected || this.walking || this.roaming);
+    this.label.setVisible(this.opts.named || this.mine || this.hovered || this.selected || this.walking || this.roaming);
     this.label.setStroke(this.selected ? "#5c4a22" : "#000000", this.selected ? 5 : 3);
   }
 
@@ -260,6 +301,8 @@ export class Hero {
     const x = this.x + this.lungeX;
     this.sprite.setPosition(x, y);
     this.label.setPosition(x, y + this.labelOffset);
+    // Over the name, bobbing, so an owner can find their agent in a crowd.
+    this.marker?.setPosition(x, y + this.labelOffset - this.label.displayHeight - 2 + this.markerBob).setDepth(10_001 + this.y);
     this.halo?.setPosition(this.x, this.y);
     // The frame's foot, as decorations and buildings sort, so all three interleave.
     const feet = this.y + this.sprite.displayHeight * 0.5;
@@ -443,6 +486,8 @@ export class Hero {
   }
 
   destroy(): void {
+    this.markerTween?.stop();
+    this.marker?.destroy();
     this.walk?.stop();
     this.lungeTween?.stop();
     this.haloTween?.stop();

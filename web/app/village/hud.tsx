@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { isPlaying, type Arrival } from "@/lib/live";
 import { ArrowIcon, ChevronIcon, CloseIcon } from "@/app/icons";
-import { PLACES, type PlaceInfo } from "./places";
+import { IN_DESIGN, PLACES, type PlaceInfo } from "./places";
 import { placeActivity, placeLine, placeTally, useWorld, worldTally, type Tally, type World } from "./world";
 
 /** Opens a building's card, from the map or from the list of buildings. */
@@ -103,6 +103,56 @@ export function LiveActivity() {
   );
 }
 
+/** One notice: what it is, then the match it points at, which opens its replay. */
+function Notice({ kind, a, children }: { kind: string; a: Arrival; children: ReactNode }) {
+  return (
+    <Link href={`/m/${a.match.id}`} className="block py-2 hover:text-accent">
+      <span className="block text-[11px] font-semibold uppercase tracking-wider text-accent">{kind}</span>
+      <span className="block truncate">{children}</span>
+    </Link>
+  );
+}
+
+/**
+ * The notice board: the moments worth seeing in the matches that have played
+ * out, never one still playing, so it spoils nothing the arena is showing.
+ */
+function Notices({ w }: { w: World }) {
+  const done = w.arrivals.filter((a) => !isPlaying(a, w.playMs, w.now));
+  const bluff = done.find((a) => a.match.beat === "bluff-worked");
+  const staked = done.filter((a) => !a.match.exhibition && a.match.netA !== 0);
+  const biggest = staked.reduce<Arrival | undefined>((top, a) => (!top || Math.abs(a.match.netA) > Math.abs(top.match.netA) ? a : top), undefined);
+  const headlines = done.filter((a) => a.match.headline && a !== bluff && a !== biggest).slice(0, 3);
+  const winner = (a: Arrival) => (a.match.netA > 0 ? a.match.a : a.match.b);
+  const loser = (a: Arrival) => (a.match.netA > 0 ? a.match.b : a.match.a);
+  return (
+    <div className="rounded-panel mt-4 border border-line">
+      <p className="border-b border-line px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-accent">Posted</p>
+      <div className="divide-y divide-line px-3 text-[13px]">
+        {bluff ? (
+          <Notice kind="A bluff that worked" a={bluff}>
+            {bluff.match.headline ?? `${bluff.match.a.name} vs ${bluff.match.b.name}`}
+          </Notice>
+        ) : null}
+        {biggest ? (
+          <Notice kind="Biggest win" a={biggest}>
+            {winner(biggest).name} <span className="text-muted">took</span> {Math.abs(biggest.match.netA)} chips{" "}
+            <span className="text-muted">from</span> {loser(biggest).name}
+          </Notice>
+        ) : null}
+        {headlines.map((a) => (
+          <Notice key={a.match.id} kind="Headline" a={a}>
+            {a.match.headline}
+          </Notice>
+        ))}
+        {!bluff && !biggest && headlines.length === 0 ? (
+          <p className="py-2 text-muted">Nothing posted yet. Notices go up as matches play out.</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /** Every building: its picture, what is happening there, and its card. */
 export function BuildingsCard() {
   const w = useWorld();
@@ -115,7 +165,7 @@ export function BuildingsCard() {
           return (
             <li key={p.id}>
               <button type="button" onClick={() => open(p.id)} className="group flex w-full items-center gap-3 py-1.5 text-left">
-                <img src={`/village/${p.image}`} alt="" className="h-7 w-7 shrink-0 object-contain [image-rendering:pixelated]" />
+                <img src={p.image} alt="" className="h-7 w-7 shrink-0 object-contain [image-rendering:pixelated]" />
                 <span className="w-24 shrink-0 text-[14px] group-hover:text-accent">{p.label}</span>
                 <span className={`min-w-0 flex-1 truncate text-[13px] ${line.lively ? "text-live" : "text-muted"}`}>{line.text}</span>
                 <ChevronIcon className="h-4 w-4 shrink-0 text-muted group-hover:text-accent" />
@@ -192,7 +242,7 @@ export function BuildingCard({ place, onClose, onEnter }: { place: PlaceInfo; on
       className="rounded-panel pointer-events-auto w-full max-w-[520px] border border-hud-line bg-hud p-4 shadow-[0_10px_40px_rgb(0_0_0/0.6)]"
     >
       <div className="flex gap-4">
-        <img src={`/village/${place.image}`} alt="" className="h-24 w-24 shrink-0 object-contain [image-rendering:pixelated] md:h-32 md:w-32" />
+        <img src={place.image} alt="" className="h-24 w-24 shrink-0 object-contain [image-rendering:pixelated] md:h-32 md:w-32" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h2 className="font-pixel text-[24px] font-bold leading-8 text-accent md:text-[28px]">{place.label}</h2>
@@ -215,13 +265,38 @@ export function BuildingCard({ place, onClose, onEnter }: { place: PlaceInfo; on
               onClick={() => onEnter(place.href!)}
               className="rounded-panel mt-3 flex w-full items-center justify-center gap-2 bg-accent px-4 py-2 text-[14px] font-semibold text-ink hover:bg-accent/90"
             >
-              Enter {place.label} <ArrowIcon className="h-4 w-4" />
+              {place.enter ?? `Enter ${place.label}`} <ArrowIcon className="h-4 w-4" />
             </button>
           ) : (
             <p className="mt-3 text-[13px] text-muted">{line.text}</p>
           )}
         </div>
       </div>
+      {place.id === "chapel" && w.counters ? (
+        <div className="rounded-panel mt-4 grid grid-cols-2 divide-x divide-line border border-line">
+          <div className="py-2 text-center">
+            <p className="font-mono text-[20px] text-text">{w.counters.matchesToday.toLocaleString("en-US")}</p>
+            <p className="text-[12px] text-muted">Staked matches today</p>
+          </div>
+          <div className="py-2 text-center">
+            <p className="font-mono text-[20px] text-accent">{w.counters.totalStaked.toLocaleString("en-US")}</p>
+            <p className="text-[12px] text-muted">Chips staked, all time</p>
+          </div>
+        </div>
+      ) : null}
+      {place.id === "board" ? <Notices w={w} /> : null}
+      {place.id === "yard" ? (
+        <div className="rounded-panel mt-4 border border-line">
+          <p className="border-b border-line px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-accent">Being built</p>
+          <ul className="divide-y divide-line px-3 text-[13px]">
+            {IN_DESIGN.map((g) => (
+              <li key={g.game} className="py-2">
+                <span className="text-text">{g.game}</span> <span className="text-muted">· {g.about}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {tally ? (
         <div className="rounded-panel mt-4 border border-line">
           <p className="border-b border-line px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-accent">Active agents</p>
