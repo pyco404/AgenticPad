@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { installUrl, shortKey, type WalletName } from "@/lib/wallet";
 import { PrivyOption } from "./privy-option";
 import { useWallet } from "./wallet-context";
@@ -163,10 +163,12 @@ function WalletControl() {
  * tapped or pressed a key on it - loading, however long, is not enough - so
  * once the village is up it tries, which some browsers allow for a site
  * visited often, and otherwise starts on the first touch of the page: a drag
- * of the map, a tap, a click on a building.
+ * of the map, a tap, a click on a building. Until then it is `waiting`: on,
+ * and silent, which the speaker says rather than pretend to be playing.
  */
-export function useSoundSetting(villageUp: boolean): [boolean, () => void] {
+export function useSoundSetting(villageUp: boolean): [on: boolean, toggle: () => void, waiting: boolean] {
   const [on, setOn] = useState(false);
+  const playing = useSyncExternalStore(sound.subscribe, () => sound.playing, () => false);
   useEffect(() => {
     let off = false;
     try {
@@ -187,7 +189,13 @@ export function useSoundSetting(villageUp: boolean): [boolean, () => void] {
       for (const e of events) window.removeEventListener(e, start, { capture: true });
     };
   }, [on, villageUp]);
-  const toggle = () =>
+  const toggle = () => {
+    // A click on the speaker while it waits is someone asking to hear it: that click lets it play, it does not turn it off.
+    if (on && !playing) {
+      if (sound.enabled) sound.wake();
+      else sound.setEnabled(true);
+      return;
+    }
     setOn((was) => {
       const now = !was;
       sound.setEnabled(now);
@@ -198,7 +206,8 @@ export function useSoundSetting(villageUp: boolean): [boolean, () => void] {
       }
       return now;
     });
-  return [on, toggle];
+  };
+  return [on, toggle, on && villageUp && !playing];
 }
 
 /** Day or night over the village, remembered in this browser. */
@@ -242,7 +251,7 @@ export function SiteBar({
   villageUp: boolean;
 }) {
   const path = usePathname() ?? "/";
-  const [soundOn, toggleSound] = useSoundSetting(villageUp);
+  const [soundOn, toggleSound, soundWaiting] = useSoundSetting(villageUp);
   // A section is current only while its page is showing: with the page closed, only the village is.
   const active = showing ? sectionOf(path) : null;
   const [open, setOpen] = useState(false);
@@ -287,16 +296,29 @@ export function SiteBar({
         </nav>
         <div className="ml-auto flex min-w-0 items-center gap-1.5 md:gap-3">
           <WalletControl />
-          <button
-            type="button"
-            onClick={toggleSound}
-            aria-label={soundOn ? "Turn sound off" : "Turn sound on"}
-            aria-pressed={soundOn}
-            title={soundOn ? "Sound on" : "Sound off"}
-            className="rounded-panel flex h-9 w-9 shrink-0 items-center justify-center border border-hud-line bg-hud text-accent hover:border-accent md:h-10 md:w-10"
-          >
-            {soundOn ? <SoundIcon className="h-5 w-5" /> : <MuteIcon className="h-5 w-5 text-muted" />}
-          </button>
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={toggleSound}
+              aria-label={soundWaiting ? "Play the village's sound" : soundOn ? "Turn sound off" : "Turn sound on"}
+              aria-pressed={soundOn}
+              title={soundWaiting ? "Tap anywhere for sound" : soundOn ? "Sound on" : "Sound off"}
+              className={`rounded-panel flex h-9 w-9 items-center justify-center border bg-hud text-accent hover:border-accent md:h-10 md:w-10 ${
+                soundWaiting ? "animate-pulse border-accent" : "border-hud-line"
+              }`}
+            >
+              {soundOn ? <SoundIcon className="h-5 w-5" /> : <MuteIcon className="h-5 w-5 text-muted" />}
+            </button>
+            {/* The browser holds sound back until the page is touched: say so, rather than show a speaker that is silent. */}
+            {soundWaiting ? (
+              <p
+                aria-hidden
+                className="rounded-panel pointer-events-none absolute right-0 top-full mt-2 whitespace-nowrap border border-hud-line bg-hud px-2 py-1 text-[12px] text-accent shadow-[0_4px_16px_rgb(0_0_0/0.5)]"
+              >
+                Tap anywhere for sound
+              </p>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={onNight}

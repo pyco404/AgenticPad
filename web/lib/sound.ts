@@ -12,6 +12,9 @@ let enabled = false;
 let ambience: { stop: () => void } | null = null;
 /** When the last bump sounded: several fights at once would otherwise be a din. */
 let lastBump = 0;
+/** Who wants to know when sound starts or stops actually playing: the speaker, so it can say it is waiting. */
+const listeners = new Set<() => void>();
+const changed = () => listeners.forEach((f) => f());
 
 const BUMP_GAP_MS = 110;
 const VOLUME = 0.55;
@@ -25,6 +28,7 @@ function audio(): { ctx: AudioContext; out: GainNode } | null {
     master = ctx.createGain();
     master.gain.value = VOLUME;
     master.connect(ctx.destination);
+    ctx.addEventListener("statechange", changed);
     document.addEventListener("visibilitychange", () => {
       if (!ctx) return;
       if (document.hidden) void ctx.suspend();
@@ -133,6 +137,12 @@ export const sound = {
     return enabled;
   },
 
+  /** Told whenever sound starts or stops actually playing; returns the way to stop being told. */
+  subscribe(f: () => void): () => void {
+    listeners.add(f);
+    return () => listeners.delete(f);
+  },
+
   /** Actually playing: switched on, and let through by the browser. */
   get playing() {
     return enabled && ctx?.state === "running";
@@ -155,6 +165,7 @@ export const sound = {
       ambience = null;
       if (ctx) void ctx.suspend();
     }
+    changed();
   },
 
   /** A blow landing in the arena; `clash` when both charged at once. Thinned out when several fights hit together. */
