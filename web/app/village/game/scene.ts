@@ -9,7 +9,7 @@ import { Roads, type Point } from "./roads";
 import { crispText, MONO } from "./text";
 import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
-import { GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
+import { bodyColours, GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
 
 /**
  * Props that say what a building is for where its art alone does not: the
@@ -633,17 +633,22 @@ export class VillageScene extends Phaser.Scene {
   }
 
   /**
-   * The agent's character: the same pixel drawing its pages show, made into a
-   * texture once and kept for the agent's next visit. An agent with no portrait
-   * stays the knight it was drawn as.
+   * The agent's character: the same pixel drawing its pages show, without the
+   * plate behind it, made into a texture once and kept for the agent's next
+   * visit; its body is dressed in the head's own colours. An agent with no
+   * portrait stays the knight it was drawn as.
    */
+  /** Each character's body colours, kept with its textures. */
+  private bodies = new Map<string, { main: number; dark: number }>();
+
   private giveFace(id: string): void {
-    const views = { front: `face-${id}`, side: `face-${id}-side`, back: `face-${id}-back` };
-    if (this.textures.exists(views.back)) {
-      this.heroes.get(id)?.setFace(views);
+    const views = { front: `head-${id}`, side: `head-${id}-side`, back: `head-${id}-back` };
+    const known = this.bodies.get(id);
+    if (known && this.textures.exists(views.back)) {
+      this.heroes.get(id)?.setFace(views, known);
       return;
     }
-    pixelate(portraitUrl(id, false), GRID_LARGE).then((data) => {
+    pixelate(portraitUrl(id, false), GRID_LARGE, true).then((data) => {
       if (!this.sys.isActive()) return;
       if (!data) {
         this.heroes.get(id)?.useSprite();
@@ -658,7 +663,9 @@ export class VillageScene extends Phaser.Scene {
           tex.refresh();
         }
       }
-      this.heroes.get(id)?.setFace(views);
+      const colours = bodyColours(data);
+      this.bodies.set(id, colours);
+      this.heroes.get(id)?.setFace(views, colours);
     });
   }
 

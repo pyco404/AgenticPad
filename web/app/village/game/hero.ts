@@ -82,8 +82,8 @@ export type HeroOptions = {
   inWater?: (p: Point) => boolean;
 };
 
-/** How big an agent's character stands, in world pixels: about a knight's height. */
-const BODY = 34;
+/** How big an agent's head is, in world pixels: with its body and legs, about a knight's height. */
+const HEAD = 30;
 /** How high a step lifts it, and how far it rocks, as it walks. */
 const HOP = 3;
 const SWAY = 0.07;
@@ -96,6 +96,15 @@ const LEG_GAP = 4;
 const LIFT = 4;
 const LEG_COLOUR = 0x3a3142;
 const BOOT_COLOUR = 0x1b1620;
+/** Its body: how tall, how wide facing us and side on, and how far the head sits down over it. */
+const TORSO = 10;
+const TORSO_W = 12;
+const TORSO_SIDE = 9;
+const NECK = 5;
+/** Its arms: how long, how thick, and how far a step swings one. */
+const ARM = 9;
+const ARM_W = 3;
+const SWING = 3;
 
 /**
  * One agent in the village: its own character - the portrait it has on its
@@ -128,8 +137,10 @@ export class Hero {
   /** The agent's character: its portrait, as pixel art, standing where a knight would. */
   private portrait: Phaser.GameObjects.Image | null = null;
   private shadow: Phaser.GameObjects.Ellipse | null = null;
-  /** Two legs under the character, redrawn as it steps. */
-  private legs: Phaser.GameObjects.Graphics | null = null;
+  /** Its body, arms and legs under the head, redrawn as it steps. */
+  private limbs: Phaser.GameObjects.Graphics | null = null;
+  /** What the body is dressed in: the head's own commonest colour, outlined in its dark. */
+  private colours: { main: number; dark: number } | null = null;
   /** Where the character's feet are, below the sprite's middle: the knight sheet pads each figure well inside its frame. */
   private footOffset: number;
   /** When this walk began, for the rhythm of its steps. */
@@ -199,15 +210,16 @@ export class Hero {
   }
 
   /** The agent becomes its character, once its portrait is made into textures: one for each way it can face. */
-  setFace(views: { front: string; side: string; back: string }): void {
+  setFace(views: { front: string; side: string; back: string }, colours: { main: number; dark: number }): void {
     if (this.portrait) return;
     this.views = views;
+    this.colours = colours;
     this.sprite.setVisible(false);
-    this.portrait = this.scene.add.image(this.x, this.y, views.front).setOrigin(0.5, 1).setDisplaySize(BODY, BODY);
+    this.portrait = this.scene.add.image(this.x, this.y, views.front).setOrigin(0.5, 1).setDisplaySize(HEAD, HEAD);
     this.clickable(this.portrait);
     this.turn(this.view);
-    this.shadow = this.scene.add.ellipse(this.x, this.y, BODY * 0.8, BODY * 0.22, 0x000000, 0.28);
-    this.legs = this.scene.add.graphics();
+    this.shadow = this.scene.add.ellipse(this.x, this.y, HEAD * 0.8, HEAD * 0.22, 0x000000, 0.28);
+    this.limbs = this.scene.add.graphics();
     if (this.swimming) this.cropForWater(true);
     this.place();
   }
@@ -223,29 +235,65 @@ export class Hero {
     if (on) p.setCrop(0, 0, p.frame.width, p.frame.height * ABOVE_WATER);
     else p.setCrop();
     this.shadow?.setVisible(!on);
-    this.legs?.setVisible(!on);
+    this.limbs?.setVisible(!on);
   }
 
   /**
-   * Both legs from the body down to the ground at (x, ground): side by side
-   * when standing, taking turns to lift as it walks, each with a dark boot.
+   * The body under the head, standing on the ground at (x, ground): both legs,
+   * side by side when standing and taking turns to lift as it walks, each with
+   * a dark boot; the torso over them, lifted with each step; and the arms,
+   * swinging against the legs, reaching out in a lunge.
    */
-  private drawLegs(x: number, ground: number, phase: number): void {
-    const g = this.legs;
-    if (!g) return;
+  private drawBody(x: number, ground: number, phase: number, hop: number): void {
+    const g = this.limbs;
+    const c = this.colours;
+    if (!g || !c) return;
     g.clear();
+    const sideOn = this.view === "left" || this.view === "right";
+    const toward = this.view === "left" ? -1 : 1;
     const top = Math.round(ground - LEG);
     for (const [side, lift] of [[-1, Math.max(0, Math.sin(phase))], [1, Math.max(0, -Math.sin(phase))]] as const) {
       const left = Math.round(x + side * (LEG_GAP / 2 + LEG_W / 2) - LEG_W / 2);
       const up = Math.round(lift * LIFT);
       // A lifted leg is shorter, its boot off the ground and a little forward.
-      const sideOn = this.view === "left" || this.view === "right";
-      const toward = this.view === "left" ? -1 : 1;
       const forward = sideOn ? toward * Math.round(lift * 2) : 0;
       g.fillStyle(LEG_COLOUR, 1).fillRect(left, top, LEG_W, LEG - up - 2);
       // Side on, a boot points the way it walks; from the front or behind, it sits square under the leg.
       g.fillStyle(BOOT_COLOUR, 1).fillRect(left + forward - (sideOn && toward < 0 ? 1 : 0), top + LEG - up - 3, sideOn ? LEG_W + 1 : LEG_W, 3);
     }
+    // The torso, outlined, over the tops of the legs.
+    const w = sideOn ? TORSO_SIDE : TORSO_W;
+    const chest = this.chest(ground, hop);
+    const left = Math.round(x - w / 2);
+    g.fillStyle(c.dark, 1).fillRect(left - 1, chest, w + 2, TORSO + 1);
+    g.fillStyle(c.main, 1).fillRect(left, chest + 1, w, TORSO - 1);
+    const swing = Math.sin(phase);
+    const shoulder = chest + 2;
+    if (sideOn) {
+      // Side on, the near arm: swinging fore and aft from the shoulder, thrown forward in a lunge.
+      const reach = this.lungeX !== 0 ? toward * (ARM - 2) : toward * swing * SWING;
+      this.arm(x - toward, shoulder, reach, this.lungeX !== 0 ? ARM - 3 : ARM);
+    } else {
+      // Facing us or away, both arms at the sides: each shortens as it swings forward, against its leg.
+      for (const side of [-1, 1] as const) this.arm(x + side * (w / 2 + ARM_W / 2), shoulder, 0, ARM - Math.round(Math.max(0, side * swing) * 2));
+    }
+  }
+
+  /** Where the top of the torso is: over the legs, lifted a little on each step. */
+  private chest(ground: number, hop: number): number {
+    return Math.round(ground - LEG + 2 - hop) - TORSO;
+  }
+
+  /** One arm, from the shoulder at (x, y) down to a dark hand, `reach` pixels across and `length` down. */
+  private arm(x: number, y: number, reach: number, length: number): void {
+    const g = this.limbs;
+    const c = this.colours;
+    if (!g || !c) return;
+    const hx = Math.round(x + reach);
+    const hy = y + length;
+    g.lineStyle(ARM_W + 2, c.dark, 1).lineBetween(x, y, hx, hy);
+    g.lineStyle(ARM_W, c.main, 1).lineBetween(x, y, hx, hy);
+    g.fillStyle(c.dark, 1).fillRect(hx - 2, hy - 1, 4, 4);
   }
 
   /** Marks this as the signed-in owner's agent, or clears the mark. */
@@ -399,12 +447,12 @@ export class Hero {
       const phase = this.walking && !this.swimming && !this.opts.still ? ((this.scene.time.now - this.stepFrom) / 1000) * (SPEED / STRIDE) * Math.PI * 2 : 0;
       const hop = Math.abs(Math.sin(phase)) * HOP;
       const ground = y + this.footOffset;
-      // Standing on its legs: the body's foot is the legs' top, lifted a little on each step.
-      const foot = this.swimming ? y + this.waterline() + BODY * (1 - ABOVE_WATER) : ground - LEG + 2 - hop;
+      // Standing on its body: the head sits down over the top of the torso, lifted with it on each step.
+      const foot = this.swimming ? y + this.waterline() + HEAD * (1 - ABOVE_WATER) : this.chest(ground, hop) + NECK;
       this.portrait.setPosition(x, foot).setRotation(Math.sin(phase) * SWAY);
       this.shadow?.setPosition(x, ground).setScale(1 - hop / (HOP * 5));
-      if (!this.swimming) this.drawLegs(x, ground, phase);
-      nameAt = (this.swimming ? y + this.waterline() - BODY * ABOVE_WATER : foot - BODY) - 2;
+      if (!this.swimming) this.drawBody(x, ground, phase, hop);
+      nameAt = (this.swimming ? y + this.waterline() - HEAD * ABOVE_WATER : foot - HEAD) - 2;
     }
     this.label.setPosition(x, nameAt);
     // Over the name, bobbing, so an owner can find their agent in a crowd.
@@ -417,7 +465,7 @@ export class Hero {
     this.halo?.setDepth(feet + 0.4);
     this.ripple?.setPosition(this.x, this.y + this.waterline()).setDepth(feet + 0.6);
     this.shadow?.setDepth(feet + 0.3);
-    this.legs?.setDepth(feet + 0.45);
+    this.limbs?.setDepth(feet + 0.45);
     this.portrait?.setDepth(feet + 0.5);
     // Names above everything in the village, so a building never hides one.
     this.label.setDepth(10_000 + feet);
@@ -496,7 +544,7 @@ export class Hero {
     if (p.texture.key !== key) {
       p.setTexture(key);
       // A new texture resets the crop and the size: keep what the water and the scale had set.
-      p.setDisplaySize(BODY, BODY);
+      p.setDisplaySize(HEAD, HEAD);
       if (this.swimming) this.cropForWater(true);
     }
     p.setFlipX(view === "left");
@@ -615,7 +663,7 @@ export class Hero {
     this.walk?.stop();
     this.setSelected(false);
     this.scene.tweens.add({
-      targets: [this.sprite, this.label, ...(this.portrait ? [this.portrait] : []), ...(this.shadow ? [this.shadow] : []), ...(this.legs ? [this.legs] : []), ...(this.ripple ? [this.ripple] : [])],
+      targets: [this.sprite, this.label, ...(this.portrait ? [this.portrait] : []), ...(this.shadow ? [this.shadow] : []), ...(this.limbs ? [this.limbs] : []), ...(this.ripple ? [this.ripple] : [])],
       alpha: 0,
       duration: this.opts.still ? 0 : 600,
       onComplete: () => this.destroy(),
@@ -635,6 +683,6 @@ export class Hero {
     this.label.destroy();
     this.portrait?.destroy();
     this.shadow?.destroy();
-    this.legs?.destroy();
+    this.limbs?.destroy();
   }
 }

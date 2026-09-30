@@ -22,14 +22,17 @@ const hex = (h: string): [number, number, number] => {
  * The stored drawing, rasterised onto a grid and snapped to its own colours:
  * every pixel is one of the portrait's flat fills or fully clear, so edges are
  * hard steps rather than a blur. The stored SVG is untouched - this is only
- * how it is shown.
+ * how it is shown. `bare` leaves out the plate, the shape behind the
+ * character, so only the character itself is drawn.
  */
-export function pixelate(url: string, grid: number): Promise<ImageData | null> {
-  const key = `${url}@${grid}`;
+export function pixelate(url: string, grid: number, bare = false): Promise<ImageData | null> {
+  const key = `${url}@${grid}${bare ? ":bare" : ""}`;
   let job = drawn.get(key);
   if (!job) {
     job = (async () => {
-      const svg = await (await fetch(url)).text();
+      const stored = await (await fetch(url)).text();
+      // The plate is the drawing's first shape, straight before the character's group.
+      const svg = bare ? stored.replace(/<polygon [^>]*\/>(?=<g )/, "") : stored;
       const colours = [...new Set(svg.match(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g) ?? [])].map(hex);
       const blob = URL.createObjectURL(new Blob([svg.replace(/shape-rendering="[^"]*"/, 'shape-rendering="crispEdges"')], { type: "image/svg+xml" }));
       try {
@@ -89,7 +92,7 @@ const lum = (c: Rgba) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
  * The same character seen from behind and from the side, worked out from its
  * front view alone, so every character gets them without drawing anything new.
  *
- * The plate stays as it is. The character is everything the plate's colour
+ * The plate, if the drawing has one, stays as it is. The character is everything the plate's colour
  * cannot reach from the edges. From behind, each row of it takes that row's commonest colour: a hat
  * stays a hat, a face becomes the back of a head, and the eyes and mouth -
  * never the commonest colour in their row - are gone. From the side (facing
@@ -101,17 +104,24 @@ export function turned(front: ImageData): { side: ImageData; back: ImageData } {
   const h = front.height;
   // The plate: the commonest colour near the edges.
   const ring = new Map<string, { c: Rgba; n: number }>();
+  let clear = 0;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       if (x > 3 && x < w - 4 && y > 3 && y < h - 4) continue;
       const c = at(front, x, y);
-      if (c[3] === 0) continue;
+      if (c[3] === 0) {
+        clear++;
+        continue;
+      }
       const e = ring.get(keyOf(c)) ?? { c, n: 0 };
       e.n++;
       ring.set(keyOf(c), e);
     }
   }
-  const plate = [...ring.values()].sort((a, b) => b.n - a.n)[0]?.c;
+  // Drawn without its plate, the edges are mostly clear: then there is no plate, and a hat brim or an ear
+  // that reaches the edge is still the character's.
+  const top = [...ring.values()].sort((a, b) => b.n - a.n)[0];
+  const plate = top && top.n > clear ? top.c : undefined;
   // The plate is what the plate's colour reaches from the edges: a pupil drawn in the same colour,
   // closed in by the face, is still the character's.
   const outside = new Uint8Array(w * h);
@@ -202,4 +212,26 @@ export function turned(front: ImageData): { side: ImageData; back: ImageData } {
     }
   }
   return { side, back };
+}
+
+/**
+ * The colours to dress a character's body in, taken from its head: `main`, the
+ * commonest colour it wears, and `dark`, its outline.
+ */
+export function bodyColours(head: ImageData): { main: number; dark: number } {
+  const counts = new Map<string, { c: Rgba; n: number }>();
+  for (let y = 0; y < head.height; y++) {
+    for (let x = 0; x < head.width; x++) {
+      const c = at(head, x, y);
+      if (c[3] === 0) continue;
+      const e = counts.get(keyOf(c)) ?? { c, n: 0 };
+      e.n++;
+      counts.set(keyOf(c), e);
+    }
+  }
+  const all = [...counts.values()];
+  const dark = all.filter((e) => e.n > 4).sort((a, b) => lum(a.c) - lum(b.c))[0]?.c ?? [27, 22, 32, 255];
+  const main = all.filter((e) => !same(e.c, dark)).sort((a, b) => b.n - a.n)[0]?.c ?? [58, 49, 66, 255];
+  const num = (c: Rgba) => (c[0] << 16) | (c[1] << 8) | c[2];
+  return { main: num(main), dark: num(dark) };
 }
