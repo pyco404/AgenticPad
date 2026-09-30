@@ -479,8 +479,8 @@ function Cover({ up, drawn }: { up: boolean; drawn: boolean }) {
         src="/agentclash-tb.png"
         alt=""
         width={450}
-        height={400}
-        className="h-auto w-40 [filter:drop-shadow(0_0_18px_rgb(111_158_92/0.35))] [image-rendering:pixelated] md:w-48 lg:w-80"
+        height={315}
+        className="aspect-[10/7] h-auto w-40 object-fill [filter:drop-shadow(0_0_18px_rgb(111_158_92/0.35))] [image-rendering:pixelated] md:w-48 lg:w-80"
       />
       <p className="font-pixel text-[48px] font-bold leading-none tracking-[0.04em] text-brand [text-shadow:0_3px_0_rgb(90_0_0),0_0_24px_rgb(255_45_45/0.25)] md:text-[64px]">
         AgentClash
