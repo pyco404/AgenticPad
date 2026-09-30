@@ -443,6 +443,8 @@ export class VillageScene extends Phaser.Scene {
       // or straight into the next one: its result then, and not before.
       if (before?.match && before.place === "arena" && r.match?.id !== before.match.id) {
         hero.float(...this.result(before.match));
+        // The side that lost goes down, and gets up a few seconds later.
+        if (before.match.net < 0) hero.knockDown();
         // Once a match, for the side that heard it first, and only when it ended in view.
         if (!this.heard.has(before.match.id) && this.cameras.main.worldView.contains(hero.x, hero.y)) {
           if (this.heard.size > 500) this.heard.clear();

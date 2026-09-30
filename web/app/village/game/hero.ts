@@ -105,6 +105,10 @@ const NECK = 5;
 const ARM = 9;
 const ARM_W = 3;
 const SWING = 3;
+/** Knocked down by a lost match: how long the fall takes, how long it lies there, and how long getting up takes. */
+const FALL_MS = 300;
+const DOWN_MS = 2600;
+const RISE_MS = 500;
 
 /**
  * One agent in the village: its own character - the portrait it has on its
@@ -143,6 +147,12 @@ export class Hero {
   private colours: { main: number; dark: number } | null = null;
   /** Where the character's feet are, below the sprite's middle: the knight sheet pads each figure well inside its frame. */
   private footOffset: number;
+  /** How far over it has fallen, 0 standing to 1 flat, and which way: 1 over to the right, -1 to the left. */
+  fall = 0;
+  private fallSide: 1 | -1 = -1;
+  private fallTween: Phaser.Tweens.TweenChain | null = null;
+  /** A walk it was sent on while it lay there, taken once it is up. */
+  private afterFall: (() => void) | null = null;
   /** When this walk began, for the rhythm of its steps. */
   private stepFrom = 0;
   /** Its three views - facing us, from the side (facing right), from behind - and which one shows. */
@@ -448,11 +458,20 @@ export class Hero {
       const hop = Math.abs(Math.sin(phase)) * HOP;
       const ground = y + this.footOffset;
       // Standing on its body: the head sits down over the top of the torso, lifted with it on each step.
-      const foot = this.swimming ? y + this.waterline() + HEAD * (1 - ABOVE_WATER) : this.chest(ground, hop) + NECK;
-      this.portrait.setPosition(x, foot).setRotation(Math.sin(phase) * SWAY);
-      this.shadow?.setPosition(x, ground).setScale(1 - hop / (HOP * 5));
-      if (!this.swimming) this.drawBody(x, ground, phase, hop);
-      nameAt = (this.swimming ? y + this.waterline() - HEAD * ABOVE_WATER : foot - HEAD) - 2;
+      // Knocked down, the whole figure turns over about its feet, head and body together.
+      const neck = this.chest(0, hop) + NECK;
+      const tilt = this.fall * this.fallSide * (Math.PI / 2);
+      const foot = this.swimming
+        ? { x, y: y + this.waterline() + HEAD * (1 - ABOVE_WATER) }
+        : { x: x - neck * Math.sin(tilt), y: ground + neck * Math.cos(tilt) };
+      this.portrait.setPosition(foot.x, foot.y).setRotation(Math.sin(phase) * SWAY + tilt);
+      this.shadow?.setPosition(x + this.fallSide * this.fall * HEAD * 0.6, ground).setScale(1 - hop / (HOP * 5) + this.fall * 0.9, 1);
+      if (!this.swimming) {
+        this.drawBody(0, 0, phase, hop);
+        this.limbs?.setPosition(Math.round(x), Math.round(ground)).setRotation(tilt);
+      }
+      // Lying down, the head is on its side: half its height above the ground rather than all of it.
+      nameAt = (this.swimming ? y + this.waterline() - HEAD * ABOVE_WATER : foot.y - HEAD * (1 - 0.5 * this.fall)) - 2;
     }
     this.label.setPosition(x, nameAt);
     // Over the name, bobbing, so an owner can find their agent in a crowd.
@@ -471,9 +490,53 @@ export class Hero {
     this.label.setDepth(10_000 + feet);
   }
 
-  /** Standing still, not on the way anywhere: free to fight. */
+  /** Standing still, not on the way anywhere and not on the ground: free to fight. */
   get idle(): boolean {
-    return this.walk === null;
+    return this.walk === null && this.fallTween === null;
+  }
+
+  /**
+   * Knocked flat by a lost match: over backwards, away from the way it faced,
+   * a few seconds on the ground, and up again. Anywhere it is sent meanwhile
+   * waits until it is on its feet.
+   */
+  knockDown(): void {
+    if (this.opts.still || !this.portrait || this.swimming || this.fallTween) return;
+    this.walk?.stop();
+    this.walk = null;
+    this.stopLunge();
+    this.setWalking(false);
+    this.fallSide = this.view === "left" ? 1 : -1;
+    this.scene.time.delayedCall(FALL_MS, () => this.dust());
+    this.fallTween = this.scene.tweens.chain({
+      targets: this,
+      tweens: [
+        { fall: 1, duration: FALL_MS, ease: "Quad.easeIn", onUpdate: () => this.place() },
+        { fall: 1, duration: DOWN_MS },
+        { fall: 0, duration: RISE_MS, ease: "Back.easeOut", onUpdate: () => this.place() },
+      ],
+      onComplete: () => this.getUp(),
+    });
+  }
+
+  /** On its feet again, and off wherever it was sent while it lay there. */
+  private getUp(): void {
+    this.fallTween = null;
+    this.fall = 0;
+    this.place();
+    const next = this.afterFall;
+    this.afterFall = null;
+    next?.();
+  }
+
+  /** A puff of dust either side of where it landed. */
+  private dust(): void {
+    if (!this.portrait) return;
+    const at = { x: this.x + this.fallSide * HEAD * 0.7, y: this.y + this.footOffset };
+    for (const dx of [-1, 1]) {
+      const puff = this.scene.add.ellipse(at.x + dx * 8, at.y, 10, 5, 0xd8cbb0, 0.8).setDepth(this.y + this.footOffset + 1000);
+      this.scene.tweens.add({ targets: puff, x: puff.x + dx * 12, scaleX: 2, scaleY: 1.6, alpha: 0, duration: 500, ease: "Quad.easeOut", onComplete: () => puff.destroy() });
+    }
   }
 
   /**
@@ -481,7 +544,7 @@ export class Hero {
    * one bump of a fight. `then` runs at the moment of contact.
    */
   lunge(dx: number, then?: () => void): void {
-    if (this.opts.still || this.walk !== null || this.lungeTween !== null) return;
+    if (this.opts.still || this.walk !== null || this.lungeTween !== null || this.fallTween !== null) return;
     this.face(dx < 0 ? "left" : "right");
     this.sprite.play(this.anims.strike, true);
     this.sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
@@ -512,7 +575,7 @@ export class Hero {
 
   /** Knocked back a step by a blow, and steadied again. */
   recoil(dx: number): void {
-    if (this.opts.still || this.walk !== null || this.lungeTween !== null) return;
+    if (this.opts.still || this.walk !== null || this.lungeTween !== null || this.fallTween !== null) return;
     this.lungeTween = this.scene.tweens.add({
       targets: this,
       lungeX: dx,
@@ -552,6 +615,10 @@ export class Hero {
 
   /** Be at (x, y) now, without walking there. */
   standAt(to: Point, facing?: "left" | "right"): void {
+    this.fallTween?.stop();
+    this.fallTween = null;
+    this.afterFall = null;
+    this.fall = 0;
     this.walk?.stop();
     this.walk = null;
     this.stopLunge();
@@ -575,6 +642,10 @@ export class Hero {
     if (this.opts.still) {
       this.standAt(to, facing);
       how.then?.();
+      return;
+    }
+    if (this.fallTween) {
+      this.afterFall = () => this.walkTo(to, facing, how);
       return;
     }
     this.walk?.stop();
@@ -675,6 +746,7 @@ export class Hero {
     this.marker?.destroy();
     this.walk?.stop();
     this.lungeTween?.stop();
+    this.fallTween?.stop();
     this.haloTween?.stop();
     this.bobTween?.stop();
     this.halo?.destroy();
