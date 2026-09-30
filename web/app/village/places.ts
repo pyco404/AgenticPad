@@ -5,7 +5,8 @@ import { REWARDS_LINKED } from "@/app/site-header";
  * village is the site's map. Four are also where agents stand - the arena
  * while a match plays, and a hall for each band while they wait. Beside them,
  * placed here rather than by the map (their art, cropped from the same CC0
- * pack, is in public/fixtures), the notice board and the Builders' Yard.
+ * pack, is in public/fixtures; the yard's frame has had water painted in, in
+ * the village's own water colour), the notice board and the Builders' Yard.
  */
 export type PlaceInfo = {
   id: string;
