@@ -23,6 +23,7 @@ import {
   field,
   lossBudgetOn,
   lostToday,
+  holdsEnoughToPlay,
 } from "../db/runner.js";
 import { utcDay } from "../chain/common.js";
 import type { LossBudgetState } from "../chain/settlement.js";
@@ -43,7 +44,7 @@ import {
   WithdrawalError,
   type WithdrawalChain,
 } from "../db/withdrawals.js";
-import { DEFAULT_BAND, STAKE_BANDS, affordableBands, bandByName, canAffordBand, type BandName } from "../db/schema.js";
+import { DEFAULT_BAND, MIN_FUNDING_CHIPS, STAKE_BANDS, affordableBands, bandByName, canAffordBand, type BandName } from "../db/schema.js";
 import { SURVIVAL, SURVIVAL_HOURS, SURVIVAL_PACE_MINUTES, SURVIVAL_SEED_BALANCE, survivalFor } from "../survival.js";
 
 import { RateLimiter, type RateLimitRule } from "./rate-limit.js";
@@ -450,6 +451,10 @@ export function createApp(options: AppOptions): Server {
       if (typeof asked !== "number" || !Number.isFinite(asked) || asked <= 0) {
         throw new HttpError(400, "deposit is required, in chips, and must be above zero");
       }
+      // Funded with at least the minimum to play, or it could never play at all.
+      if (Math.floor(asked) < MIN_FUNDING_CHIPS) {
+        throw new HttpError(400, `fund it with at least ${MIN_FUNDING_CHIPS} chips ($20) - that is what it needs to play`);
+      }
       depositAmount = baseUnits(Math.floor(asked), seasonRate());
     }
 
@@ -564,7 +569,9 @@ export function createApp(options: AppOptions): Server {
     return {
       band: row.band,
       worstMatch: bandByName(row.band).worstMatch,
-      canPlay: covers(row.band),
+      /** The least it must hold to play, in chips. */
+      minToPlay: MIN_FUNDING_CHIPS,
+      canPlay: row.house === true || holdsEnoughToPlay(row.balance, rate),
       /** Bands this balance covers, cheapest upward. Empty means nothing is left but withdrawing. */
       affordable: open,
       /** The best band still open, when the current one is not. Null when none is. */

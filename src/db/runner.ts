@@ -29,6 +29,7 @@ import {
   normaliseNet,
   outflowBudget,
   OUTFLOW_WINDOW_MS,
+  MIN_FUNDING_CHIPS,
   MIN_STAKE,
   RATING_WINDOW,
   STARTING_BALANCE,
@@ -138,6 +139,15 @@ export function assertSameFlow(a: Pick<AgentRow, "name" | "funding">, b: Pick<Ag
       `${a.name} is funded by ${a.funding} and ${b.name} by ${b.funding}; their vaults are under different programs and cannot settle against each other`,
     );
   }
+}
+
+/**
+ * Whether a balance in base units is enough to be in play: the $20 minimum
+ * (MIN_FUNDING_CHIPS). `rate` is the agent's, from the flow it was rented
+ * under, and required so a deposit-funded balance is never read as chips.
+ */
+export function holdsEnoughToPlay(balance: number, rate: number): boolean {
+  return balance >= baseUnits(MIN_FUNDING_CHIPS, rate);
 }
 
 /**
@@ -317,9 +327,9 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
   for (const row of [rowA, rowB]) {
     if (row.ownerId === null) continue;
     const balance = balances.get(row.id) ?? 0;
-    if (!canAffordBand(balance, band, rateOf(row))) {
+    if (!holdsEnoughToPlay(balance, rateOf(row))) {
       throw new StakeError(
-        `${row.name} holds too little to play: balance ${chips(balance, rateOf(row))}, needs ${bandByName(band).worstMatch}`,
+        `${row.name} holds too little to play: balance ${chips(balance, rateOf(row))}, needs ${MIN_FUNDING_CHIPS}`,
       );
     }
   }
@@ -706,13 +716,13 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   // Holding enough to be in play, in this agent's units. Candidates are all on
   // the same flow as `me` (below), so one rate applies to every row here - a
   // chip figure compared against a base-unit sum would call a vault holding
-  // fifty base units enough for a forty-chip minimum.
+  // fifty base units enough for a fifty-chip minimum.
   const myRate = rateOf(me);
   const solvent = db
     .select({ agentId: ledger.agentId, balance: sql<number>`sum(${ledger.amount})::bigint`.as("balance") })
     .from(ledger)
     .groupBy(ledger.agentId)
-    .having(sql`sum(${ledger.amount}) >= ${baseUnits(bandByName(DEFAULT_BAND).worstMatch, myRate)}`)
+    .having(sql`sum(${ledger.amount}) >= ${baseUnits(MIN_FUNDING_CHIPS, myRate)}`)
     .as("solvent");
 
   // Everyone on their own: no band keeps anyone apart.

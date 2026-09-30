@@ -8,7 +8,7 @@ import { stakedMatch } from "./staked-match.js";
 import { liveCounters } from "../src/db/feed.js";
 import { faucetStatus } from "../src/db/faucet.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
-import { chainOps, rentals } from "../src/db/schema.js";
+import { chainOps, rentals, STARTING_BALANCE } from "../src/db/schema.js";
 import { seasonStatement } from "../src/db/statement.js";
 import { seasonAt } from "../src/season.js";
 import { someWallet } from "./helpers.js";
@@ -70,13 +70,13 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
 
     const balance = await balanceOf(db, agent.id);
     expect(typeof balance).toBe("number");
-    expect(balance).toBe(big + 900);
+    expect(balance).toBe(big + STARTING_BALANCE);
 
     // The whole devnet supply in one vault: the most any balance could be.
     const supply = baseUnits(1_000_000_000, DEVNET_CHIP_RATE);
     await record(db, [{ agentId: agent.id, amount: supply, reason: "adjustment" }]);
     const total = await balanceOf(db, agent.id);
-    expect(total).toBe(big + 900 + supply);
+    expect(total).toBe(big + STARTING_BALANCE + supply);
     expect(Number.isSafeInteger(total)).toBe(true);
     await close();
   });
@@ -87,7 +87,7 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     const agent = await createAgent(db, { name: "Summed", presetName: "Hammer", ownerId: owner });
     const big = baseUnits(50_000, DEVNET_CHIP_RATE);
     await record(db, [{ agentId: agent.id, amount: big, reason: "adjustment" }]);
-    const expected = big + 900;
+    const expected = big + STARTING_BALANCE;
 
     // Every place that sums ledger.amount or chain_ops.amount in raw SQL.
     const many = await balancesOf(db, [agent.id]);
@@ -120,7 +120,7 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     const made = [];
     for (const [name, presetName] of [["NetA", "Anchor"], ["NetB", "Bully"]] as const) {
       const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit" });
-      await record(db, [{ agentId: agent.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
+      await record(db, [{ agentId: agent.id, amount: baseUnits(4_500, DEVNET_CHIP_RATE), reason: "deposit" }]);
       made.push(agent);
     }
     const [a, b] = made;

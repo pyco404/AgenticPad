@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { count, eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
-import { agents, chainOps, ledger, matches, ratings } from "../src/db/schema.js";
+import { agents, chainOps, ledger, matches, MIN_FUNDING_CHIPS, ratings } from "../src/db/schema.js";
 import { balanceOf } from "../src/db/ledger.js";
 import { createAgent, pickOpponent, runExhibition, runMatch } from "../src/db/runner.js";
 import { agentRecord, matchActivity, recentMatches } from "../src/db/feed.js";
@@ -231,7 +231,7 @@ describe("the house on the deposit program", () => {
     for (let i = 0; i < 2; i++) await createAgent(db, { name: `Seed${i}`, presetName: "Anchor" });
     for (let i = 0; i < 2; i++) {
       const row = await createAgent(db, { name: `Dep${i}`, presetName: "Bully", funding: "deposit" });
-      await record(db, [{ agentId: row.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
+      await record(db, [{ agentId: row.id, amount: baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE), reason: "deposit" }]);
     }
     const funding = new Map((await db.select().from(agents)).map((r) => [r.id, r.funding]));
     for (let i = 0; i < 30; i++) {
@@ -252,7 +252,7 @@ describe("house agents with no balance", () => {
     createAgent(db, { name, presetName: "Bully", funding: "deposit" });
   const player = async (db: Awaited<ReturnType<typeof fresh>>["db"], name: string) => {
     const row = await createAgent(db, { name, presetName: "Anchor", ownerId: someWallet(), funding: "deposit" });
-    await record(db, [{ agentId: row.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
+    await record(db, [{ agentId: row.id, amount: baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE), reason: "deposit" }]);
     return row;
   };
 
@@ -268,7 +268,7 @@ describe("house agents with no balance", () => {
     // Not retired as broke for holding nothing: it was never meant to hold anything.
     const [after] = await db.select().from(agents).where(eq(agents.id, house.id));
     expect(after!.retiredAt).toBeNull();
-    expect(await balanceOf(db, me.id)).toBe(baseUnits(900, DEVNET_CHIP_RATE));
+    expect(await balanceOf(db, me.id)).toBe(baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE));
     await close();
   });
 
@@ -291,11 +291,11 @@ describe("house agents with no balance", () => {
     await close();
   });
 
-  it("does not excuse a player: one that cannot cover its band is still never offered", async () => {
+  it("does not excuse a player: one holding less than the minimum is still never offered", async () => {
     const { db, close } = await fresh();
     const me = await player(db, "Me");
     const skint = await createAgent(db, { name: "Skint", presetName: "Hammer", ownerId: someWallet(), funding: "deposit" });
-    await record(db, [{ agentId: skint.id, amount: baseUnits(39, DEVNET_CHIP_RATE), reason: "deposit" }]);
+    await record(db, [{ agentId: skint.id, amount: baseUnits(MIN_FUNDING_CHIPS - 1, DEVNET_CHIP_RATE), reason: "deposit" }]);
     const fine = await player(db, "Fine");
     for (let i = 0; i < 10; i++) {
       const pick = await pickOpponent(db, me.id, { minCandidates: 1 });

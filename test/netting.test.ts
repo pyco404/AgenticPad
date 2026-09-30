@@ -26,7 +26,7 @@ async function fresh(): Promise<Db> {
  * A rented deposit-flow agent with its vault open and funded, as a confirmed
  * rental leaves one: the ledger and the vault both hold the deposit.
  */
-async function depositAgent(db: Db, chain: FakeChain, name: string, presetName: "Anchor" | "Bully" | "Mirage" | "Hammer", chips = 900) {
+async function depositAgent(db: Db, chain: FakeChain, name: string, presetName: "Anchor" | "Bully" | "Mirage" | "Hammer", chips = 4_500) {
   const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit" });
   const amount = baseUnits(chips, RATE);
   await record(db, [{ agentId: agent.id, amount, reason: "deposit" }]);
@@ -256,7 +256,7 @@ describe("hourly net settlement", () => {
     const worst = 20;
     expect(await hasOutflowRoom(db, a!.id, worst)).toBe(true);
     // A loss of nearly a fifth of the vault this hour leaves no room for a worst match...
-    const fifth = Math.floor(baseUnits(900, RATE) / 5);
+    const fifth = Math.floor(baseUnits(4_500, RATE) / 5);
     await db.insert(chainOps).values({ kind: "settle", fromAgent: a!.id, toAgent: b!.id, amount: fifth - baseUnits(worst, RATE) + 1, netted: true });
     expect(await hasOutflowRoom(db, a!.id, worst)).toBe(false);
     // ...and a win in the same hour nets against it.

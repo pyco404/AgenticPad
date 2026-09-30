@@ -10,6 +10,7 @@ import {
   affordableBands,
   ledger,
   matches,
+  MIN_FUNDING_CHIPS,
   normaliseNet,
   ratings,
   STARTING_BALANCE,
@@ -214,8 +215,8 @@ describe("rating across bands", () => {
 describe("running out", () => {
   it("never happens in a match: however many it loses, an agent keeps what it holds", async () => {
     const { db: d, close: c } = await fresh();
-    const small = await createAgent(d, { name: "Small", presetName: "Mirage", startingBalance: 45, ownerId: someWallet() });
-    const rival = await createAgent(d, { name: "Rival", presetName: "Bully", startingBalance: 900, ownerId: someWallet() });
+    const small = await createAgent(d, { name: "Small", presetName: "Mirage", startingBalance: MIN_FUNDING_CHIPS, ownerId: someWallet() });
+    const rival = await createAgent(d, { name: "Rival", presetName: "Bully", ownerId: someWallet() });
 
     let lost = 0;
     for (let seed = 1; seed <= 30; seed++) {
@@ -224,7 +225,7 @@ describe("running out", () => {
       if (result.settled.A < 0) lost++;
     }
     expect(lost).toBeGreaterThan(0);
-    expect(await balanceOf(d, small.id)).toBe(45);
+    expect(await balanceOf(d, small.id)).toBe(MIN_FUNDING_CHIPS);
     const [row] = await d.select().from(agents).where(eq(agents.id, small.id));
     expect(row!.retiredAt).toBeNull();
     await c();
@@ -298,7 +299,7 @@ describe("agents on different funding flows", () => {
     const other = await createAgent(db, { name: "Theirs", presetName: "Bully", ownerId: someWallet() });
     for (const id of [mine.id, other.id]) {
       await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, id));
-      await record(db, [{ agentId: id, amount: baseUnits(2_000, DEVNET_CHIP_RATE), reason: "deposit" }]);
+      await record(db, [{ agentId: id, amount: baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE) - STARTING_BALANCE, reason: "deposit" }]);
     }
     const pick = await pickOpponent(db, mine.id);
     expect(pick.opponentId).toBe(other.id);
@@ -316,13 +317,13 @@ describe("lists that show many agents at once", () => {
     const deposited = await createAgent(db, { name: "Deposited", presetName: "Bully", ownerId: someWallet() });
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, deposited.id));
     // The same money, counted in each agent's own units.
-    await record(db, [{ agentId: deposited.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
+    await record(db, [{ agentId: deposited.id, amount: baseUnits(STARTING_BALANCE, DEVNET_CHIP_RATE) - STARTING_BALANCE, reason: "deposit" }]);
 
     const listed = await roster(db);
     const byName = new Map(listed.map((r) => [r.name, r.balance]));
-    // 900 chips each: the seed agent's seed, and the deposit agent's deposit.
-    expect(byName.get("Seeded")).toBe(900);
-    expect(byName.get("Deposited")).toBe(900);
+    // The same chips each: the seed agent's seed, and the deposit agent's deposit.
+    expect(byName.get("Seeded")).toBe(STARTING_BALANCE);
+    expect(byName.get("Deposited")).toBe(STARTING_BALANCE);
   });
 
   it("judge who holds enough to play in each agent's own units", async () => {
@@ -331,15 +332,15 @@ describe("lists that show many agents at once", () => {
     const me = await createAgent(db, { name: "Mine", presetName: "Anchor", ownerId: someWallet() });
     const rich = await createAgent(db, { name: "Rich", presetName: "Bully", ownerId: someWallet() });
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, rich.id));
-    await record(db, [{ agentId: rich.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
-    // A deposit agent holding 30 base units is holding nothing: it must not be
-    // offered as holding the 40-chip minimum because 30 happens to look like chips.
+    await record(db, [{ agentId: rich.id, amount: baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE) - STARTING_BALANCE, reason: "deposit" }]);
+    // A deposit agent holding 4,000 base units is holding nothing: it must not be
+    // offered as holding the 3,600-chip minimum because 4,000 happens to look like chips.
     const pauper = await createAgent(db, { name: "Pauper", presetName: "Mirage", ownerId: someWallet() });
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, pauper.id));
-    await record(db, [{ agentId: pauper.id, amount: 30 - 900, reason: "adjustment" }]);
+    await record(db, [{ agentId: pauper.id, amount: 4_000 - STARTING_BALANCE, reason: "adjustment" }]);
 
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, me.id));
-    await record(db, [{ agentId: me.id, amount: baseUnits(900, DEVNET_CHIP_RATE) - 900, reason: "deposit" }]);
+    await record(db, [{ agentId: me.id, amount: baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE) - STARTING_BALANCE, reason: "deposit" }]);
     for (let i = 0; i < 10; i++) expect((await pickOpponent(db, me.id, { minCandidates: 1 })).opponentId).toBe(rich.id);
   });
 
@@ -360,7 +361,7 @@ describe("lists that show many agents at once", () => {
     await migrate(db);
     const me = await createAgent(db, { name: "Funded", presetName: "Anchor", ownerId: someWallet() });
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, me.id));
-    await record(db, [{ agentId: me.id, amount: baseUnits(900, DEVNET_CHIP_RATE) - 900, reason: "deposit" }]);
+    await record(db, [{ agentId: me.id, amount: baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE) - STARTING_BALANCE, reason: "deposit" }]);
     for (let i = 0; i < 3; i++) await createAgent(db, { name: `Seeded ${i}`, presetName: "Bully", ownerId: someWallet() });
     await expect(pickOpponent(db, me.id, { allowHouse: true })).rejects.toThrow(/plays only other agents you fund yourself/);
   });

@@ -13,6 +13,7 @@ import {
   matches,
   withdrawals,
   bandByName,
+  MIN_FUNDING_CHIPS,
   AUTOPLAY_INTERVAL_MS,
   AUTOPLAY_SELF_CLEARING,
   type AgentRow,
@@ -64,11 +65,11 @@ export async function checkAgent(db: Db, row: AgentRow): Promise<AutoplayCheck> 
   // chip short of covering a match is treated as short, which it is.
   const balance = chips(await balanceOf(db, row.id), rateOf(row));
   const worst = bandByName(row.band).worstMatch;
-  if (balance < worst) {
+  if (balance < MIN_FUNDING_CHIPS) {
     return {
       play: false,
       reason: "insolvent",
-      detail: `${balance} cannot cover a band ${row.band} match, which can move ${worst}`,
+      detail: `${balance} is below the ${MIN_FUNDING_CHIPS} an agent needs to play`,
     };
   }
   // A floor is a floor: stop before a match that *could* go through it, not
@@ -345,8 +346,8 @@ function describeStop(
       };
     case "insolvent":
       return {
-        message: `Paused: balance ${balance} can't cover a band ${row.band} match, which can move up to ${worst}.`,
-        action: "You need to switch it back on, and it can only play again in a band this balance covers.",
+        message: `Paused: balance ${balance} is below the ${MIN_FUNDING_CHIPS} an agent needs to play.`,
+        action: `Add funds to bring it to at least ${MIN_FUNDING_CHIPS}, then switch it back on.`,
       };
     case "retired":
       return {

@@ -223,7 +223,7 @@ describe("renting over HTTP", () => {
 
     const deposited = await api("/agents", {
       method: "POST",
-      body: { presetName: "Hammer", deposit: 2_000 },
+      body: { presetName: "Hammer", deposit: 5_600 },
       as: who,
     });
     expect(deposited.status).toBe(201);
@@ -233,15 +233,15 @@ describe("renting over HTTP", () => {
 
   it("hands back a transaction to sign, and an agent that cannot play yet", async () => {
     const who = DEPOSITORS[1];
-    const out = await api("/agents", { method: "POST", body: { presetName: "Mirage", deposit: 1_500 }, as: "erin2" });
+    const out = await api("/agents", { method: "POST", body: { presetName: "Mirage", deposit: 5_100 }, as: "erin2" });
     // erin2 is not on the allowlist, so this is the seed flow. Use the depositor.
     expect(out.body.funding).toBe("seed");
 
-    const rented = await api("/agents", { method: "POST", body: { presetName: "Bully", deposit: 1_500 }, as: who });
+    const rented = await api("/agents", { method: "POST", body: { presetName: "Bully", deposit: 5_100 }, as: who });
     const { rental, agent } = rented.body;
     expect(typeof rental.transaction).toBe("string");
-    expect(rental.depositChips).toBe(1_500);
-    expect(rental.deposit).toBe(baseUnits(1_500, RATE));
+    expect(rental.depositChips).toBe(5_100);
+    expect(rental.deposit).toBe(baseUnits(5_100, RATE));
     expect(rental.feeChips).toBe(200);
     // The two things the screen has to say plainly.
     expect(rental.playable).toBe(false);
@@ -252,7 +252,7 @@ describe("renting over HTTP", () => {
 
   it("funds the agent once the owner's signature comes back", async () => {
     const who = DEPOSITORS[2];
-    const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 900 }, as: who });
+    const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 3_600 }, as: who });
     const { rental, agent } = rented.body;
 
     const tx = Transaction.from(Buffer.from(rental.transaction, "base64"));
@@ -265,7 +265,7 @@ describe("renting over HTTP", () => {
     expect(sent.status).toBe(201);
     expect(sent.body.rental.status).toBe("confirmed");
     expect(sent.body.rental.playable).toBe(true);
-    expect(await balanceOf(db, agent.id)).toBe(baseUnits(900, RATE));
+    expect(await balanceOf(db, agent.id)).toBe(baseUnits(3_600, RATE));
 
     // And it can be asked about afterwards.
     const looked = await api(`/rentals/${rental.rentalId}`, { as: who });
@@ -281,9 +281,18 @@ describe("renting over HTTP", () => {
     }
   });
 
+  it("refuses a deposit below the $20 minimum, and says what it needs", async () => {
+    const who = DEPOSITORS[3];
+    const out = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 3_599 }, as: who });
+    expect(out.status).toBe(400);
+    expect(String(out.body.error)).toMatch(/at least 3600 chips \(\$20\)/);
+    const enough = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 3_600 }, as: who });
+    expect(enough.status).toBe(201);
+  });
+
   it("keeps a rental private to its owner", async () => {
     const who = DEPOSITORS[4];
-    const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 900 }, as: who });
+    const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 3_600 }, as: who });
     const id = rented.body.rental.rentalId;
     expect((await api(`/rentals/${id}`, { as: "mallory" })).status).toBe(404);
     const tx = Transaction.from(Buffer.from(rented.body.rental.transaction, "base64"));
@@ -312,8 +321,8 @@ describe("renting over HTTP", () => {
 
     it("puts the owner's money in, and the balance says so", async () => {
       const who = "dep-topup";
-      const agentId = await funded(who, 900);
-      expect(await balanceOf(db, agentId)).toBe(baseUnits(900, RATE));
+      const agentId = await funded(who, 3_600);
+      expect(await balanceOf(db, agentId)).toBe(baseUnits(3_600, RATE));
 
       const prepared = await api(`/agents/${agentId}/deposits`, { method: "POST", body: { amount: 500 }, as: who });
       expect(prepared.status).toBe(201);
@@ -328,7 +337,7 @@ describe("renting over HTTP", () => {
       });
       expect(sent.body.deposit.status).toBe("confirmed");
       // This is the gap the seed flow could not close: an agent can be given more.
-      expect(await balanceOf(db, agentId)).toBe(baseUnits(1_400, RATE));
+      expect(await balanceOf(db, agentId)).toBe(baseUnits(4_100, RATE));
     });
 
     it("refuses a top-up for an agent rented before deposits existed", async () => {
@@ -344,7 +353,7 @@ describe("renting over HTTP", () => {
       // Declined at the wallet, or not landed yet: the agent is on the owner's
       // page, but there is no vault for the money to go into.
       const who = "dep-unpaid";
-      const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 900 }, as: who });
+      const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 3_600 }, as: who });
       const agentId = rented.body.agent.id as string;
 
       const out = await api(`/agents/${agentId}/deposits`, { method: "POST", body: { amount: 100 }, as: who });
@@ -364,10 +373,10 @@ describe("renting over HTTP", () => {
 
     it("refuses anyone but the owner, and an amount of nothing", async () => {
       const who = "dep-guard";
-      const agentId = await funded(who, 900);
+      const agentId = await funded(who, 3_600);
       expect((await api(`/agents/${agentId}/deposits`, { method: "POST", body: { amount: 100 }, as: "mallory" })).status).toBe(403);
       expect((await api(`/agents/${agentId}/deposits`, { method: "POST", body: { amount: 0 }, as: who })).status).toBe(400);
-      expect(await balanceOf(db, agentId)).toBe(baseUnits(900, RATE));
+      expect(await balanceOf(db, agentId)).toBe(baseUnits(3_600, RATE));
     });
   });
 
@@ -401,24 +410,24 @@ describe("renting over HTTP", () => {
 
     it("starts at a third of the deposit, raises at once, and cuts from tomorrow", async () => {
       const who = "dep-budget";
-      const agentId = await landed(who, 900);
+      const agentId = await landed(who, 3_600);
       // Read from the agent object, as the page does.
       const view = async () => (await api(`/agents/${agentId}`, { as: who })).body.agent.lossBudget;
-      expect(await view()).toMatchObject({ perDayChips: 300, lostTodayChips: 0, nextPerDayChips: null });
+      expect(await view()).toMatchObject({ perDayChips: 1_200, lostTodayChips: 0, nextPerDayChips: null });
 
-      const raised = await change(agentId, who, 500);
-      expect(raised.body.lossBudget).toMatchObject({ status: "confirmed", perDayChips: 500 });
-      expect(await view()).toMatchObject({ perDayChips: 500, nextPerDayChips: null });
+      const raised = await change(agentId, who, 1_500);
+      expect(raised.body.lossBudget).toMatchObject({ status: "confirmed", perDayChips: 1_500 });
+      expect(await view()).toMatchObject({ perDayChips: 1_500, nextPerDayChips: null });
 
-      // A cut: today keeps 500, tomorrow is 100, and the owner sees both.
+      // A cut: today keeps 1,500, tomorrow is 100, and the owner sees both.
       const cut = await change(agentId, who, 100);
       expect(cut.body.lossBudget.status).toBe("confirmed");
-      expect(await view()).toMatchObject({ perDayChips: 500, nextPerDayChips: 100, nextFromDay: utcDay(new Date()) + 1 });
+      expect(await view()).toMatchObject({ perDayChips: 1_500, nextPerDayChips: 100, nextFromDay: utcDay(new Date()) + 1 });
     });
 
     it("sends only a change this server built, signed by the agent's owner", async () => {
       const who = "dep-budget-forge";
-      const agentId = await landed(who, 900);
+      const agentId = await landed(who, 3_600);
 
       // Someone else's agent: refused before anything is built.
       expect((await change(agentId, "mallory", 10)).status).toBe(403);
@@ -465,7 +474,7 @@ describe("renting over HTTP", () => {
 
     it("is not spent by a top-up refused before anything was attempted on chain", async () => {
       const who = "dep-limit";
-      const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 900 }, as: who }, tight);
+      const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 3_600 }, as: who }, tight);
       const agentId = rented.body.agent.id as string;
       // Pressing a button that cannot work, over and over, costs nothing.
       for (let i = 0; i < 5; i++) {
@@ -489,10 +498,10 @@ describe("renting over HTTP", () => {
   describe("what a client is told about money", () => {
     // The ledger holds base units because it has to reconcile with a vault.
     // Everything a player reads is chips. A view that forgets to convert is not
-    // slightly wrong: 900 chips is 900,000,000 base units.
+    // slightly wrong: 3,600 chips is 3,600,000,000 base units.
     it("reports a deposit-funded balance in chips, not base units", async () => {
       const who = "dep-chips";
-      const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 2_000 }, as: who });
+      const rented = await api("/agents", { method: "POST", body: { presetName: "Anchor", deposit: 5_600 }, as: who });
       const tx = Transaction.from(Buffer.from(rented.body.rental.transaction, "base64"));
       tx.partialSign(keypairFor(who));
       await api(`/rentals/${rented.body.rental.rentalId}/submit`, {
@@ -502,20 +511,20 @@ describe("renting over HTTP", () => {
       });
       const agentId = rented.body.agent.id as string;
       // The ledger, in base units.
-      expect(await balanceOf(db, agentId)).toBe(baseUnits(2_000, RATE));
+      expect(await balanceOf(db, agentId)).toBe(baseUnits(5_600, RATE));
 
       // The view, in chips - and able to cover every band, which a view that
       // read base units as chips would also say, so the figure is the test.
       const view = await api(`/agents/${agentId}`, { as: who });
-      expect(view.body.agent.balance).toBe(2_000);
-      expect(view.body.agent.balanceBaseUnits).toBe(baseUnits(2_000, RATE));
+      expect(view.body.agent.balance).toBe(5_600);
+      expect(view.body.agent.balanceBaseUnits).toBe(baseUnits(5_600, RATE));
       expect(view.body.agent.canPlay).toBe(true);
       expect(view.body.agent.affordable).toEqual(["A", "B", "C"]);
 
       // And the movements, which are ledger rows and so the easiest to miss.
       const ledger = await api(`/agents/${agentId}/ledger`, { as: who });
-      expect(ledger.body.balance).toBe(2_000);
-      expect(ledger.body.movements.map((m: { amount: number }) => m.amount)).toEqual([2_000]);
+      expect(ledger.body.balance).toBe(5_600);
+      expect(ledger.body.movements.map((m: { amount: number }) => m.amount)).toEqual([5_600]);
     });
 
     it("leaves a seed-funded balance alone, because a chip is a base unit there", async () => {
@@ -524,7 +533,7 @@ describe("renting over HTTP", () => {
       const view = await api(`/agents/${id}`, { as: "seed-chips" });
       // The frozen programme's mint has no decimals: one token was one chip.
       expect(view.body.agent.balance).toBe(await balanceOf(db, id));
-      expect(view.body.agent.balance).toBe(900);
+      expect(view.body.agent.balance).toBe(4_500);
     });
   });
 
@@ -544,25 +553,25 @@ describe("renting over HTTP", () => {
 
     it("quotes what can be taken in chips, not base units", async () => {
       const who = "dep-withdraw";
-      const agentId = await funded(who, 2_000);
+      const agentId = await funded(who, 5_600);
       const state = await api(`/agents/${agentId}/withdrawable`, { as: who });
-      expect(state.body.withdrawable.balance).toBe(2_000);
-      expect(state.body.withdrawable.withdrawable).toBe(2_000);
+      expect(state.body.withdrawable.balance).toBe(5_600);
+      expect(state.body.withdrawable.withdrawable).toBe(5_600);
       expect(state.body.withdrawable.locked).toBe(0);
       // The floor is the cheapest band's worst match, in chips.
-      expect(state.body.withdrawable.minStake).toBe(40);
-      expect(state.body.withdrawable.maxPartial).toBe(1_960);
+      expect(state.body.withdrawable.minStake).toBe(3_600);
+      expect(state.body.withdrawable.maxPartial).toBe(2_000);
       expect(state.body.withdrawable.reason).toBeNull();
     });
 
     it("takes a part of it, and leaves the rest playable", async () => {
       const who = "dep-partial";
-      const agentId = await funded(who, 2_000);
+      const agentId = await funded(who, 5_600);
       const prepared = await api(`/agents/${agentId}/withdrawals`, { method: "POST", body: { amount: 500 }, as: who });
       expect(prepared.status).toBe(201);
       // Quoted back in chips, both sides.
       expect(prepared.body.withdrawal.amount).toBe(500);
-      expect(prepared.body.withdrawal.remaining).toBe(1_500);
+      expect(prepared.body.withdrawal.remaining).toBe(5_100);
       expect(prepared.body.withdrawal.retire).toBe(false);
 
       const tx = Transaction.from(Buffer.from(prepared.body.withdrawal.transaction, "base64"));
@@ -574,27 +583,27 @@ describe("renting over HTTP", () => {
       });
       expect(sent.body.withdrawal.status).toBe("confirmed");
       // The ledger moved by the right number of base units, not of chips.
-      expect(await balanceOf(db, agentId)).toBe(baseUnits(1_500, RATE));
+      expect(await balanceOf(db, agentId)).toBe(baseUnits(5_100, RATE));
       const after = await api(`/agents/${agentId}`, { as: who });
-      expect(after.body.agent.balance).toBe(1_500);
+      expect(after.body.agent.balance).toBe(5_100);
       expect(after.body.agent.canPlay).toBe(true);
     });
 
     it("refuses to leave less than the minimum to play, saying the figure in chips", async () => {
       const who = "dep-floor";
-      const agentId = await funded(who, 900);
-      const out = await api(`/agents/${agentId}/withdrawals`, { method: "POST", body: { amount: 890 }, as: who });
+      const agentId = await funded(who, 3_600);
+      const out = await api(`/agents/${agentId}/withdrawals`, { method: "POST", body: { amount: 3_590 }, as: who });
       expect(out.status).toBe(400);
       // 10 left, not 10000000 left.
       expect(String(out.body.error)).toMatch(/would leave 10,? too little/);
-      expect(String(out.body.error)).toMatch(/at least 40/);
+      expect(String(out.body.error)).toMatch(/at least 3600/);
     });
 
     it("takes the lot and retires the agent, which is how a wallet frees its slot", async () => {
       const who = "dep-retire";
-      const agentId = await funded(who, 900);
+      const agentId = await funded(who, 3_600);
       const prepared = await api(`/agents/${agentId}/withdrawals`, { method: "POST", body: { amount: "all" }, as: who });
-      expect(prepared.body.withdrawal.amount).toBe(900);
+      expect(prepared.body.withdrawal.amount).toBe(3_600);
       expect(prepared.body.withdrawal.retire).toBe(true);
 
       const tx = Transaction.from(Buffer.from(prepared.body.withdrawal.transaction, "base64"));
@@ -606,7 +615,7 @@ describe("renting over HTTP", () => {
       });
       expect(await balanceOf(db, agentId)).toBe(0);
       // And the wallet can rent again, which is the point of retiring.
-      const again = await api("/agents", { method: "POST", body: { presetName: "Bully", deposit: 100 }, as: who });
+      const again = await api("/agents", { method: "POST", body: { presetName: "Bully", deposit: 3_600 }, as: who });
       expect(again.status).toBe(201);
     });
   });

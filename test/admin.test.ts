@@ -6,7 +6,7 @@ import { connect, migrate, type Db } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
 import { createAgent } from "../src/db/runner.js";
 import { stakedMatch } from "./staked-match.js";
-import { chainOps, rentals } from "../src/db/schema.js";
+import { chainOps, rentals, STARTING_BALANCE } from "../src/db/schema.js";
 import { troubledOps, oldestPending, volume } from "../src/db/admin.js";
 import { reconcile, solvency } from "../src/chain/worker.js";
 import { drainChainOps } from "../src/chain/worker.js";
@@ -236,7 +236,7 @@ describe("a vault that could not be read", () => {
     const check = await reconcile(d, chain);
     expect(check.mismatches).toEqual([]);
     expect(check.unverified).toHaveLength(1);
-    expect(check.unverified[0]).toMatchObject({ agentId: a.id, name: "Throttled", ledger: 900 });
+    expect(check.unverified[0]).toMatchObject({ agentId: a.id, name: "Throttled", ledger: STARTING_BALANCE });
     expect(check.unverified[0]!.why).toMatch(/429/);
     await close();
   });

@@ -762,14 +762,21 @@ export const ratings = pgTable("ratings", {
 export const RATING_WINDOW = 50;
 
 /**
- * Balance an agent starts with when rented. Sized so a rental survives a week
- * of autoplay rather than a single bad hour: at 180 - the old seed, chosen when
- * a match could never move more than 60 - a week of play busted most agents,
- * because a band C match can move 90. At 900 about four agents in five last the
- * week in band B, better than 96% in band A, and around 65% in band C, which is
- * the shorter, wilder run that band is meant to be.
+ * The least an agent must hold to be in play, in chips: $20 of $CLASH at the
+ * peg of 900 chips to $5 (docs/economy.md, the chip rate). Nothing is staked,
+ * so it is never spent (docs/no-loss-rewards.md): it is what a rental must be
+ * funded with, what a withdrawal must leave to keep playing, and the $20 the
+ * reward weight is measured against.
  */
-export const STARTING_BALANCE = 900;
+export const MIN_FUNDING_CHIPS = 3_600;
+
+/**
+ * Balance a seed-flow agent starts with when rented: the minimum to play and
+ * 900 over it. The seed flow hands a balance out rather than taking a deposit,
+ * and cannot be topped up, so an agent started at exactly the minimum could
+ * never take part of it out and keep playing.
+ */
+export const STARTING_BALANCE = MIN_FUNDING_CHIPS + 900;
 /**
  * The least a vault may hold and still be worth keeping open. The chain
  * enforces the same floor on withdrawals, so this must not drop below the
@@ -846,10 +853,9 @@ export const faucetGrants = pgTable(
 
 /**
  * What one grant hands out, in chips. Enough to rent at the 200-chip fee and
- * still fund an agent well past the 900 the old free seed gave, so a tester can
- * see a deposit make a difference rather than only afford the minimum.
+ * still fund an agent with the 3,600-chip minimum (MIN_FUNDING_CHIPS).
  */
-export const FAUCET_GRANT_CHIPS = 2_000;
+export const FAUCET_GRANT_CHIPS = 4_000;
 /** How long a wallet waits between grants. */
 export const FAUCET_INTERVAL_MS = 24 * 60 * 60 * 1000;
 

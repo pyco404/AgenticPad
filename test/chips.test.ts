@@ -3,7 +3,7 @@ import { connect, migrate } from "../src/db/client.js";
 import { balanceOf, record } from "../src/db/ledger.js";
 import { createAgent } from "../src/db/runner.js";
 import { baseUnits, chipRate, chips, DEVNET_CHIP_RATE, SEED_CHIP_RATE } from "../src/chips.js";
-import { STAKE_BANDS } from "../src/db/schema.js";
+import { STAKE_BANDS, STARTING_BALANCE } from "../src/db/schema.js";
 
 // Chips against base units: the conversion, and that the ledger is wide enough
 // to hold the second of them.
@@ -50,12 +50,12 @@ describe("chips and base units", () => {
     const big = baseUnits(50_000, DEVNET_CHIP_RATE);
     expect(big).toBeGreaterThan(2_147_483_647);
     await record(db, [{ agentId: agent.id, amount: big, reason: "adjustment" }]);
-    expect(await balanceOf(db, agent.id)).toBe(big + 900);
+    expect(await balanceOf(db, agent.id)).toBe(big + STARTING_BALANCE);
 
     // And the whole devnet supply, which is the most any one vault could hold.
     const supply = baseUnits(1_000_000_000, DEVNET_CHIP_RATE);
     expect(Number.isSafeInteger(supply)).toBe(true);
     await record(db, [{ agentId: agent.id, amount: supply, reason: "adjustment" }]);
-    expect(await balanceOf(db, agent.id)).toBe(big + 900 + supply);
+    expect(await balanceOf(db, agent.id)).toBe(big + STARTING_BALANCE + supply);
   });
 });

@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { balanceOf, record } from "../src/db/ledger.js";
 import { createAgent, runMatch } from "../src/db/runner.js";
-import { chainOps } from "../src/db/schema.js";
+import { chainOps, MIN_FUNDING_CHIPS } from "../src/db/schema.js";
 import { someWallet } from "./helpers.js";
 import { rateOf, syncSeasonRate } from "../src/db/chip-rate.js";
 import { seasonTick } from "../src/db/seasons.js";
@@ -139,7 +139,7 @@ describe("the season's rate", () => {
 describe("a match at the season's rate", () => {
   const funded = async (db: Db, name: string, presetName: "Anchor" | "Bully", rate: number) => {
     const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit" });
-    await record(db, [{ agentId: agent.id, amount: 900 * rate, reason: "deposit" }]);
+    await record(db, [{ agentId: agent.id, amount: MIN_FUNDING_CHIPS * rate, reason: "deposit" }]);
     return agent;
   };
 
@@ -148,15 +148,15 @@ describe("a match at the season's rate", () => {
     const rate = (await syncSeasonRate(db, program(13_228).read)).rate;
     const a = await funded(db, "Ada", "Anchor", rate);
     const b = await funded(db, "Bo", "Bully", rate);
-    // 900 chips at this rate is far below 40 chips at devnet's: read at the
+    // The minimum at this rate is far below the minimum at devnet's: read at the
     // wrong rate, both would be refused as holding too little to play.
-    expect(900 * rate).toBeLessThan(40 * DEVNET_CHIP_RATE);
+    expect(MIN_FUNDING_CHIPS * rate).toBeLessThan(MIN_FUNDING_CHIPS * DEVNET_CHIP_RATE);
     let m = await runMatch(db, a.id, b.id, { seed: 1 });
     for (let seed = 2; m.settled.A === 0 && seed < 50; seed++) m = await runMatch(db, a.id, b.id, { seed });
     expect(m.settled.A).not.toBe(0);
     // A decided match, and neither balance moved, nor was the chain asked to move one.
-    expect(await balanceOf(db, a.id)).toBe(900 * rate);
-    expect(await balanceOf(db, b.id)).toBe(900 * rate);
+    expect(await balanceOf(db, a.id)).toBe(MIN_FUNDING_CHIPS * rate);
+    expect(await balanceOf(db, b.id)).toBe(MIN_FUNDING_CHIPS * rate);
     expect(await db.select().from(chainOps).where(eq(chainOps.matchId, m.match.id))).toHaveLength(0);
   });
 });

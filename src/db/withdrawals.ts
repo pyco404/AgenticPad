@@ -4,18 +4,18 @@ import type { PreparedWithdrawal } from "../chain/common.js";
 import type { Db } from "./client.js";
 import { balanceOf, record } from "./ledger.js";
 import { exitState, isExiting, type ExitState } from "./exits.js";
-import { agents, bandByName, chainOps, DEFAULT_BAND, withdrawals, type WithdrawalStatus } from "./schema.js";
+import { agents, chainOps, MIN_FUNDING_CHIPS, withdrawals, type WithdrawalStatus } from "./schema.js";
 import { baseUnits, chips, rateOf } from "../chips.js";
 import { requestEarlySettlement } from "./netting.js";
 
 /**
  * The least a vault can be left with and still be worth keeping, in **chips**:
- * the least an agent must hold to play (runner.ts, runMatch). Leaving less
- * would strand it holding money it can never play. Comfortably above either
- * program's own MIN_STAKE of 10 chips, which only asks that a vault be left
- * empty or non-trivial.
+ * the $20 minimum to be in play (MIN_FUNDING_CHIPS). Leaving less would strand
+ * the agent holding money it can never play; taking it all is always allowed,
+ * and retires it. Far above either program's own MIN_STAKE of 10 chips, which
+ * only asks that a vault be left empty or non-trivial.
  */
-const MIN_TO_KEEP_PLAYING_CHIPS = bandByName(DEFAULT_BAND).worstMatch;
+const MIN_TO_KEEP_PLAYING_CHIPS = MIN_FUNDING_CHIPS;
 
 /**
  * Withdrawals from an agent's vault to its owner.

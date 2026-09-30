@@ -9,7 +9,7 @@ import { listen } from "../src/http/server.js";
 import { createAgent } from "../src/db/runner.js";
 import { stakedMatch } from "./staked-match.js";
 import { balanceOf } from "../src/db/ledger.js";
-import { agents, bandByName, chainOps, ledger, MIN_STAKE, STARTING_BALANCE, withdrawals } from "../src/db/schema.js";
+import { agents, chainOps, ledger, MIN_FUNDING_CHIPS, MIN_STAKE, STARTING_BALANCE, withdrawals } from "../src/db/schema.js";
 import { drainChainOps, reconcile, type ChainPort } from "../src/chain/worker.js";
 import type { SeedOpenVaultInput } from "../src/chain/seed-settlement.js";
 import type { PreparedWithdrawal } from "../src/chain/common.js";
@@ -261,8 +261,8 @@ describe("withdrawals", () => {
   it("refuses to leave the vault too low to play", async () => {
     // The floor is the minimum to play, not the program's MIN_STAKE: below it
     // the agent could never play again.
-    const floor = bandByName("B").worstMatch;
-    expect(floor).toBe(40);
+    const floor = MIN_FUNDING_CHIPS;
+    expect(floor).toBe(3_600);
     const agent = await ownedAgent("erin", "Erin's");
     const { prepared } = await withdraw(agent.id, "erin", STARTING_BALANCE - (floor - 1));
     expect(prepared.status).toBe(400);

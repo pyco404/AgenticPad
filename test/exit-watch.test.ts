@@ -56,7 +56,7 @@ describe("a request freezes the agent", () => {
     expect(await eventsOf(db, a.id)).toContain("exit-requested");
 
     // The money has not moved: a request is a clock starting.
-    expect(await balanceOf(db, a.id)).toBe(900);
+    expect(await balanceOf(db, a.id)).toBe(4_500);
     await close();
   });
 
@@ -107,7 +107,7 @@ describe("a claim is absorbed, and only then is the agent free", () => {
 
     const pass = await ingestExits(db, await chain.exits());
     expect(pass.ingested).toEqual([{ agentId: a.id, amount: 300, retired: false }]);
-    expect(await balanceOf(db, a.id)).toBe(600);
+    expect(await balanceOf(db, a.id)).toBe(4_200);
     expect(await isExiting(db, a.id)).toBe(false);
     expect(await eventsOf(db, a.id)).toContain("exit-claimed");
 
@@ -129,12 +129,12 @@ describe("a claim is absorbed, and only then is the agent free", () => {
     const chain = new FakeChain();
     const a = await player(db, chain, "Gone");
 
-    chain.requestExit(a.id, 900);
+    chain.requestExit(a.id, 4_500);
     await ingestExits(db, await chain.exits());
-    chain.claimExit(a.id, 900, 5_000);
+    chain.claimExit(a.id, 4_500, 5_000);
     const pass = await ingestExits(db, await chain.exits());
 
-    expect(pass.ingested).toEqual([{ agentId: a.id, amount: 900, retired: true }]);
+    expect(pass.ingested).toEqual([{ agentId: a.id, amount: 4_500, retired: true }]);
     expect(await balanceOf(db, a.id)).toBe(0);
     const row = (await db.select().from(agents).where(eq(agents.id, a.id)))[0]!;
     expect(row.retiredAt).not.toBeNull();
@@ -152,7 +152,7 @@ describe("a claim is absorbed, and only then is the agent free", () => {
     for (let i = 0; i < 3; i++) {
       expect((await ingestExits(db, await chain.exits())).ingested).toEqual([]);
     }
-    expect(await balanceOf(db, a.id)).toBe(700);
+    expect(await balanceOf(db, a.id)).toBe(4_300);
     await close();
   });
 
@@ -169,7 +169,7 @@ describe("a claim is absorbed, and only then is the agent free", () => {
     chain.claimExit(a.id, 100, 20_000);
     const pass = await ingestExits(db, await chain.exits());
     expect(pass.ingested).toEqual([{ agentId: a.id, amount: 100, retired: false }]);
-    expect(await balanceOf(db, a.id)).toBe(600);
+    expect(await balanceOf(db, a.id)).toBe(4_200);
     await close();
   });
 });
@@ -181,7 +181,7 @@ describe("an exit that goes away", () => {
     const a = await player(db, chain, "Stays");
     const b = await player(db, chain, "Rival");
 
-    chain.requestExit(a.id, 900);
+    chain.requestExit(a.id, 4_500);
     await ingestExits(db, await chain.exits());
     expect(await isExiting(db, a.id)).toBe(true);
 
@@ -191,7 +191,7 @@ describe("an exit that goes away", () => {
     expect(await isExiting(db, a.id)).toBe(false);
     expect(await eventsOf(db, a.id)).toContain("exit-cancelled");
     // Playable again, with its money untouched.
-    expect(await balanceOf(db, a.id)).toBe(900);
+    expect(await balanceOf(db, a.id)).toBe(4_500);
     expect((await runMatch(db, a.id, b.id, { seed: 9 })).match.id).toBeTruthy();
 
     // Autoplay is not switched back on for them: asking to leave is not
@@ -236,7 +236,7 @@ describe("an exit that goes away", () => {
     const chain = new FakeChain();
     const a = await player(db, chain, "Changed");
 
-    chain.requestExit(a.id, 900);
+    chain.requestExit(a.id, 4_500);
     await ingestExits(db, await chain.exits());
     chain.closeExit(a.id);
 
@@ -291,7 +291,7 @@ describe("what the owner's own view says", () => {
     const w = await withdrawable(db, a.id);
     expect(w.exit).toBeNull();
     expect(w.reason).toBeNull();
-    expect(w.withdrawable).toBe(900);
+    expect(w.withdrawable).toBe(4_500);
     await close();
   });
 
@@ -349,7 +349,7 @@ describe("what the owner's own view says", () => {
     expect(w.exit).toMatchObject({ claimed: true, settled: true });
     // Settled means free: the instant path is open again.
     expect(w.reason).toBeNull();
-    expect(w.withdrawable).toBe(600);
+    expect(w.withdrawable).toBe(4_200);
     await close();
   });
 });
@@ -415,8 +415,8 @@ describe("the window moving under a running server", () => {
 
     const worker = startChainWorker(db, { seed: chain, deposit: chain }, { intervalMs: 50, exitIntervalMs: 50 });
     try {
-      for (let i = 0; i < 40 && (await balanceOf(db, a.id)) === 900; i++) await new Promise((r) => setTimeout(r, 25));
-      expect(await balanceOf(db, a.id)).toBe(700);
+      for (let i = 0; i < 40 && (await balanceOf(db, a.id)) === 4_500; i++) await new Promise((r) => setTimeout(r, 25));
+      expect(await balanceOf(db, a.id)).toBe(4_300);
     } finally {
       worker.stop();
       await close();

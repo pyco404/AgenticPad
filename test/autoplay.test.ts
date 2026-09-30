@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
-import { agentEvents, agents, chainOps, matches, withdrawals, bandByName, outflowBudget } from "../src/db/schema.js";
+import { agentEvents, agents, chainOps, matches, withdrawals, bandByName, MIN_FUNDING_CHIPS, outflowBudget, STARTING_BALANCE } from "../src/db/schema.js";
 import { record } from "../src/db/ledger.js";
 import { createAgent, hasBudgetRoom, hasOutflowRoom, lossBudgetOn, lostToday } from "../src/db/runner.js";
 import { utcDay } from "../src/chain/common.js";
@@ -85,7 +85,7 @@ describe("autoplay: safety", () => {
     const { db, close } = await fresh();
     const row = await playerOn(db);
     const worst = bandByName("B").worstMatch;
-    const balance = 900;
+    const balance = STARTING_BALANCE;
     // A floor one chip above (balance - worst) must stop it, even though the
     // balance is still comfortably above the floor itself.
     await db.update(agents).set({ autoplayFloor: balance - worst + 1 }).where(eq(agents.id, row.id));
@@ -103,11 +103,10 @@ describe("autoplay: safety", () => {
     await close();
   });
 
-  it("pauses when the balance can no longer cover the band's worst match", async () => {
+  it("pauses when the balance drops below the minimum to play", async () => {
     const { db, close } = await fresh();
     const row = await playerOn(db);
-    const worst = bandByName("B").worstMatch;
-    await record(db, [{ agentId: row.id, amount: -(900 - worst + 1), reason: "match-settlement" }]);
+    await record(db, [{ agentId: row.id, amount: -(STARTING_BALANCE - MIN_FUNDING_CHIPS + 1), reason: "adjustment" }]);
     const stop = await checkAgent(db, (await db.select().from(agents).where(eq(agents.id, row.id)))[0]!);
     expect(stop.play).toBe(false);
     if (!stop.play) expect(stop.reason).toBe("insolvent");
@@ -279,7 +278,7 @@ describe("autoplay: the popular-opponent budget", () => {
     expect(await hasOutflowRoom(db, row.id, worst)).toBe(true);
 
     // Fill the window to one chip short of what a full loss needs.
-    const budget = outflowBudget(900, SEED_CHIP_RATE);
+    const budget = outflowBudget(STARTING_BALANCE, SEED_CHIP_RATE);
     await db.insert(chainOps).values({ kind: "settle", fromAgent: row.id, amount: budget - worst + 1 });
     expect(await hasOutflowRoom(db, row.id, worst)).toBe(false);
     await close();
@@ -345,13 +344,14 @@ describe("autoplay: what the panel says", () => {
     await close();
   });
 
-  it("names the balance and the band's worst match when it cannot cover one", async () => {
+  it("names the balance and the minimum when it holds too little to play", async () => {
     const { db, close } = await fresh();
     const row = await playerOn(db);
-    await record(db, [{ agentId: row.id, amount: -(900 - 25), reason: "match-settlement" }]);
+    await record(db, [{ agentId: row.id, amount: -(STARTING_BALANCE - 25), reason: "adjustment" }]);
     await stopAgent(db, row.id, "insolvent");
     const status = await autoplayStatus(db, await rowOf(db, row.id));
-    expect(status.message).toBe("Paused: balance 25 can't cover a band B match, which can move up to 40.");
+    expect(status.message).toBe("Paused: balance 25 is below the 3600 an agent needs to play.");
+    expect(status.action).toContain("Add funds");
     await close();
   });
 
