@@ -4,6 +4,7 @@ import type { Look } from "../residents";
 import type { Point } from "./roads";
 import { crispText, MONO } from "./text";
 import { sound } from "@/lib/sound";
+import { WEAPONS, weaponTexture, type WeaponName } from "./weapons";
 
 /** The points to walk from one place to another, starting where the walker stands. */
 export type Router = (from: Point, to: Point) => Point[];
@@ -105,6 +106,16 @@ const NECK = 5;
 const ARM = 9;
 const ARM_W = 3;
 const SWING = 3;
+/**
+ * How a weapon is held, in radians from upright: leaning a little out at rest,
+ * swinging with the arm on the march, and brought down in a lunge. A lunge of
+ * this many pixels is the full blow.
+ */
+const HOLD = 0.3;
+const MARCH = 0.25;
+const BLOW = 1.3;
+const BLOW_AT = 12;
+
 /** Knocked down by a lost match: how long the fall takes, how long it lies there, and how long getting up takes. */
 const FALL_MS = 300;
 const DOWN_MS = 2600;
@@ -143,6 +154,9 @@ export class Hero {
   private shadow: Phaser.GameObjects.Ellipse | null = null;
   /** Its body, arms and legs under the head, redrawn as it steps. */
   private limbs: Phaser.GameObjects.Graphics | null = null;
+  /** What it carries (weapons.ts), and where its weapon hand is, in the body's own frame, and at what angle. */
+  private weapon: Phaser.GameObjects.Image | null = null;
+  private hand = { x: 0, y: 0, angle: 0 };
   /** What the body is dressed in: the head's own commonest colour, outlined in its dark. */
   private colours: { main: number; dark: number } | null = null;
   /** Where the character's feet are, below the sprite's middle: the knight sheet pads each figure well inside its frame. */
@@ -234,6 +248,14 @@ export class Hero {
     this.place();
   }
 
+  /** Its weapon, held in its hand from now on. Shown only with a body to hold it: never on the stand-in knight. */
+  setWeapon(name: WeaponName): void {
+    if (this.weapon) return;
+    const w = WEAPONS[name];
+    this.weapon = this.scene.add.image(this.x, this.y, weaponTexture(name)).setOrigin(0.5, w.grip / w.h).setVisible(false);
+    this.place();
+  }
+
   /** No portrait to be had: the knight it has always been, then. */
   useSprite(): void {
     if (!this.portrait) this.sprite.setVisible(true);
@@ -246,6 +268,7 @@ export class Hero {
     else p.setCrop();
     this.shadow?.setVisible(!on);
     this.limbs?.setVisible(!on);
+    this.weapon?.setVisible(!on);
   }
 
   /**
@@ -279,13 +302,20 @@ export class Hero {
     g.fillStyle(c.main, 1).fillRect(left, chest + 1, w, TORSO - 1);
     const swing = Math.sin(phase);
     const shoulder = chest + 2;
+    // The weapon: upright and leaning out at rest, swinging with the arm on the march, brought down in a lunge.
+    const blow = Math.min(1, Math.abs(this.lungeX) / BLOW_AT);
     if (sideOn) {
       // Side on, the near arm: swinging fore and aft from the shoulder, thrown forward in a lunge.
       const reach = this.lungeX !== 0 ? toward * (ARM - 2) : toward * swing * SWING;
-      this.arm(x - toward, shoulder, reach, this.lungeX !== 0 ? ARM - 3 : ARM);
+      const length = this.lungeX !== 0 ? ARM - 3 : ARM;
+      this.arm(x - toward, shoulder, reach, length);
+      this.hand = { x: Math.round(x - toward + reach), y: shoulder + length, angle: toward * (HOLD + swing * MARCH + blow * BLOW) };
     } else {
       // Facing us or away, both arms at the sides: each shortens as it swings forward, against its leg.
       for (const side of [-1, 1] as const) this.arm(x + side * (w / 2 + ARM_W / 2), shoulder, 0, ARM - Math.round(Math.max(0, side * swing) * 2));
+      // Carried in the hand on our right, leaning out.
+      const length = ARM - Math.round(Math.max(0, swing) * 2);
+      this.hand = { x: Math.round(x + w / 2 + ARM_W / 2), y: shoulder + length, angle: HOLD + swing * MARCH * 0.5 };
     }
   }
 
@@ -469,6 +499,14 @@ export class Hero {
       if (!this.swimming) {
         this.drawBody(0, 0, phase, hop);
         this.limbs?.setPosition(Math.round(x), Math.round(ground)).setRotation(tilt);
+        // The weapon in the hand, turning with the body when it is knocked over.
+        if (this.weapon) {
+          const cos = Math.cos(tilt);
+          const sin = Math.sin(tilt);
+          const hx = Math.round(x) + this.hand.x * cos - this.hand.y * sin;
+          const hy = Math.round(ground) + this.hand.x * sin + this.hand.y * cos;
+          this.weapon.setPosition(hx, hy).setRotation(this.hand.angle + tilt).setFlipX(this.view === "left").setVisible(true);
+        }
       }
       // Lying down, the head is on its side: half its height above the ground rather than all of it.
       nameAt = (this.swimming ? y + this.waterline() - HEAD * ABOVE_WATER : foot.y - HEAD * (1 - 0.5 * this.fall)) - 2;
@@ -485,6 +523,8 @@ export class Hero {
     this.ripple?.setPosition(this.x, this.y + this.waterline()).setDepth(feet + 0.6);
     this.shadow?.setDepth(feet + 0.3);
     this.limbs?.setDepth(feet + 0.45);
+    // In front of the body, except seen from behind, when the body is in front of it.
+    this.weapon?.setDepth(feet + (this.view === "back" ? 0.44 : 0.47));
     this.portrait?.setDepth(feet + 0.5);
     // Names above everything in the village, so a building never hides one.
     this.label.setDepth(10_000 + feet);
@@ -734,7 +774,7 @@ export class Hero {
     this.walk?.stop();
     this.setSelected(false);
     this.scene.tweens.add({
-      targets: [this.sprite, this.label, ...(this.portrait ? [this.portrait] : []), ...(this.shadow ? [this.shadow] : []), ...(this.limbs ? [this.limbs] : []), ...(this.ripple ? [this.ripple] : [])],
+      targets: [this.sprite, this.label, ...(this.portrait ? [this.portrait] : []), ...(this.shadow ? [this.shadow] : []), ...(this.limbs ? [this.limbs] : []), ...(this.weapon ? [this.weapon] : []), ...(this.ripple ? [this.ripple] : [])],
       alpha: 0,
       duration: this.opts.still ? 0 : 600,
       onComplete: () => this.destroy(),
@@ -756,5 +796,6 @@ export class Hero {
     this.portrait?.destroy();
     this.shadow?.destroy();
     this.limbs?.destroy();
+    this.weapon?.destroy();
   }
 }

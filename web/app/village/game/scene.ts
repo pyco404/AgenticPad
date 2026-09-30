@@ -4,23 +4,14 @@ import type { Place, Resident } from "../residents";
 import { Building, type BuildingLabel } from "./building";
 import { Ground } from "./ground";
 import { Hero } from "./hero";
+import { cleared, drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
+import { loadWeapons, weaponOf } from "./weapons";
 import { drawMap, loadMap, type VillageMap } from "./map";
 import { Roads, type Point } from "./roads";
 import { crispText, MONO } from "./text";
 import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
 import { bodyColours, GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
-
-/**
- * Props that say what a building is for where its art alone does not: the
- * Treasury is a chapel in the pack, so sacks of gold stand at its door. The
- * art is the pack's, cropped, in public/fixtures.
- */
-const PROPS: { key: string; image: string; x: number; y: number; scale: number }[] = [
-  { key: "prop-gold", image: "/fixtures/Gold.png", x: 1596, y: 852, scale: 0.42 },
-  { key: "prop-gold", image: "/fixtures/Gold.png", x: 1609, y: 858, scale: 0.34 },
-  { key: "prop-gold", image: "/fixtures/Gold.png", x: 1583, y: 860, scale: 0.36 },
-];
 
 /** How often two sides in a match go at each other. */
 const BOUT_MS: [number, number] = [650, 1300];
@@ -95,6 +86,7 @@ export class VillageScene extends Phaser.Scene {
   private notes: Record<string, { text: string; lively: boolean }> = {};
   private night: Phaser.GameObjects.Rectangle | null = null;
   private isNight = false;
+  private solarLights: { setNight: (on: boolean) => void } | null = null;
   /** Whether someone has panned or zoomed since the village was last framed: a resize then keeps their view. */
   private moved = false;
   private heroes = new Map<string, Hero>();
@@ -134,14 +126,16 @@ export class VillageScene extends Phaser.Scene {
     // The places the map does not have bring their own pictures, from the site's root.
     this.load.setPath("");
     for (const b of this.opts.buildings) if (b.at && b.image) this.load.image(`building-${b.id}`, b.image);
-    for (const p of PROPS) if (!this.textures.exists(p.key)) this.load.image(p.key, p.image);
+    loadDressing(this);
+    loadWeapons(this);
   }
 
   create(): void {
     this.cameras.main.setBackgroundColor("#141a24");
-    drawMap(this, this.map);
-    // Props that say what a building is for, where its art alone does not: set at their feet, like the map's own.
-    for (const p of PROPS) this.add.image(p.x, p.y, p.key).setOrigin(0.5, 1).setScale(p.scale).setDepth(p.y);
+    // The map, less the trees in the clearings the dressing needs; then the dressing itself (dressing.ts).
+    // Nor the trees that stood on its roads.
+    drawMap(this, { ...this.map, decorations: this.map.decorations.filter((d) => !cleared(d) && !overRoad(d, this.map.paths)) });
+    const solids = drawDressing(this, this.opts.still);
 
     const labels = new Map(this.opts.buildings.map((b) => [b.id, b]));
     const placed = this.opts.buildings.flatMap((b) => (b.at ? [{ id: b.id, ...b.at }] : []));
@@ -159,7 +153,7 @@ export class VillageScene extends Phaser.Scene {
       this.map.paths.map((p) => p.points.map(([x, y]) => ({ x, y }))),
       [...this.doors.values()],
     );
-    this.ground = new Ground(this.map, [...this.buildings.values()].map((b) => b.footprint));
+    this.ground = new Ground(this.map, [...[...this.buildings.values()].map((b) => b.footprint), ...solids]);
     this.gate = this.ground.nearestDry(this.map.spawn);
 
     // The dock: the map's one bridge, at the end of the south road. Swimmers make for open water near it,
@@ -181,6 +175,8 @@ export class VillageScene extends Phaser.Scene {
     const { width, height } = this.map.world;
     this.night = this.add.rectangle(width / 2, height / 2, width * 3, height * 3, 0x0a1030, 0.45).setDepth(9_000);
     this.night.setVisible(this.isNight);
+    this.solarLights = drawSolarLights(this, this.opts.still);
+    this.solarLights.setNight(this.isNight);
 
     this.setUpCamera();
     this.setNotes(this.notes);
@@ -371,6 +367,7 @@ export class VillageScene extends Phaser.Scene {
   setNight(on: boolean): void {
     this.isNight = on;
     this.night?.setVisible(on);
+    this.solarLights?.setNight(on);
   }
 
   /** Marks the signed-in owner's agents; an empty set when nobody is signed in. */
@@ -433,6 +430,7 @@ export class VillageScene extends Phaser.Scene {
         });
         this.heroes.set(r.id, hero);
         this.giveFace(r.id);
+        hero.setWeapon(weaponOf(r.id));
         hero.setLabelScale(this.heroLabelScale());
         if (this.mine.has(r.id)) hero.setMine(true);
         if (r.id === this.selected) hero.setSelected(true);
