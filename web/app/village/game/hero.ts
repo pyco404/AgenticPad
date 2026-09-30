@@ -134,6 +134,9 @@ export class Hero {
   private footOffset: number;
   /** When this walk began, for the rhythm of its steps. */
   private stepFrom = 0;
+  /** Its three views - facing us, from the side (facing right), from behind - and which one shows. */
+  private views: { front: string; side: string; back: string } | null = null;
+  private view: "front" | "back" | "left" | "right" = "front";
   /** In the water: cut off at the chest, bobbing, with a ripple round it. */
   private swimming = false;
   private ripple: Phaser.GameObjects.Ellipse | null = null;
@@ -195,13 +198,14 @@ export class Hero {
     });
   }
 
-  /** The agent becomes its character, once its portrait is made into a texture. */
-  setFace(texture: string): void {
+  /** The agent becomes its character, once its portrait is made into textures: one for each way it can face. */
+  setFace(views: { front: string; side: string; back: string }): void {
     if (this.portrait) return;
+    this.views = views;
     this.sprite.setVisible(false);
-    this.portrait = this.scene.add.image(this.x, this.y, texture).setOrigin(0.5, 1).setDisplaySize(BODY, BODY);
-    this.portrait.setFlipX(this.sprite.flipX);
+    this.portrait = this.scene.add.image(this.x, this.y, views.front).setOrigin(0.5, 1).setDisplaySize(BODY, BODY);
     this.clickable(this.portrait);
+    this.turn(this.view);
     this.shadow = this.scene.add.ellipse(this.x, this.y, BODY * 0.8, BODY * 0.22, 0x000000, 0.28);
     this.legs = this.scene.add.graphics();
     if (this.swimming) this.cropForWater(true);
@@ -235,9 +239,12 @@ export class Hero {
       const left = Math.round(x + side * (LEG_GAP / 2 + LEG_W / 2) - LEG_W / 2);
       const up = Math.round(lift * LIFT);
       // A lifted leg is shorter, its boot off the ground and a little forward.
-      const forward = this.portrait?.flipX ? -Math.round(lift * 2) : Math.round(lift * 2);
+      const sideOn = this.view === "left" || this.view === "right";
+      const toward = this.view === "left" ? -1 : 1;
+      const forward = sideOn ? toward * Math.round(lift * 2) : 0;
       g.fillStyle(LEG_COLOUR, 1).fillRect(left, top, LEG_W, LEG - up - 2);
-      g.fillStyle(BOOT_COLOUR, 1).fillRect(left + forward - (this.portrait?.flipX ? 1 : 0), top + LEG - up - 3, LEG_W + 1, 3);
+      // Side on, a boot points the way it walks; from the front or behind, it sits square under the leg.
+      g.fillStyle(BOOT_COLOUR, 1).fillRect(left + forward - (sideOn && toward < 0 ? 1 : 0), top + LEG - up - 3, sideOn ? LEG_W + 1 : LEG_W, 3);
     }
   }
 
@@ -473,9 +480,26 @@ export class Hero {
     });
   }
 
+  /** Side on, toward one side: walking that way, or squared up to an opponent there. */
   face(side: "left" | "right"): void {
     this.sprite.setFlipX(side === "left");
-    this.portrait?.setFlipX(side === "left");
+    this.turn(side);
+  }
+
+  /** Which way the character shows: its face, its back, or its side, turned the way it goes. */
+  private turn(view: "front" | "back" | "left" | "right"): void {
+    this.view = view;
+    const p = this.portrait;
+    const v = this.views;
+    if (!p || !v) return;
+    const key = view === "front" ? v.front : view === "back" ? v.back : v.side;
+    if (p.texture.key !== key) {
+      p.setTexture(key);
+      // A new texture resets the crop and the size: keep what the water and the scale had set.
+      p.setDisplaySize(BODY, BODY);
+      if (this.swimming) this.cropForWater(true);
+    }
+    p.setFlipX(view === "left");
   }
 
   /** Be at (x, y) now, without walking there. */
@@ -490,6 +514,7 @@ export class Hero {
     this.place();
     this.sprite.play(this.anims.idle, true);
     if (facing) this.face(facing);
+    else this.turn("front");
   }
 
   /**
@@ -520,8 +545,9 @@ export class Hero {
         this.sprite.play(this.anims.idle, true);
         this.sprite.anims.timeScale = 1;
         this.setWalking(false);
-        this.place();
         if (facing) this.face(facing);
+        else this.turn("front");
+        this.place();
         how.then?.();
         return;
       }
@@ -534,7 +560,12 @@ export class Hero {
         leg();
         return;
       }
-      if (Math.abs(dx) > 5) this.face(dx < 0 ? "left" : "right");
+      // Its back when going up the screen, its face when coming down, its side across.
+      const dy = next.y - this.y;
+      if (Math.abs(dy) > Math.abs(dx) * 1.2) {
+        this.sprite.setFlipX(dx < 0);
+        this.turn(dy < 0 ? "back" : "front");
+      } else if (Math.abs(dx) > 5) this.face(dx < 0 ? "left" : "right");
       if (!this.walking) this.stepFrom = this.scene.time.now;
       this.setWalking(true);
       this.sprite.play(this.anims.run, true);

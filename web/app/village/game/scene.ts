@@ -9,7 +9,7 @@ import { Roads, type Point } from "./roads";
 import { crispText, MONO } from "./text";
 import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
-import { GRID_LARGE, pixelate, portraitUrl } from "@/lib/pixel-portrait";
+import { GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
 
 /** How often two sides in a match go at each other. */
 const BOUT_MS: [number, number] = [650, 1300];
@@ -624,9 +624,9 @@ export class VillageScene extends Phaser.Scene {
    * stays the knight it was drawn as.
    */
   private giveFace(id: string): void {
-    const key = `face-${id}`;
-    if (this.textures.exists(key)) {
-      this.heroes.get(id)?.setFace(key);
+    const views = { front: `face-${id}`, side: `face-${id}-side`, back: `face-${id}-back` };
+    if (this.textures.exists(views.back)) {
+      this.heroes.get(id)?.setFace(views);
       return;
     }
     pixelate(portraitUrl(id, false), GRID_LARGE).then((data) => {
@@ -635,13 +635,16 @@ export class VillageScene extends Phaser.Scene {
         this.heroes.get(id)?.useSprite();
         return;
       }
-      if (!this.textures.exists(key)) {
-        const tex = this.textures.createCanvas(key, data.width, data.height);
-        if (!tex) return;
-        tex.context.putImageData(data, 0, 0);
-        tex.refresh();
+      if (!this.textures.exists(views.back)) {
+        const { side, back } = turned(data);
+        for (const [key, pixels] of [[views.front, data], [views.side, side], [views.back, back]] as const) {
+          const tex = this.textures.exists(key) ? null : this.textures.createCanvas(key, pixels.width, pixels.height);
+          if (!tex) continue;
+          tex.context.putImageData(pixels, 0, 0);
+          tex.refresh();
+        }
       }
-      this.heroes.get(id)?.setFace(key);
+      this.heroes.get(id)?.setFace(views);
     });
   }
 
