@@ -109,14 +109,8 @@ export const PIECES: Piece[] = [
   { key: "dress-fountain", image: "/fixtures/Fountain.png", x: 1472, y: 1150, scale: 0.6, solid: { width: 52, height: 26 } },
 
   // Banners at the doors, in each building's colour.
-  banner("blue", 1222, 716),
-  banner("blue", 1414, 716),
-  banner("red", 1494, 712),
   banner("gold", 1046, 862),
   banner("blue", 1092, 708),
-  banner("green", 1072, 1001),
-  banner("red", 1408, 1011),
-  banner("purple", 1478, 1017),
   banner("gold", 1680, 847),
 
   // Cottages, so the village has people in it and not only landmarks.
