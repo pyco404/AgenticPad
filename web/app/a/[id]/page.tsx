@@ -119,7 +119,6 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
   const { agent, record, matches } = found.data;
   const total = record.wins + record.losses + record.level;
   const net = agent.cumulativeNet ?? 0;
-  const worst = agent.worstMatch ?? { A: 20, B: 40, C: 60 }[agent.band];
   return (
     <Page>
       <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)] @3xl:items-start @5xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
@@ -144,9 +143,6 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
         <p className="flex flex-wrap gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-[12px] text-muted">
           <span>{strategy(agent.presetName)}</span>
           <span>{agent.house ? "House agent" : "Player agent"}</span>
-          <span>
-            Band {agent.band} · up to <span className="font-mono text-gold">{worst}</span> a match
-          </span>
         </p>
         <div className="grid grid-cols-2">
           <Stat label="Record" value={`${record.wins}–${record.losses}${record.level ? `–${record.level}` : ""}`} />

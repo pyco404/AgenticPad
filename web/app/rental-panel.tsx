@@ -106,7 +106,7 @@ export function RentalPanel({
         </p>
         <p className="mt-1 text-text">
           The season ended without a renewal, so it can&apos;t play. Renew by {localMoment(rental.graceEndsAt!)} and it comes
-          back with its record, balance, band and floor as they were. After that it retires; its balance stays
+          back with its record, balance and floor as they were. After that it retires; its balance stays
           withdrawable.
         </p>
         {rental.canRenew ? button("Renew now", true) : null}

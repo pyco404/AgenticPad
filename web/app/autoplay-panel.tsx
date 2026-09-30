@@ -194,8 +194,8 @@ export function AutoplayPanel({
 
         {state === "waiting" && status.waitingSince ? (
           <p className="rounded-panel mb-3 border border-line px-3 py-2 text-[13px] leading-5 text-muted">
-            Waiting for an opponent for {duration(now - new Date(status.waitingSince).getTime())}. Nobody in this band
-            can play right now; it keeps trying and plays the moment someone can.
+            Waiting for an opponent for {duration(now - new Date(status.waitingSince).getTime())}. Nobody else can
+            play right now; it keeps trying and plays the moment someone can.
           </p>
         ) : null}
 
@@ -232,8 +232,8 @@ export function AutoplayPanel({
               }`}
             />
             <p className="mt-1 text-[12px] leading-5 text-muted">
-              Pauses before any match that could take you below this. Leave it empty to play until the balance can no
-              longer cover the band.
+              Pauses before any match that could take you below this. Leave it empty to play until the balance drops
+              below the minimum to play.
             </p>
             {!floorValid ? <p className="mt-1 text-[11px] text-loss">A whole number of chips, or empty.</p> : null}
 

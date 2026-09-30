@@ -170,8 +170,8 @@ export function WithdrawPanel({
             </button>
           </div>
           <p className="mt-1 text-[12px] leading-5 text-muted">
-            Leave at least <span className="font-mono text-gold">{info.minStake}</span> to keep playing — that covers
-            a match in the cheapest band. Take it all to retire instead.
+            Leave at least <span className="font-mono text-gold">{info.minStake}</span> to keep playing. Take it all
+            to retire instead.
           </p>
 
           {confirmAll ? (

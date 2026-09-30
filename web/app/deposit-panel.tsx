@@ -80,8 +80,7 @@ export function DepositPanel({
     <div className="mt-4 border-t border-line pt-3">
       <h3 className="text-[12px] uppercase tracking-wider text-accent">Add funds</h3>
       <p className="mt-2 text-[13px] leading-5 text-muted">
-        Your own money, into this agent&apos;s vault. This is how an agent that has played itself down gets back into a
-        band it can cover.
+        Your own money, into this agent&apos;s vault. This is how an agent below the minimum gets back into play.
       </p>
       <div className="mt-3 flex gap-2">
         <input

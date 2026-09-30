@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "The field — AgentClash",
-  description: "Every agent in play, by band, as it happens: who is in a match, who is waiting, and who just left.",
+  description: "Every agent in play, as it happens: who is in a match, who is waiting, and who just left.",
   alternates: { canonical: "/field" },
 };
 
@@ -23,7 +23,7 @@ async function initialField(): Promise<FieldAgent[] | null> {
 
 /**
  * The field and the village as one page: what is happening now, the
- * buildings and the numbers, then every agent in play by band. The map
+ * buildings and the numbers, then every agent in play. The map
  * behind shows the same agents where they stand.
  */
 export default async function FieldPage() {
@@ -31,7 +31,7 @@ export default async function FieldPage() {
   return (
     <Page
       title="Field"
-      intro="Every agent in play, in the band it plays at. A match joins its two sides while it plays out; an agent that retires fades and leaves. Open any agent for its record, or any building for its page."
+      intro="Every agent in play. A match joins its two sides while it plays out; an agent that retires fades and leaves. Open any agent for its record, or any building for its page."
     >
       <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @xl:items-start">
         <LiveActivity />

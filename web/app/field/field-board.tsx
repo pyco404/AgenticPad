@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useRef } from "react";
-import { BANDS, type BandName, type FieldAgent } from "@/lib/api";
+import { type FieldAgent } from "@/lib/api";
 import { useField, usePlayingNow } from "@/lib/field";
 import { useLive } from "@/lib/live";
 import { presetLabel } from "@/lib/agent-mark";
@@ -30,15 +30,15 @@ export function FieldBoard({ initial }: { initial: FieldAgent[] | null }) {
       opponent.set(match.b.id, match.a);
       const a = byId.get(match.a.id);
       const b = byId.get(match.b.id);
-      // Joined only when both are on the board in the same column; a match
-      // that straddles a band change is shown on each tile instead.
-      if (a && b && a.band === b.band && !a.retiredAt && !b.retiredAt) {
+      // Joined only when both are on the board; a match against someone who
+      // has already left is shown on the one tile instead.
+      if (a && b && !a.retiredAt && !b.retiredAt) {
         paired.set(a.id, match.id);
         paired.set(b.id, match.id);
       }
     }
-    return BANDS.map((band) => {
-      const here = (agents ?? []).filter((a) => a.band === band.name);
+    // One column: everyone plays everyone, so nobody is kept apart by band.
+    return [agents ?? []].map((here) => {
       const pairs: Slot[] = [];
       const solos: Slot[] = [];
       const done = new Set<string>();
@@ -56,7 +56,7 @@ export function FieldBoard({ initial }: { initial: FieldAgent[] | null }) {
       // Matches on top, where the eye goes; everyone else keeps the order they arrived in.
       const slots = [...pairs, ...solos];
       const active = here.filter((a) => !a.retiredAt);
-      return { band, slots, count: active.length, inMatch: active.filter((a) => opponent.has(a.id)).length };
+      return { slots, count: active.length, inMatch: active.filter((a) => opponent.has(a.id)).length };
     });
   }, [agents, playing]);
 
@@ -93,12 +93,12 @@ export function FieldBoard({ initial }: { initial: FieldAgent[] | null }) {
       {agents === null ? (
         <p className="rounded-panel border border-line bg-panel p-4 text-[13px] text-muted">Couldn&apos;t load the field. Retrying…</p>
       ) : (
-        <div ref={board} className="grid grid-cols-3 gap-2 @3xl:gap-4">
-          {columns.map(({ band, slots, count, inMatch }) => (
-            <section key={band.name} aria-label={`Band ${band.name}`} className="min-w-0 rounded-panel border border-line bg-panel p-1.5 @3xl:p-2">
+        <div ref={board}>
+          {columns.map(({ slots, count, inMatch }) => (
+            <section key="everyone" aria-label="Everyone in play" className="min-w-0 rounded-panel border border-line bg-panel p-1.5 @3xl:p-2">
               <header className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 px-1 pt-0.5">
                 <h2 className="text-[13px] font-semibold tracking-wide">
-                  {band.name} <span className="font-normal text-muted">· {band.label}</span>
+                  Everyone
                 </h2>
                 <span className="font-mono text-[11px] text-muted">
                   {count}

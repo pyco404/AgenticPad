@@ -41,7 +41,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
               <div style={{ fontSize: 64, display: "flex" }}>{agent.name}</div>
               {agent.character ? <div style={{ fontSize: 30, color: palette.muted, display: "flex" }}>{agent.character.epithet}</div> : null}
               <div style={{ fontSize: 26, color: palette.muted, letterSpacing: 3, display: "flex" }}>
-                {presetLabel(agent.presetName).toUpperCase()} · BAND {agent.band}
+                {presetLabel(agent.presetName).toUpperCase()}
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 28, marginTop: 8 }}>
                 <span style={{ fontSize: 56, color: (agent.cumulativeNet ?? 0) > 0 ? palette.accent : palette.text, fontWeight: 700 }}>

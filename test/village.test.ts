@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
-import { BAND_HALL, lookOf, placeResidents, type FieldEntry, type PlayingMatch } from "../web/app/village/residents.js";
+import { HALLS, hallOf, lookOf, placeResidents, type FieldEntry, type PlayingMatch } from "../web/app/village/residents.js";
 
 const agent = (id: string, over: Partial<FieldEntry> = {}): FieldEntry => ({
   id,
   name: `Agent ${id}`,
   presetName: "Anchor",
-  band: "B",
   house: true,
   retiredAt: null,
   ...over,
@@ -21,10 +20,18 @@ const match = (id: string, a: string, b: string, netA = 5): PlayingMatch => ({
 });
 
 describe("placing residents", () => {
-  it("sends a waiting agent to its band's hall", () => {
-    const placed = placeResidents([agent("1", { band: "A" }), agent("2", { band: "B" }), agent("3", { band: "C" })], []);
-    expect(placed.map((r) => r.place)).toEqual([BAND_HALL.A, BAND_HALL.B, BAND_HALL.C]);
+  it("sends a waiting agent to its own hall, the same one every time", () => {
+    const placed = placeResidents([agent("1"), agent("2"), agent("3")], []);
+    expect(placed.map((r) => r.place)).toEqual(["1", "2", "3"].map(hallOf));
+    expect(placed.every((r) => r.place === r.hall)).toBe(true);
     expect(placed.every((r) => r.match === null)).toBe(true);
+  });
+
+  it("spreads waiting agents across all three halls", () => {
+    const ids = Array.from({ length: 300 }, (_, i) => `agent-${i}`);
+    const counts = new Map(HALLS.map((h) => [h, ids.filter((id) => hallOf(id) === h).length]));
+    // Each hall gets its share: none empty, none holding half the village.
+    for (const n of counts.values()) expect(n).toBeGreaterThan(60);
   });
 
   it("puts both sides of a match in the arena, each with its own result", () => {
@@ -40,7 +47,7 @@ describe("placing residents", () => {
 
   it("leaves the other side of an older match waiting rather than half-paired", () => {
     const placed = placeResidents([agent("1"), agent("2"), agent("3")], [match("new", "1", "3"), match("old", "1", "2")]);
-    expect(placed.find((r) => r.id === "2")?.place).toBe(BAND_HALL.B);
+    expect(placed.find((r) => r.id === "2")?.place).toBe(hallOf("2"));
   });
 
   it("gives both sides of a match its playback clock, for the arena's running score", () => {
@@ -83,7 +90,7 @@ describe("the imported village", () => {
 
   it("has a building for every place an agent can stand", () => {
     const ids = new Set(village.buildings.map((b) => b.id));
-    for (const place of ["arena", ...Object.values(BAND_HALL)]) expect(ids, place).toContain(place);
+    for (const place of ["arena", ...HALLS]) expect(ids, place).toContain(place);
   });
 
   it("ships every image it loads, and loads every texture it draws", () => {

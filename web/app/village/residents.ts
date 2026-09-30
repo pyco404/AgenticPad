@@ -8,13 +8,10 @@
  * shapes below are the parts of FieldAgent and LiveMatch it reads.
  */
 
-export type Band = "A" | "B" | "C";
-
 export type FieldEntry = {
   id: string;
   name: string;
   presetName: string | null;
-  band: Band;
   house: boolean;
   retiredAt: string | null;
 };
@@ -40,8 +37,9 @@ export type MatchClock = { startedAt: number; playMs: number; roundsWon: { A: nu
 /** The buildings agents stand at. The rest of the village is somewhere to go, not somewhere to be. */
 export type Place = "arena" | "tavern" | "forge" | "castle" | "gate";
 
-/** Waiting agents gather at their band's hall: the stakes rise from the tavern to the castle. */
-export const BAND_HALL: Record<Band, Place> = { A: "tavern", B: "forge", C: "castle" };
+/** The halls waiting agents gather at. Everyone plays everyone, so a hall is only where an agent waits. */
+export const HALLS = ["tavern", "forge", "castle"] as const;
+export type Hall = (typeof HALLS)[number];
 
 export const HERO_UNITS = ["warrior", "archer", "pawn"] as const;
 export const HERO_COLOURS = ["blue", "yellow", "red", "purple"] as const;
@@ -51,8 +49,9 @@ export type Resident = {
   id: string;
   name: string;
   presetName: string | null;
-  band: Band;
   house: boolean;
+  /** The hall it waits at, fixed by its id. */
+  hall: Hall;
   place: Place;
   /** The match it is playing now. `net` is this side's result, to show once the match has played out. */
   match: {
@@ -91,6 +90,14 @@ export function lookOf(id: string): Look {
 }
 
 /**
+ * The hall an agent waits at, fixed by its id so it is always the same one, and
+ * spread so the three fill about evenly. Salted, so it does not follow the look.
+ */
+export function hallOf(id: string): Hall {
+  return HALLS[hash(`hall:${id}`) % HALLS.length] ?? "forge";
+}
+
+/**
  * Everyone on the field, placed. `playing` is newest first, so an agent in two
  * playbacks at once is shown in the newer. A retiring agent heads for the gate
  * whatever it was doing: the field shows it leaving for a minute, then drops it.
@@ -112,9 +119,9 @@ export function placeResidents(agents: readonly FieldEntry[], playing: readonly 
       id: a.id,
       name: a.name,
       presetName: a.presetName,
-      band: a.band,
       house: a.house,
-      place: a.retiredAt ? "gate" : match ? "arena" : BAND_HALL[a.band],
+      hall: hallOf(a.id),
+      place: a.retiredAt ? "gate" : match ? "arena" : hallOf(a.id),
       match,
       look: lookOf(a.id),
     };

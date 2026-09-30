@@ -29,15 +29,6 @@ import {
 import {
   api,
   ApiError,
-  BANDS,
-  DEFAULT_BAND,
-  SEED_BALANCE,
-  affordableBands,
-  bandByName,
-  survivalFor,
-  survivalText,
-  type BandName,
-  type BandSurvivalRow,
   type Feed,
   type RosterAgent,
   type AgentView,
@@ -135,14 +126,11 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   const [autoPreview, setAutoPreview] = useState(true);
   const [paidCalls, setPaidCalls] = useState(0);
   const [firstFreeUsed, setFirstFreeUsed] = useState(false);
-  const [band, setBand] = useState<BandName>(DEFAULT_BAND);
   const [presetRatings, setPresetRatings] = useState<Record<string, number>>({});
-  /** The table the last brief preview elicited, so a band change can re-rate it for free. */
+  /** The table the last brief preview elicited. */
   const [briefTable, setBriefTable] = useState<unknown>(null);
   // undefined while loading, null if the request failed: neither may read as "nobody here".
   const [roster, setRoster] = useState<RosterAgent[] | null | undefined>(undefined);
-  // Set once the player moves the slider, so the busiest-band default never overrides a choice.
-  const bandTouched = useRef(false);
   const [transcript, setTranscript] = useState<string>("");
   const [lastPlay, setLastPlay] = useState<PlayResult | null>(null);
   // Bumped after renting or playing, so the ladder refetches.
@@ -240,48 +228,27 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
     }
   };
 
-  // Free: every preset rated against the chosen band's roster, so the picker can
-  // compare them. Re-rated when the band changes: matches never cross bands, so
-  // each band is a different set of opponents.
+  // Free: every preset rated against the whole roster, so the picker can compare them.
   useEffect(() => {
     if (presets.length === 0) return;
     let current = true;
     void Promise.all(
-      presets.map(async (p) => [p.name, (await api.previewTable(null, p.policyTable, band)).preview.trueRating] as const),
+      presets.map(async (p) => [p.name, (await api.previewTable(null, p.policyTable)).preview.trueRating] as const),
     )
       .then((pairs) => current && setPresetRatings(Object.fromEntries(pairs)))
       .catch(() => current && setPresetRatings({}));
     return () => {
       current = false;
     };
-  }, [presets, band]);
+  }, [presets]);
 
-  // Who you would meet: your agent's band once you have one, otherwise the one
-  // you are about to rent at. Matches only ever happen inside a band.
-  const shownBand: BandName = agent?.band ?? band;
-  useEffect(() => {
-    void api
-      .roster(shownBand)
-      .then((r) => setRoster(r.agents))
-      .catch(() => setRoster(null));
-  }, [shownBand, agent?.matchesPlayed]);
-
-  // Start in the band with the most agents, so a newcomer has someone to meet,
-  // and keep the measured survival table the rent screen quotes.
-  const [bandRows, setBandRows] = useState<
-    { name: BandName; worstMatch: number; survival: BandSurvivalRow }[] | null
-  >(null);
+  // Who you would meet: everyone, since nobody is kept apart by band.
   useEffect(() => {
     void api
       .roster()
-      .then(({ counts, bands }) => {
-        if (bands) setBandRows(bands);
-        if (bandTouched.current || !counts) return;
-        const busiest = BANDS.reduce((best, b) => ((counts[b.name] ?? 0) > (counts[best.name] ?? 0) ? b : best));
-        setBand(busiest.name);
-      })
-      .catch(() => {});
-  }, []);
+      .then((r) => setRoster(r.agents))
+      .catch(() => setRoster(null));
+  }, [agent?.matchesPlayed]);
 
   // Free: rating a preset's table costs nothing, so it runs on every selection.
   useEffect(() => {
@@ -290,25 +257,11 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
     if (!table) return;
     setPreviewing(true);
     void api
-      .previewTable(null, table, band)
+      .previewTable(null, table)
       .then((r) => setPreview({ value: r.preview, paid: false }))
       .catch(() => setPreview(null))
       .finally(() => setPreviewing(false));
-  }, [tab, chosen, presets, band]);
-
-  // A brief already rated keeps its table, so a band change re-rates that table
-  // for free instead of paying for another model call on the same brief.
-  useEffect(() => {
-    if (tab !== "brief" || !briefTable) return;
-    setPreviewing(true);
-    void api
-      .previewTable(null, briefTable, band)
-      .then((r) => setPreview({ value: r.preview, paid: true }))
-      .catch(() => setPreview(null))
-      .finally(() => setPreviewing(false));
-    // Only the band: a new brief is rated by the paid path below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [band]);
+  }, [tab, chosen, presets]);
 
   // Paid: rating a brief needs a model call, so it waits until typing stops.
   useEffect(() => {
@@ -329,7 +282,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
     setPreviewing(true);
     setError(null);
     try {
-      const r = await api.previewBrief(token, brief.trim(), band);
+      const r = await api.previewBrief(token, brief.trim());
       setPreview({ value: r.preview, paid: true });
       setBriefTable(r.policyTable);
       if (r.elicitation?.free) setFirstFreeUsed(true);
@@ -351,7 +304,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       let paid = false;
       const { agent: created, elicitation, funding, rental } = await api.rent(token, {
         ...(chosenName ? { name: chosenName } : {}),
-        band,
         deposit: Number(deposit) || 0,
         ...(tab === "preset" ? { presetName: chosen } : { brief: brief.trim() }),
       });
@@ -433,14 +385,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
         if (token) void loadMine(token);
         setLadderKey((k) => k + 1);
       }}
-      onBand={(value) =>
-        run("band", async () => {
-          const id = agent.id ?? agent.agentId;
-          if (!id) return;
-          await api.setBand(token, id, value);
-          await refreshAgent(id, token);
-        })
-      }
     />
   ) : null;
 
@@ -463,13 +407,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       previewing={previewing}
       paidCalls={paidCalls}
       firstFree={!firstFreeUsed}
-      band={band}
-      setBand={(b) => {
-        bandTouched.current = true;
-        setBand(b);
-      }}
-      presetName={tab === "preset" ? chosen : null}
-      bandRows={bandRows}
       presetRatings={presetRatings}
       signedIn={Boolean(session)}
       deposits={funding.mode === "deposit"}
@@ -532,8 +469,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
 
         <div className="flex min-w-0 flex-col gap-3 *:m-0 @3xl:col-start-1 @3xl:row-start-2 @5xl:col-start-3 @5xl:row-start-1">
           <RosterPanel
-            // The band the list was fetched for: the agent's own once it has one, not the rent form's choice.
-            band={shownBand}
             agents={roster ? roster.filter((a) => a.agentId !== (agent?.id ?? agent?.agentId)) : roster}
             fromAgent={Boolean(agent)}
           />
@@ -622,12 +557,6 @@ function RentPanel(props: {
   previewing: boolean;
   paidCalls: number;
   firstFree: boolean;
-  band: BandName;
-  setBand: (b: BandName) => void;
-  /** The chosen preset, or null for a brief: survival is quoted per preset. */
-  presetName: string | null;
-  /** The measured survival table, as served by /roster. */
-  bandRows: { name: BandName; worstMatch: number; survival: BandSurvivalRow }[] | null;
   presetRatings: Record<string, number>;
   signedIn: boolean;
   /** This wallet rents by depositing: the screen has to ask for an amount. */
@@ -669,8 +598,7 @@ function RentPanel(props: {
             ))}
           </ul>
           <p className="text-[12px] leading-5 text-muted">
-            Figures are exact expected net per match against band {props.band}&apos;s roster as it stands today, on band
-            B&apos;s scale. Free to see.
+            Figures are exact expected net per match against the roster as it stands today. Free to see.
           </p>
           </>
         ) : (
@@ -717,34 +645,6 @@ function RentPanel(props: {
           className="rounded-panel w-full border border-line bg-panel-2 px-3 py-2 text-[13px] placeholder:text-muted/60"
         />
 
-        <div className="rounded-panel border border-line px-3 py-2">
-          <div className="text-[12px] uppercase tracking-wider text-muted">Stakes</div>
-          <div className="mt-2 grid grid-cols-3 gap-1">
-            {BANDS.map((b) => {
-              const chosen = props.band === b.name;
-              return (
-                <button
-                  key={b.name}
-                  onClick={() => props.setBand(b.name)}
-                  aria-pressed={chosen}
-                  className={`rounded-panel border px-2 py-2 text-left ${chosen ? "border-accent bg-panel-2" : "border-line"}`}
-                >
-                  <div className="font-mono text-[13px]">{b.label}</div>
-                  <div className="mt-0.5 font-mono text-[11px] text-gold">
-                    {b.ante}/{b.baseBet}/{b.raisedBet}
-                  </div>
-                  <div className="mt-1 text-[12px] leading-5 text-muted">
-                    up to <span className="font-mono text-gold">{b.worstMatch}</span> a match
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-2 text-[12px] leading-5 text-muted">
-            {bandBlurb(props.bandRows, props.band, props.presetName)} It starts with <span className="font-mono text-gold">{SEED_BALANCE}</span> to play with, and is
-            only matched against agents on the same scale.
-          </p>
-        </div>
         <button
           onClick={props.onRent}
           disabled={!ready || props.busy}
@@ -884,11 +784,9 @@ function Behaviour({ table, delayMs = 0 }: { table: Record<string, Record<string
 
 /** Who you would meet: the agents in your band. */
 function RosterPanel({
-  band,
   agents,
   fromAgent,
 }: {
-  band: string;
   agents: RosterAgent[] | null | undefined;
   fromAgent: boolean;
 }) {
@@ -897,20 +795,19 @@ function RosterPanel({
     <section className="rounded-panel mt-3 border border-line bg-panel">
       <h2 className="flex items-center justify-between border-b border-line px-4 py-3 text-[12px] uppercase tracking-wider text-accent">
         Who you'd meet
-        <span className="font-mono normal-case tracking-normal">band {band}</span>
       </h2>
       <div className="p-4">
         <p className="mb-2 text-[12px] leading-5 text-muted">
           {fromAgent
-            ? "Your agent plays on this money scale. It is only matched against others on the same one."
-            : "The band you rent at sets the money scale. You are only matched against agents on the same one."}
+            ? "Your agent can be matched against any of them. A lost match costs nothing."
+            : "Every agent can be matched against every other. A lost match costs nothing."}
         </p>
         {agents === undefined ? (
           <p className="text-[13px] text-muted">Loading…</p>
         ) : agents === null ? (
           <p className="text-[13px] text-muted">Couldn&apos;t reach the server. Try again in a moment.</p>
         ) : agents.length === 0 ? (
-          <p className="text-[13px] text-muted">Nobody in this band right now.</p>
+          <p className="text-[13px] text-muted">Nobody else is playing right now.</p>
         ) : (
           <ul>
             {agents.slice(0, 8).map((a) => (
@@ -928,7 +825,7 @@ function RosterPanel({
         )}
         {agents && agents.length > 8 ? (
           <p className="mt-2 text-[11px] text-muted">
-            and <span className="font-mono">{agents.length - 8}</span> more in this band
+            and <span className="font-mono">{agents.length - 8}</span> more playing
           </p>
         ) : null}
         <p className="mt-2 font-mono text-[11px] text-muted">name · plays as · matches · balance</p>
@@ -992,7 +889,6 @@ function AgentCard({
   onPlay,
   busy,
   lastPlay,
-  onBand,
   onWithdrawn,
   cutover,
 }: {
@@ -1000,7 +896,6 @@ function AgentCard({
   onPlay: () => void;
   busy: boolean;
   lastPlay: PlayResult | null;
-  onBand: (value: BandName) => void;
   /** After a withdrawal: the balance and maybe retirement changed. */
   onWithdrawn: () => void;
   /** Set while the old settlement program is closing, for an agent still on it. */
@@ -1048,24 +943,11 @@ function AgentCard({
             The ladder counts <span className="font-mono">{agent.rankedMatches}</span> of{" "}
             <span className="font-mono">{agent.matchesPlayed ?? 0}</span> &mdash; the ones against other players
             &mdash; for <span className={`font-mono ${netTone(agent.rankedNet ?? 0)}`}>{whole(agent.rankedNet ?? 0)}</span>.
-            The rest were against house agents: they settled for money, but don&apos;t rank.
+            The rest were against house agents, which don&apos;t count.
           </p>
         ) : null}
-        <dl className="rounded-panel mt-2 grid grid-cols-2 border border-line">
+        <dl className="rounded-panel mt-2 grid grid-cols-1 border border-line">
           <Stat label="recent form" value={money(agent.recentForm ?? 0)} tone={netTone(agent.recentForm ?? 0)} />
-          <Stat
-            label="band"
-            value={agent.band ?? "B"}
-            sub={
-              <>
-                up to{" "}
-                <span className="font-mono text-gold">
-                  {agent.worstMatch ?? bandByName(agent.band ?? "B").worstMatch}
-                </span>{" "}
-                a match
-              </>
-            }
-          />
         </dl>
 
         {retired ? (
@@ -1076,51 +958,13 @@ function AgentCard({
           </p>
         ) : (
           <div className="mt-3">
-            {/* The cover rule: a band can only be played by a balance that could
-                pay its worst match outright, because nothing is clamped. */}
+            {/* Nothing is at risk in a match, but an agent must hold the minimum to be in play. */}
             {agent.canPlay === false ? (
               <p className="rounded-panel mb-2 border border-loss/50 px-3 py-2 text-[13px] leading-5 text-loss">
-                <span className="font-mono">{agent.balance ?? 0}</span> left, and a band {agent.band} match can move{" "}
-                <span className="font-mono">{agent.worstMatch}</span>. It can&apos;t play here until it covers that.{" "}
-                {agent.fallback ? (
-                  <>
-                    Band {agent.fallback} is still open to it &mdash; up to{" "}
-                    <span className="font-mono">{bandByName(agent.fallback).worstMatch}</span> a match.
-                  </>
-                ) : (
-                  "No band is open to it now; all that is left is to withdraw."
-                )}
+                <span className="font-mono">{agent.balance ?? 0}</span> left, and an agent needs{" "}
+                <span className="font-mono">{agent.worstMatch}</span> to play. Top it up to play again, or withdraw.
               </p>
             ) : null}
-            <div className="text-[12px] uppercase tracking-wider text-muted">Band</div>
-            <div className="mt-1 grid grid-cols-3 gap-1">
-              {(agent.bands ?? []).map((b) => {
-                const current = b.name === agent.band;
-                return (
-                  <button
-                    key={b.name}
-                    onClick={() => onBand(b.name)}
-                    disabled={!b.affordable || current}
-                    aria-pressed={current}
-                    title={
-                      b.affordable
-                        ? `${b.stakes.ante}/${b.stakes.baseBet}/${b.stakes.raisedBet}, up to ${b.worstMatch} a match`
-                        : `Needs ${b.worstMatch} to cover a match`
-                    }
-                    className={`rounded-panel border px-2 py-1.5 text-left ${
-                      current ? "border-accent bg-panel-2" : b.affordable ? "border-line" : "border-line/40 opacity-40"
-                    }`}
-                  >
-                    <div className="font-mono text-[12px]">{b.name}</div>
-                    <div className="font-mono text-[11px] text-gold">≤{b.worstMatch}</div>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-1 text-[12px] leading-5 text-muted">
-              A band is a money scale: the same game, every amount multiplied. It can move to any band its balance
-              covers — nothing is clamped, so a match is only played when both sides can pay the worst of it.
-            </p>
           </div>
         )}
 
@@ -1307,42 +1151,3 @@ function PreviewPanel({
 }
 
 
-/**
- * What a band costs and how long it tends to last, in one sentence.
- *
- * The figures are measured (scripts/simulate-autoplay.ts) and served by
- * /roster, never invented here. A chosen preset gets its own number; a brief
- * has no preset yet, so it gets the range across the four.
- */
-function bandBlurb(
-  rows: { name: BandName; worstMatch: number; survival: BandSurvivalRow }[] | null,
-  band: BandName,
-  presetName: string | null,
-): React.ReactNode {
-  const spec = bandByName(band);
-  // The four figures a band is: every one of them money, so every one of them gold.
-  const stakes = (
-    <>
-      Ante <span className="font-mono text-gold">{spec.ante}</span>, bet{" "}
-      <span className="font-mono text-gold">{spec.baseBet}</span>,{" "}
-      <span className="font-mono text-gold">{spec.raisedBet}</span> raised &mdash; up to{" "}
-      <span className="font-mono text-gold">{spec.worstMatch}</span> a match.
-    </>
-  );
-  const row = rows?.find((r) => r.name === band)?.survival;
-  const odds = survivalFor(row, presetName);
-  if (!odds || !row) return stakes;
-  const who = presetName ? `${presetName} here` : "Agents here";
-  return (
-    <>
-      {stakes} {who}: {survivalText(odds)} last a week of play.
-      {row.medianHours === null ? null : (
-        <>
-          {" "}
-          Those that don&apos;t are typically gone inside{" "}
-          <span className="font-mono">{Math.round(row.medianHours)}</span> hours.
-        </>
-      )}
-    </>
-  );
-}

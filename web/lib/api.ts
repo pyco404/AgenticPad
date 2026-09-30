@@ -16,52 +16,6 @@ export type RosterAgent = {
 };
 export type BandName = "A" | "B" | "C";
 
-/**
- * Mirrors STAKE_BANDS on the server. A band is a money scale: every amount in a
- * match is multiplied by the same factor, so the game is identical in each and
- * only what it is worth changes.
- */
-export const BANDS = [
-  { name: "A", label: "Low", ante: 2, baseBet: 5, raisedBet: 10, worstMatch: 20 },
-  { name: "B", label: "Standard", ante: 4, baseBet: 10, raisedBet: 20, worstMatch: 40 },
-  { name: "C", label: "High", ante: 6, baseBet: 15, raisedBet: 30, worstMatch: 60 },
-] as const;
-
-export const DEFAULT_BAND: BandName = "B";
-export const SEED_BALANCE = 900;
-
-export const bandByName = (name: BandName) => BANDS.find((b) => b.name === name)!;
-
-/** The bands a balance can still cover, cheapest first. */
-export const affordableBands = (balance: number): BandName[] =>
-  BANDS.filter((b) => balance >= b.worstMatch).map((b) => b.name);
-
-export type BandSurvival = { low: number; high: number };
-/** The measured table, served by /roster so the client keeps no copy of it. */
-export type BandSurvivalRow = {
-  overall: number;
-  low: number;
-  high: number;
-  medianMatches: number | null;
-  medianHours: number | null;
-  byPreset: Record<string, number>;
-};
-
-/**
- * What to tell someone renting this preset in this band. A preset gets its own
- * measured figure; a brief has no preset yet, so it gets the range across them.
- */
-export const survivalFor = (row: BandSurvivalRow | undefined, preset: string | null): BandSurvival | undefined => {
-  if (!row) return undefined;
-  if (preset && typeof row.byPreset[preset] === "number") {
-    return { low: row.byPreset[preset], high: row.byPreset[preset] };
-  }
-  return { low: row.low, high: row.high };
-};
-/** How the survival figures are phrased, one preset or a range across them. */
-export const survivalText = (s: BandSurvival | undefined) =>
-  s === undefined ? "" : s.low === s.high ? `${s.low.toFixed(0)}%` : `${s.low.toFixed(0)}\u2013${s.high.toFixed(0)}%`;
-
 export type PreviewBreakdown = { weight: number; expectedNet: number; pricedNet?: number };
 export type Preview = {
   trueRating: number;
@@ -138,22 +92,10 @@ export type AgentView = {
   recentForm?: number;
   balance?: number;
   band?: BandName;
-  /** The most this band's matches can move. */
+  /** The least an agent must hold to play, in chips. */
   worstMatch?: number;
-  /** False when the balance no longer covers this band. */
+  /** False when the balance is below that minimum. */
   canPlay?: boolean;
-  affordable?: BandName[];
-  /** The best band still open when the current one is not. */
-  fallback?: BandName | null;
-  bands?: {
-    name: BandName;
-    stakes: { ante: number; baseBet: number; raisedBet: number };
-    worstMatch: number;
-    affordable: boolean;
-    survival: BandSurvival;
-    medianHours: number | null;
-  }[];
-  survivalBasis?: { hours: number; paceMinutes: number; seedBalance: number };
   retired?: boolean;
   trueRating?: number | null;
   trueRatingBasis?: string;
@@ -184,7 +126,7 @@ export type PlayResult = {
   result: { winner: "A" | "B" | null; net: number; opponentNet: number; rounds: number; uncappedNet: number };
   balance: number;
   retired: boolean;
-  /** False when the opponent was a house agent: settled for money, not ranked. */
+  /** False when the opponent was a house agent: it doesn't count. */
   ranked?: boolean;
 };
 
@@ -377,13 +319,13 @@ export const api = {
       /** Set while the old settlement program is closing. Null the rest of the time. */
       cutover: { closed: true; endsAt: string; withdrawableUntil: string } | null;
     }>("/auth/me", { token }),
-  previewTable: (token: string | null, policyTable: unknown, band: BandName = DEFAULT_BAND) =>
-    request<{ preview: Preview }>("/preview", { method: "POST", token, body: JSON.stringify({ policyTable, band }) }),
-  previewBrief: (token: string | null, brief: string, band: BandName = DEFAULT_BAND) =>
+  previewTable: (token: string | null, policyTable: unknown) =>
+    request<{ preview: Preview }>("/preview", { method: "POST", token, body: JSON.stringify({ policyTable }) }),
+  previewBrief: (token: string | null, brief: string) =>
     request<{ preview: Preview; policyTable: unknown; elicitation: { free: boolean } | null }>("/preview", {
       method: "POST",
       token,
-      body: JSON.stringify({ brief, band }),
+      body: JSON.stringify({ brief }),
     }),
   /**
    * Rents an agent. Read `funding` to know what came back: "seed" is an agent
@@ -393,7 +335,7 @@ export const api = {
    */
   rent: (
     token: string | null,
-    input: { name?: string; presetName?: string; brief?: string; band?: BandName; deposit?: number },
+    input: { name?: string; presetName?: string; brief?: string; deposit?: number },
   ) =>
     request<{
       agent: AgentView;
@@ -405,8 +347,6 @@ export const api = {
       token,
       body: JSON.stringify(input),
     }),
-  setBand: (token: string | null, id: string, band: BandName) =>
-    request<{ band: BandName }>(`/agents/${id}/band`, { method: "POST", token, body: JSON.stringify({ band }) }),
   agent: (token: string | null, id: string) =>
     request<{ agent: AgentView; view: string; autoplay?: AutoplayStatus; sinceYouLeft?: SinceYouLeft | null; rental?: RentalStatus }>(
       `/agents/${id}`,
@@ -418,13 +358,7 @@ export const api = {
   markSeen: (token: string | null, id: string) => request<{ ok: true }>(`/agents/${id}/seen`, { method: "POST", token }),
   play: (token: string | null, id: string) => request<PlayResult>(`/agents/${id}/play`, { method: "POST", token }),
   match: (id: string) => request<{ transcript: string }>(`/matches/${id}`),
-  roster: (band?: string) =>
-    request<{
-      agents: RosterAgent[];
-      counts?: Record<string, number>;
-      bands?: { name: BandName; worstMatch: number; survival: BandSurvivalRow }[];
-      survivalBasis?: { hours: number; paceMinutes: number; seedBalance: number };
-    }>(band ? `/roster?band=${band}` : "/roster"),
+  roster: () => request<{ agents: RosterAgent[] }>("/roster"),
   withdrawable: (token: string | null, id: string) => request<{ withdrawable: Withdrawable }>(`/agents/${id}/withdrawable`, { token }),
   prepareWithdrawal: (token: string | null, id: string, amount: number | "all") =>
     request<{ withdrawal: { withdrawalId: string; amount: number; remaining: number; retire: boolean; transaction: string } }>(

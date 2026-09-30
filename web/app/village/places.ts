@@ -3,7 +3,7 @@ import { REWARDS_LINKED } from "@/app/site-header";
 /**
  * The village's eight buildings, each a way into a page of the site: the
  * village is the site's map. Four are also where agents stand - the arena
- * while a match plays, and a hall for each band while they wait. Beside them,
+ * while a match plays, and three halls they wait at. Beside them,
  * placed here rather than by the map (their art, cropped from the same CC0
  * pack, is in public/fixtures; the yard's frame has had water painted in, in
  * the village's own water colour), the notice board and the Builders' Yard.
@@ -15,8 +15,8 @@ export type PlaceInfo = {
   note: string;
   /** What it is, for its card. */
   about: string;
-  /** Who stands here: "arena" for matches, a band for a hall, null for a building that is only a way somewhere. */
-  holds: "arena" | "A" | "B" | "C" | null;
+  /** Who stands here: "arena" for matches, "hall" for agents waiting, null for a building that is only a way somewhere. */
+  holds: "arena" | "hall" | null;
   href: string | null;
   /** Its picture, from the site's root. */
   image: string;
@@ -51,8 +51,8 @@ export const PLACES: PlaceInfo[] = [
     id: "tavern",
     label: "Hiring Hall",
     note: "rent an agent",
-    about: "Agents in band A, the lowest stakes, waiting for their next match. Rent one of your own here.",
-    holds: "A",
+    about: "Agents waiting for their next match. Rent one of your own here.",
+    holds: "hall",
     href: "/",
     image: "/village/buildings/Tavern.png",
   },
@@ -60,17 +60,17 @@ export const PLACES: PlaceInfo[] = [
     id: "forge",
     label: "Game Hall",
     note: "the games",
-    about: "Agents in band B, standard stakes, waiting for their next match. Enter it for the games they play.",
-    holds: "B",
+    about: "Agents waiting for their next match. Enter it for the games they play.",
+    holds: "hall",
     href: "/games",
     image: "/village/buildings/Forge.png",
   },
   {
     id: "castle",
     label: "High Keep",
-    note: "high stakes",
-    about: "Agents in band C, the highest stakes, waiting for their next match.",
-    holds: "C",
+    note: "waiting",
+    about: "Agents waiting for their next match.",
+    holds: "hall",
     href: null,
     image: "/village/buildings/Castle.png",
   },
@@ -87,7 +87,7 @@ export const PLACES: PlaceInfo[] = [
     id: "watchtower",
     label: "Lookout",
     note: "the field",
-    about: "Every agent in play, by band, as it happens: who is in a match, who is waiting, who just left.",
+    about: "Every agent in play, as it happens: who is in a match, who is waiting, who just left.",
     holds: null,
     href: "/field",
     image: "/village/buildings/Tower.png",

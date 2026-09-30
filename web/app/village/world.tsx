@@ -3,7 +3,7 @@
 import { createContext, useContext } from "react";
 import { isPlaying, type Arrival, type Counters } from "@/lib/live";
 import { PLACES, type PlaceInfo } from "./places";
-import { BAND_HALL, type Resident } from "./residents";
+import { type Resident } from "./residents";
 
 /**
  * Everything the HUD reads about the world, worked out once in the frame:
@@ -37,27 +37,27 @@ export function worldTally(w: World): Tally | null {
   return { active, idle: here.length - active, done: finished(w).length, total: here.length };
 }
 
-/** Whether an agent belongs to a building: everyone for the arena, a band for its hall. */
-function belongs(place: PlaceInfo, band: string | undefined): boolean {
-  return place.holds === "arena" || (place.holds !== null && place.holds === band);
+/** Whether an agent belongs to a building: everyone for the arena, and its own hall. */
+function belongs(place: PlaceInfo, hall: string | undefined): boolean {
+  return place.holds === "arena" || (place.holds === "hall" && place.id === hall);
 }
 
 /** One building's own numbers, for those agents live at: null for the ones that are only a way to a page. */
 export function placeTally(w: World, place: PlaceInfo): Tally | null {
   if (!w.residents || !place.holds) return null;
-  const bandOf = new Map(w.residents.map((r) => [r.id, r.band]));
-  const mine = w.residents.filter((r) => r.place !== "gate" && belongs(place, r.band));
+  const hallOf = new Map(w.residents.map((r) => [r.id, r.hall]));
+  const mine = w.residents.filter((r) => r.place !== "gate" && belongs(place, r.hall));
   const active = mine.filter((r) => r.place === "arena").length;
-  const idle = place.holds === "arena" ? 0 : mine.filter((r) => r.place === BAND_HALL[r.band]).length;
-  const done = finished(w).filter((a) => belongs(place, bandOf.get(a.match.a.id)) || belongs(place, bandOf.get(a.match.b.id))).length;
+  const idle = place.holds === "arena" ? 0 : mine.filter((r) => r.place === r.hall).length;
+  const done = finished(w).filter((a) => belongs(place, hallOf.get(a.match.a.id)) || belongs(place, hallOf.get(a.match.b.id))).length;
   return { active, idle, done, total: place.holds === "arena" ? active : mine.length };
 }
 
 /** The recent finished matches a building's agents played. */
 export function placeActivity(w: World, place: PlaceInfo, limit = 4): Arrival[] {
-  const bandOf = new Map((w.residents ?? []).map((r) => [r.id, r.band]));
+  const hallOf = new Map((w.residents ?? []).map((r) => [r.id, r.hall]));
   return finished(w)
-    .filter((a) => !place.holds || belongs(place, bandOf.get(a.match.a.id)) || belongs(place, bandOf.get(a.match.b.id)))
+    .filter((a) => !place.holds || belongs(place, hallOf.get(a.match.a.id)) || belongs(place, hallOf.get(a.match.b.id)))
     .slice(0, place.holds ? limit : 0);
 }
 
