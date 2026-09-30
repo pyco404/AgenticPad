@@ -53,9 +53,28 @@ describe("placing residents", () => {
   it("gives both sides of a match its playback clock, for the arena's running score", () => {
     const play = [{ roundsWon: { A: 1, B: 0 } }, { roundsWon: { A: 1, B: 1 } }, { roundsWon: { A: 2, B: 1 } }];
     const [a, b] = placeResidents([agent("1"), agent("2")], [{ ...match("m", "1", "2"), startedAt: 1000, playMs: 10_000, play }]);
-    const clock = { startedAt: 1000, playMs: 10_000, roundsWon: play.map((r) => r.roundsWon) };
+    // Rounds sent without their hands and choices leave the table nothing to show but the score.
+    const clock = { startedAt: 1000, playMs: 10_000, roundsWon: play.map((r) => r.roundsWon), rounds: [null, null, null] };
     expect(a?.match?.clock).toEqual(clock);
     expect(b?.match?.clock).toEqual(clock);
+  });
+
+  it("carries each round's hands and choices to the arena's table, as the stream sent them", () => {
+    const round = {
+      roundsWon: { A: 1, B: 0 },
+      leader: "A" as const,
+      edges: { A: 0.7, B: 0.4 },
+      sequence: [
+        { seat: "A" as const, action: "raise" as const },
+        { seat: "B" as const, action: "fold" as const },
+      ],
+      outcome: "one-folded" as const,
+      bet: 20,
+      winner: "A" as const,
+    };
+    const [a] = placeResidents([agent("1"), agent("2")], [{ ...match("m", "1", "2"), startedAt: 0, playMs: 10_000, play: [round] }]);
+    const { roundsWon: _, ...table } = round;
+    expect(a?.match?.clock?.rounds).toEqual([table]);
   });
 
   it("leaves the clock off a match the stream sent without one", () => {

@@ -27,12 +27,35 @@ export type PlayingMatch = {
   /** When its playback started on this page's clock, and how long it runs: for the arena's running score. */
   startedAt?: number;
   playMs?: number;
-  /** Its rounds, each with the rounds won by either side once that round is over. */
-  play?: readonly { roundsWon: { A: number; B: number } }[];
+  /** Its rounds, each with the rounds won by either side once that round is over, and what happened in it. */
+  play?: readonly ({ roundsWon: { A: number; B: number } } & Partial<TableRound>)[];
 };
 
-/** A match's playback, for keeping score in the arena as the rounds play out. */
-export type MatchClock = { startedAt: number; playMs: number; roundsWon: { A: number; B: number }[] };
+/** One round of Bluff & Fold as the arena's table shows it. Mirrors PlayRound in lib/live.ts. */
+export type TableRound = {
+  /** Who acted first; null when both chose at once. */
+  leader: "A" | "B" | null;
+  /** Each side's edge: its chance, as a share, of winning the flip. */
+  edges: { A: number; B: number };
+  /** The choices, in the order they were made. */
+  sequence: readonly { seat: "A" | "B"; action: "fold" | "call" | "raise" }[];
+  outcome: "both-folded" | "one-folded" | "flipped";
+  /** The chips that changed hands. */
+  bet: number;
+  winner: "A" | "B" | null;
+};
+
+/**
+ * A match's playback, for the arena as the rounds play out: the running score,
+ * and each round's hands and choices when the stream sent them.
+ */
+export type MatchClock = { startedAt: number; playMs: number; roundsWon: { A: number; B: number }[]; rounds: (TableRound | null)[] };
+
+/** A round's detail, when the stream sent all of it. */
+function tableRound(r: Partial<TableRound>): TableRound | null {
+  if (!r.edges || !r.sequence || !r.outcome || r.bet === undefined || r.winner === undefined) return null;
+  return { leader: r.leader ?? null, edges: r.edges, sequence: r.sequence, outcome: r.outcome, bet: r.bet, winner: r.winner };
+}
 
 /** The buildings agents stand at. The rest of the village is somewhere to go, not somewhere to be. */
 export type Place = "arena" | "tavern" | "forge" | "castle" | "gate";
@@ -108,7 +131,7 @@ export function placeResidents(agents: readonly FieldEntry[], playing: readonly 
     if (inMatch.has(m.a.id) || inMatch.has(m.b.id)) continue;
     const clock =
       m.startedAt !== undefined && m.playMs !== undefined && m.play
-        ? { startedAt: m.startedAt, playMs: m.playMs, roundsWon: m.play.map((r) => ({ ...r.roundsWon })) }
+        ? { startedAt: m.startedAt, playMs: m.playMs, roundsWon: m.play.map((r) => ({ ...r.roundsWon })), rounds: m.play.map(tableRound) }
         : null;
     inMatch.set(m.a.id, { id: m.id, seat: "A", opponent: m.b, net: m.netA, exhibition: m.exhibition, clock });
     inMatch.set(m.b.id, { id: m.id, seat: "B", opponent: m.a, net: m.netB, exhibition: m.exhibition, clock });

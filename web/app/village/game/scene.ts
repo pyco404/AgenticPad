@@ -4,6 +4,7 @@ import type { Place, Resident } from "../residents";
 import { Building, type BuildingLabel } from "./building";
 import { Ground } from "./ground";
 import { Hero } from "./hero";
+import { CardTable } from "./table";
 import { cleared, drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
 import { loadWeapons, weaponOf } from "./weapons";
 import { drawMap, loadMap, type VillageMap } from "./map";
@@ -13,13 +14,8 @@ import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
 import { bodyColours, GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
 
-/** How often two sides in a match go at each other. */
-const BOUT_MS: [number, number] = [650, 1300];
-/** How far a lunge goes: a little under half the gap between the two (PAIR_GAP), so two charging at once meet in the middle. */
-const LUNGE = 16;
-
-/** A match being fought out in the arena: its two sides, the running score over them, and the timers that drive it. */
-type Brawl = { a: string; b: string; score: Phaser.GameObjects.Text; bouts: Phaser.Time.TimerEvent; ticker: Phaser.Time.TimerEvent };
+/** A match being played in the arena: its two sides, the table between them, the running score over it, and the timer that drives both. */
+type Brawl = { a: string; b: string; score: Phaser.GameObjects.Text; table: CardTable; ticker: Phaser.Time.TimerEvent };
 
 /** Agent Quest's own hero size; the map's saved 0.4 leaves them too small to tell apart. */
 const HERO_SCALE = 0.55;
@@ -27,9 +23,9 @@ const HERO_SCALE = 0.55;
 const GRID_X = 50;
 const GRID_Y = 42;
 /** A match takes two spots facing each other; matches stand this far apart. */
-const PAIR_GAP = 44;
-const PAIR_X = 124;
-const PAIR_Y = 50;
+const PAIR_GAP = 72;
+const PAIR_X = 150;
+const PAIR_Y = 60;
 /** Matches stand in rows of this many before the arena, each in its own fixed spot. */
 const ARENA_COLS = 3;
 /** How long an agent called to a match takes to get there, from wherever it is. */
@@ -669,7 +665,7 @@ export class VillageScene extends Phaser.Scene {
     });
   }
 
-  // --- Fights -------------------------------------------------------------
+  // --- Matches at the table -----------------------------------------------
 
   private brawls = new Map<string, Brawl>();
   /** The signed-in owner's agents, and which of them "find" went to last. */
@@ -688,9 +684,9 @@ export class VillageScene extends Phaser.Scene {
     }
     for (const [id, b] of this.brawls) {
       if (fights.has(id)) continue;
-      b.bouts.remove();
       b.ticker.remove();
       b.score.destroy();
+      b.table.destroy();
       this.brawls.delete(id);
     }
     for (const [id, [a, b]] of fights) if (!this.brawls.has(id)) this.startBrawl(id, a, b);
@@ -712,8 +708,9 @@ export class VillageScene extends Phaser.Scene {
       a,
       b,
       score,
-      ticker: this.time.addEvent({ delay: 200, loop: true, callback: () => this.keepScore(id) }),
-      bouts: this.time.delayedCall(between(BOUT_MS), () => this.bout(id)),
+      table: new CardTable(this, this.opts.still),
+      // Often enough that a round's choices land in step with the live feed's.
+      ticker: this.time.addEvent({ delay: 100, loop: true, callback: () => this.keepScore(id) }),
     };
     this.brawls.set(id, brawl);
     this.keepScore(id);
@@ -734,7 +731,9 @@ export class VillageScene extends Phaser.Scene {
     const together = ha.idle && hb.idle && Math.abs(ha.y - hb.y) < 10;
     brawl.score.setVisible(together && clock !== null && clock !== undefined);
     if (!together || !clock) return;
-    const { round, phase } = playhead(clock.roundsWon.length, Date.now() - clock.startedAt, clock.playMs);
+    const { round, phase, within } = playhead(clock.roundsWon.length, Date.now() - clock.startedAt, clock.playMs);
+    brawl.table.place({ x: ha.x, y: ha.y }, { x: hb.x, y: hb.y }, this.heroLabelScale());
+    brawl.table.show(round, phase, within, clock.rounds[round] ?? null);
     const shown = phase === "outcome" || phase === "final" ? clock.roundsWon[round] : clock.roundsWon[round - 1];
     const won = shown ?? { A: 0, B: 0 };
     // Seat A stands on the left. At the end a star marks the side that took the match; a level match has none.
@@ -742,52 +741,8 @@ export class VillageScene extends Phaser.Scene {
     brawl.score.setText(phase === "final" ? `${star("A")}${won.A} – ${won.B}${star("B")}` : `R${round + 1}  ${won.A} – ${won.B}`);
     brawl.score.setColor(phase === "final" ? COLOUR.live : COLOUR.accent);
     brawl.score.setScale(this.heroLabelScale());
-    brawl.score.setPosition((ha.x + hb.x) / 2, Math.min(ha.y, hb.y) - 44);
-  }
-
-  /** One exchange: one side charges and the other takes the blow, or both charge and collide. */
-  private bout(id: string): void {
-    const brawl = this.brawls.get(id);
-    if (!brawl) return;
-    brawl.bouts = this.time.delayedCall(between(BOUT_MS), () => this.bout(id));
-    const ha = this.heroes.get(brawl.a);
-    const hb = this.heroes.get(brawl.b);
-    if (!ha || !hb || !ha.idle || !hb.idle || this.opts.still) return;
-    const [left, right] = ha.x <= hb.x ? [ha, hb] : [hb, ha];
-    const mid = { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 };
-    const roll = Math.random();
-    if (roll < 0.35) {
-      // Both at once: they crash into each other in the middle.
-      left.lunge(LUNGE, () => this.impact(mid, true));
-      right.lunge(-LUNGE);
-    } else {
-      const [attacker, defender, dir] = roll < 0.675 ? [left, right, 1] : [right, left, -1];
-      attacker.lunge(dir * (LUNGE + 4), () => {
-        defender.recoil(dir * 8);
-        this.impact({ x: defender.x - dir * 10, y: mid.y }, false);
-      });
-    }
-  }
-
-  /** A flash where a blow lands: bigger when the two collide. */
-  private impact(at: Point, clash: boolean): void {
-    if (this.cameras.main.worldView.contains(at.x, at.y)) sound.bump(clash);
-    const y = at.y - 12;
-    const flash = this.add.circle(at.x, y, clash ? 7 : 5, 0xfff3b0, 0.95).setDepth(18_000);
-    this.tweens.add({ targets: flash, scale: clash ? 3 : 2.2, alpha: 0, duration: 260, ease: "Quad.easeOut", onComplete: () => flash.destroy() });
-    for (let i = 0; i < (clash ? 5 : 3); i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const chip = this.add.rectangle(at.x, y, 3, 3, 0xffffff).setDepth(18_000);
-      this.tweens.add({
-        targets: chip,
-        x: at.x + Math.cos(angle) * (14 + Math.random() * 10),
-        y: y + Math.sin(angle) * (10 + Math.random() * 8),
-        alpha: 0,
-        duration: 300,
-        ease: "Quad.easeOut",
-        onComplete: () => chip.destroy(),
-      });
-    }
+    // High enough to clear the choices said over each side's head.
+    brawl.score.setPosition((ha.x + hb.x) / 2, Math.min(ha.y, hb.y) - 58);
   }
 
   /** Each match's spot in the arena, kept for as long as it lasts: when one ends its spot frees, and nobody else moves. */
