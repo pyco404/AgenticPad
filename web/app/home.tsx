@@ -29,6 +29,7 @@ import {
 import {
   api,
   ApiError,
+  MIN_FUNDING_CHIPS,
   type Feed,
   type RosterAgent,
   type AgentView,
@@ -114,7 +115,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
    * survival against this figure comes with the rent screen's own work; this is
    * the amount, plainly.
    */
-  const [deposit, setDeposit] = useState("900");
+  const [deposit, setDeposit] = useState(String(MIN_FUNDING_CHIPS));
   /** Where a deposit-funded rental has got to, for the screen to narrate. */
   const [rentalStep, setRentalStep] = useState<RentalStep>({ at: "idle" });
   /** How renting works for this wallet. Seed until the server says otherwise. */
@@ -568,7 +569,9 @@ function RentPanel(props: {
   cutover: { endsAt: string; withdrawableUntil: string } | null;
 }) {
   const ready =
-    props.signedIn && (props.tab === "preset" ? Boolean(props.chosen) : props.brief.trim().length >= 12);
+    props.signedIn &&
+    (props.tab === "preset" ? Boolean(props.chosen) : props.brief.trim().length >= 12) &&
+    (!props.deposits || Number(props.deposit) >= MIN_FUNDING_CHIPS);
   return (
     <section className="rounded-panel border border-line bg-panel">
       <h2 className="border-b border-line px-4 py-3 text-[12px] uppercase tracking-wider text-accent">Rent an agent</h2>
@@ -677,14 +680,21 @@ function RentPanel(props: {
                 id="deposit"
                 type="number"
                 inputMode="numeric"
-                min={1}
+                min={MIN_FUNDING_CHIPS}
                 value={props.deposit}
                 onChange={(e) => props.setDeposit(e.target.value)}
                 className="rounded-panel w-32 border border-line bg-panel px-3 py-2 font-mono text-[13px]"
               />
               <span className="text-[13px] text-muted">chips, from your own wallet</span>
             </div>
+            {Number(props.deposit) < MIN_FUNDING_CHIPS ? (
+              <p className="mt-2 text-[12px] leading-5 text-loss">
+                At least <span className="font-mono">{MIN_FUNDING_CHIPS}</span> chips ($20): that is what an agent needs to play.
+              </p>
+            ) : null}
             <p className="mt-2 text-[12px] leading-5 text-muted">
+              It stays yours and is never spent: a lost match costs nothing, and you can withdraw it whenever the agent
+              isn&apos;t in a match.{" "}
               You pay the rent and this deposit in one transaction your wallet signs.{" "}
               <span className="text-ink">
                 The agent cannot play until that transaction lands.
@@ -962,7 +972,7 @@ function AgentCard({
             {agent.canPlay === false ? (
               <p className="rounded-panel mb-2 border border-loss/50 px-3 py-2 text-[13px] leading-5 text-loss">
                 <span className="font-mono">{agent.balance ?? 0}</span> left, and an agent needs{" "}
-                <span className="font-mono">{agent.worstMatch}</span> to play. Top it up to play again, or withdraw.
+                <span className="font-mono">{agent.minToPlay ?? MIN_FUNDING_CHIPS}</span> to play. Top it up to play again, or withdraw.
               </p>
             ) : null}
           </div>

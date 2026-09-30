@@ -16,6 +16,9 @@ export type RosterAgent = {
 };
 export type BandName = "A" | "B" | "C";
 
+/** The least an agent must hold to play, in chips: $20. Mirrors MIN_FUNDING_CHIPS on the server. */
+export const MIN_FUNDING_CHIPS = 3_600;
+
 export type PreviewBreakdown = { weight: number; expectedNet: number; pricedNet?: number };
 export type Preview = {
   trueRating: number;
@@ -92,8 +95,10 @@ export type AgentView = {
   recentForm?: number;
   balance?: number;
   band?: BandName;
-  /** The least an agent must hold to play, in chips. */
+  /** The chips a match is played at. */
   worstMatch?: number;
+  /** The least an agent must hold to play, in chips. */
+  minToPlay?: number;
   /** False when the balance is below that minimum. */
   canPlay?: boolean;
   retired?: boolean;
