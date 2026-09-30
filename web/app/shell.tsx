@@ -176,33 +176,36 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
           mine={mine}
           onStatus={setVillageStatus}
         />
-        <SiteBar night={night} onNight={toggleNight} />
+        <SiteBar night={night} onNight={toggleNight} showing={open} />
 
-        {open ? (
-          // The page as a HUD card over the world, like the village's own: as tall as its content and no
-          // taller, scrolling only when it runs longer than the screen. Inside it the site's panel and line
-          // colours become the HUD's, so every page's own boxes turn into translucent, gold-edged cards too.
-          <div
-            ref={setPanel}
-            className="hud-page pointer-events-none fixed inset-x-2 bottom-12 z-20 flex max-h-[60dvh] flex-col md:inset-x-auto md:bottom-auto md:right-4 md:top-[4.5rem] md:max-h-[calc(100dvh-8rem)] md:w-[clamp(400px,48vw,680px)]"
-          >
-            {/* The close X on its own above the cards, so it never sits on a page's content. */}
-            <div className="flex shrink-0 justify-end pb-2 pr-1">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close the page and see the village"
-                title="Close"
-                className="rounded-panel pointer-events-auto flex h-8 w-8 items-center justify-center border border-hud-line bg-hud text-accent shadow-[0_4px_16px_rgb(0_0_0/0.5)] hover:border-accent"
-              >
-                <CloseIcon className="h-4 w-4" />
-              </button>
-            </div>
-            <div ref={scroller} className="@container pointer-events-auto min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {children}
-            </div>
+        {/*
+          The page as a HUD card over the world, like the village's own: as tall as its content and no
+          taller, scrolling only when it runs longer than the screen. Inside it the site's panel and line
+          colours become the HUD's, so every page's own boxes turn into translucent, gold-edged cards too.
+          Put away, it is hidden rather than left out: the page is still in the HTML, so a search engine,
+          a link preview or an assistant reading the site sees what it says, not an empty village.
+        */}
+        <div
+          ref={setPanel}
+          className={`hud-page pointer-events-none fixed inset-x-2 bottom-12 z-20 ${open ? "flex" : "hidden"} max-h-[60dvh] flex-col md:inset-x-auto md:bottom-auto md:right-4 md:top-[4.5rem] md:max-h-[calc(100dvh-8rem)] md:w-[clamp(400px,48vw,680px)]`}
+        >
+          {/* The close X on its own above the cards, so it never sits on a page's content. */}
+          <div className="flex shrink-0 justify-end pb-2 pr-1">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Close the page and see the village"
+              title="Close"
+              className="rounded-panel pointer-events-auto flex h-8 w-8 items-center justify-center border border-hud-line bg-hud text-accent shadow-[0_4px_16px_rgb(0_0_0/0.5)] hover:border-accent"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
           </div>
-        ) : (
+          <div ref={scroller} className="@container pointer-events-auto min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {children}
+          </div>
+        </div>
+        {open ? null : (
           // With the page put away: the way back to it, and the two things most worth doing, all in one look.
           <div className="fixed bottom-[46px] right-2 z-20 flex flex-col items-stretch gap-2 md:bottom-auto md:right-4 md:top-[4.5rem]">
             <button type="button" onClick={() => setOpen(true)} className={`flex ${QUICK}`}>
