@@ -77,10 +77,10 @@ function hash(s: string): number {
 }
 
 /**
- * A generic villager, fixed by the agent's id so it looks the same on every
- * visit. Nothing about it is the agent's character: portraits stay on the
- * agent's own pages. Players' agents are told apart by their names, which
- * always show; house agents show theirs on hover.
+ * The knight an agent is drawn as when it has no portrait, fixed by its id so
+ * it looks the same on every visit. An agent with one walks the village as its
+ * own character (the scene draws it). Players' agents' names always show;
+ * house agents show theirs on hover.
  */
 export function lookOf(id: string): Look {
   const h = hash(id);

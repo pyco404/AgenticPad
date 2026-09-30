@@ -9,6 +9,7 @@ import { Roads, type Point } from "./roads";
 import { crispText, MONO } from "./text";
 import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
+import { GRID_LARGE, pixelate, portraitUrl } from "@/lib/pixel-portrait";
 
 /** How often two sides in a match go at each other. */
 const BOUT_MS: [number, number] = [650, 1300];
@@ -417,6 +418,7 @@ export class VillageScene extends Phaser.Scene {
           inWater: (p) => this.ground.inWater(p) && !this.onDock(p),
         });
         this.heroes.set(r.id, hero);
+        this.giveFace(r.id);
         hero.setLabelScale(this.heroLabelScale());
         if (this.mine.has(r.id)) hero.setMine(true);
         if (r.id === this.selected) hero.setSelected(true);
@@ -614,6 +616,33 @@ export class VillageScene extends Phaser.Scene {
       });
     }
     return out;
+  }
+
+  /**
+   * The agent's character: the same pixel drawing its pages show, made into a
+   * texture once and kept for the agent's next visit. An agent with no portrait
+   * stays the knight it was drawn as.
+   */
+  private giveFace(id: string): void {
+    const key = `face-${id}`;
+    if (this.textures.exists(key)) {
+      this.heroes.get(id)?.setFace(key);
+      return;
+    }
+    pixelate(portraitUrl(id, false), GRID_LARGE).then((data) => {
+      if (!this.sys.isActive()) return;
+      if (!data) {
+        this.heroes.get(id)?.useSprite();
+        return;
+      }
+      if (!this.textures.exists(key)) {
+        const tex = this.textures.createCanvas(key, data.width, data.height);
+        if (!tex) return;
+        tex.context.putImageData(data, 0, 0);
+        tex.refresh();
+      }
+      this.heroes.get(id)?.setFace(key);
+    });
   }
 
   // --- Fights -------------------------------------------------------------

@@ -82,7 +82,27 @@ export type HeroOptions = {
   inWater?: (p: Point) => boolean;
 };
 
-/** One agent in the village: a generic sprite, its name, and where it is walking. */
+/** How big an agent's character stands, in world pixels: about a knight's height. */
+const BODY = 34;
+/** How high a step lifts it, and how far it rocks, as it walks. */
+const HOP = 3;
+const SWAY = 0.07;
+/** How much of the character stays above the water while it swims. */
+const ABOVE_WATER = 0.62;
+/** Its legs, in world pixels: how long, how thick, how far apart, and how high a stride lifts a foot. */
+const LEG = 9;
+const LEG_W = 5;
+const LEG_GAP = 4;
+const LIFT = 4;
+const LEG_COLOUR = 0x3a3142;
+const BOOT_COLOUR = 0x1b1620;
+
+/**
+ * One agent in the village: its own character - the portrait it has on its
+ * pages, as pixel art - walking, fighting and swimming, with its name over it.
+ * The knight sheet still runs underneath, unseen: it holds the hit area and
+ * stands in only for an agent that has no portrait.
+ */
 export class Hero {
   private sprite: Phaser.GameObjects.Sprite;
   private label: Phaser.GameObjects.Text;
@@ -105,6 +125,15 @@ export class Hero {
   /** How far the marker has bobbed, in pixels. */
   markerBob = 0;
   private labelOffset: number;
+  /** The agent's character: its portrait, as pixel art, standing where a knight would. */
+  private portrait: Phaser.GameObjects.Image | null = null;
+  private shadow: Phaser.GameObjects.Ellipse | null = null;
+  /** Two legs under the character, redrawn as it steps. */
+  private legs: Phaser.GameObjects.Graphics | null = null;
+  /** Where the character's feet are, below the sprite's middle: the knight sheet pads each figure well inside its frame. */
+  private footOffset: number;
+  /** When this walk began, for the rhythm of its steps. */
+  private stepFrom = 0;
   /** In the water: cut off at the chest, bobbing, with a ripple round it. */
   private swimming = false;
   private ripple: Phaser.GameObjects.Ellipse | null = null;
@@ -127,20 +156,13 @@ export class Hero {
     this.y = at.y;
     this.anims = ensureAnims(scene, look);
     this.sprite = scene.add.sprite(at.x, at.y, heroTexture(look)).setScale(scale).play(this.anims.idle);
-    this.sprite.setInteractive({ useHandCursor: true, pixelPerfect: false });
-    this.sprite.setData("hero", true);
-    this.sprite.on("pointerup", () => opts.onClick());
-    this.sprite.on("pointerover", () => {
-      this.hovered = true;
-      this.refreshLabel();
-    });
-    this.sprite.on("pointerout", () => {
-      this.hovered = false;
-      this.refreshLabel();
-    });
+    // Unseen until it turns out there is no portrait for this agent.
+    this.sprite.setVisible(false);
+    this.clickable(this.sprite);
 
     // The sheets pad each figure generously, so the name sits well inside the frame.
     this.labelOffset = -this.sprite.displayHeight * 0.3;
+    this.footOffset = this.sprite.displayHeight * 0.17;
     this.label = crispText(scene, at.x, at.y + this.labelOffset, name, {
       fontSize: "12px",
       fontFamily: MONO,
@@ -156,6 +178,67 @@ export class Hero {
   setLabelScale(scale: number): void {
     this.label.setScale(scale);
     this.marker?.setScale(scale);
+    this.place();
+  }
+
+  /** Whichever the agent is drawn as answers the pointer: its name on hover, its page on a click. */
+  private clickable(target: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite): void {
+    target.setInteractive({ useHandCursor: true, pixelPerfect: false });
+    target.on("pointerup", () => this.opts.onClick());
+    target.on("pointerover", () => {
+      this.hovered = true;
+      this.refreshLabel();
+    });
+    target.on("pointerout", () => {
+      this.hovered = false;
+      this.refreshLabel();
+    });
+  }
+
+  /** The agent becomes its character, once its portrait is made into a texture. */
+  setFace(texture: string): void {
+    if (this.portrait) return;
+    this.sprite.setVisible(false);
+    this.portrait = this.scene.add.image(this.x, this.y, texture).setOrigin(0.5, 1).setDisplaySize(BODY, BODY);
+    this.portrait.setFlipX(this.sprite.flipX);
+    this.clickable(this.portrait);
+    this.shadow = this.scene.add.ellipse(this.x, this.y, BODY * 0.8, BODY * 0.22, 0x000000, 0.28);
+    this.legs = this.scene.add.graphics();
+    if (this.swimming) this.cropForWater(true);
+    this.place();
+  }
+
+  /** No portrait to be had: the knight it has always been, then. */
+  useSprite(): void {
+    if (!this.portrait) this.sprite.setVisible(true);
+  }
+
+  private cropForWater(on: boolean): void {
+    const p = this.portrait;
+    if (!p) return;
+    if (on) p.setCrop(0, 0, p.frame.width, p.frame.height * ABOVE_WATER);
+    else p.setCrop();
+    this.shadow?.setVisible(!on);
+    this.legs?.setVisible(!on);
+  }
+
+  /**
+   * Both legs from the body down to the ground at (x, ground): side by side
+   * when standing, taking turns to lift as it walks, each with a dark boot.
+   */
+  private drawLegs(x: number, ground: number, phase: number): void {
+    const g = this.legs;
+    if (!g) return;
+    g.clear();
+    const top = Math.round(ground - LEG);
+    for (const [side, lift] of [[-1, Math.max(0, Math.sin(phase))], [1, Math.max(0, -Math.sin(phase))]] as const) {
+      const left = Math.round(x + side * (LEG_GAP / 2 + LEG_W / 2) - LEG_W / 2);
+      const up = Math.round(lift * LIFT);
+      // A lifted leg is shorter, its boot off the ground and a little forward.
+      const forward = this.portrait?.flipX ? -Math.round(lift * 2) : Math.round(lift * 2);
+      g.fillStyle(LEG_COLOUR, 1).fillRect(left, top, LEG_W, LEG - up - 2);
+      g.fillStyle(BOOT_COLOUR, 1).fillRect(left + forward - (this.portrait?.flipX ? 1 : 0), top + LEG - up - 3, LEG_W + 1, 3);
+    }
   }
 
   /** Marks this as the signed-in owner's agent, or clears the mark. */
@@ -257,6 +340,7 @@ export class Hero {
     this.splash();
     if (on) {
       this.sprite.setCrop(0, 0, FRAME, WATERLINE);
+      this.cropForWater(true);
       this.ripple = this.scene.add
         .ellipse(this.x, this.y + this.waterline(), 44 * this.scale * 1.6, 12 * this.scale * 1.6, 0xd8f4f2, 0.28)
         .setStrokeStyle(1.5, 0xffffff, 0.7);
@@ -273,6 +357,7 @@ export class Hero {
       }
     } else {
       this.sprite.setCrop();
+      this.cropForWater(false);
       this.bobTween?.stop();
       this.bobTween = null;
       this.bob = 0;
@@ -300,15 +385,33 @@ export class Hero {
     const y = this.y + this.bob;
     const x = this.x + this.lungeX;
     this.sprite.setPosition(x, y);
-    this.label.setPosition(x, y + this.labelOffset);
+    // The character on its feet: stepping and rocking as it walks, standing square when it stops;
+    // in the water, sunk to the chest at the waterline.
+    let nameAt = y + this.labelOffset;
+    if (this.portrait) {
+      const phase = this.walking && !this.swimming && !this.opts.still ? ((this.scene.time.now - this.stepFrom) / 1000) * (SPEED / STRIDE) * Math.PI * 2 : 0;
+      const hop = Math.abs(Math.sin(phase)) * HOP;
+      const ground = y + this.footOffset;
+      // Standing on its legs: the body's foot is the legs' top, lifted a little on each step.
+      const foot = this.swimming ? y + this.waterline() + BODY * (1 - ABOVE_WATER) : ground - LEG + 2 - hop;
+      this.portrait.setPosition(x, foot).setRotation(Math.sin(phase) * SWAY);
+      this.shadow?.setPosition(x, ground).setScale(1 - hop / (HOP * 5));
+      if (!this.swimming) this.drawLegs(x, ground, phase);
+      nameAt = (this.swimming ? y + this.waterline() - BODY * ABOVE_WATER : foot - BODY) - 2;
+    }
+    this.label.setPosition(x, nameAt);
     // Over the name, bobbing, so an owner can find their agent in a crowd.
-    this.marker?.setPosition(x, y + this.labelOffset - this.label.displayHeight - 2 + this.markerBob).setDepth(10_001 + this.y);
+    const nameTop = this.label.visible ? this.label.displayHeight + 2 : 2;
+    this.marker?.setPosition(x, nameAt - nameTop + this.markerBob).setDepth(10_001 + this.y);
     this.halo?.setPosition(this.x, this.y);
     // The frame's foot, as decorations and buildings sort, so all three interleave.
     const feet = this.y + this.sprite.displayHeight * 0.5;
     this.sprite.setDepth(feet + 0.5);
     this.halo?.setDepth(feet + 0.4);
     this.ripple?.setPosition(this.x, this.y + this.waterline()).setDepth(feet + 0.6);
+    this.shadow?.setDepth(feet + 0.3);
+    this.legs?.setDepth(feet + 0.45);
+    this.portrait?.setDepth(feet + 0.5);
     // Names above everything in the village, so a building never hides one.
     this.label.setDepth(10_000 + feet);
   }
@@ -372,6 +475,7 @@ export class Hero {
 
   face(side: "left" | "right"): void {
     this.sprite.setFlipX(side === "left");
+    this.portrait?.setFlipX(side === "left");
   }
 
   /** Be at (x, y) now, without walking there. */
@@ -416,6 +520,7 @@ export class Hero {
         this.sprite.play(this.anims.idle, true);
         this.sprite.anims.timeScale = 1;
         this.setWalking(false);
+        this.place();
         if (facing) this.face(facing);
         how.then?.();
         return;
@@ -430,6 +535,7 @@ export class Hero {
         return;
       }
       if (Math.abs(dx) > 5) this.face(dx < 0 ? "left" : "right");
+      if (!this.walking) this.stepFrom = this.scene.time.now;
       this.setWalking(true);
       this.sprite.play(this.anims.run, true);
       // The legs keep pace with the ground, however fast it is covered.
@@ -452,7 +558,7 @@ export class Hero {
 
   /** A few words rising off the hero and fading: a result, once it has played out. */
   float(text: string, colour: string): void {
-    const t = crispText(this.scene, this.x, this.y + this.labelOffset - 4, text, {
+    const t = crispText(this.scene, this.x, this.label.y - 4, text, {
       fontSize: "14px",
       fontFamily: MONO,
       fontStyle: "bold",
@@ -478,7 +584,7 @@ export class Hero {
     this.walk?.stop();
     this.setSelected(false);
     this.scene.tweens.add({
-      targets: [this.sprite, this.label, ...(this.ripple ? [this.ripple] : [])],
+      targets: [this.sprite, this.label, ...(this.portrait ? [this.portrait] : []), ...(this.shadow ? [this.shadow] : []), ...(this.legs ? [this.legs] : []), ...(this.ripple ? [this.ripple] : [])],
       alpha: 0,
       duration: this.opts.still ? 0 : 600,
       onComplete: () => this.destroy(),
@@ -496,5 +602,8 @@ export class Hero {
     this.ripple?.destroy();
     this.sprite.destroy();
     this.label.destroy();
+    this.portrait?.destroy();
+    this.shadow?.destroy();
+    this.legs?.destroy();
   }
 }
