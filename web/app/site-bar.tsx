@@ -48,7 +48,7 @@ function sectionOf(path: string): string | null {
 function Mark() {
   return (
     <Link href="/" aria-label="AgentClash home" className="flex shrink-0 items-center gap-2">
-      <img src="/agentclash-tb.png" alt="" width={474} height={239} className="h-11 w-auto [image-rendering:pixelated] md:h-12" />
+      <img src="/agentclash-tb.png" alt="" width={474} height={239} className="h-8 w-auto [image-rendering:pixelated] lg:h-12" />
     </Link>
   );
 }
@@ -223,10 +223,11 @@ export function useNight(): [boolean, () => void] {
  * day or night, and the wallet. Below xl the ☰ menu holds the sections the
  * bar has no room for - on a phone, all of them.
  */
-export function SiteBar({ night, onNight }: { night: boolean; onNight: () => void }) {
+export function SiteBar({ night, onNight, showing }: { night: boolean; onNight: () => void; showing: boolean }) {
   const path = usePathname() ?? "/";
   const [soundOn, toggleSound] = useSoundSetting();
-  const active = sectionOf(path);
+  // A section is current only while its page is showing: with the page closed, only the village is.
+  const active = showing ? sectionOf(path) : null;
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
 
