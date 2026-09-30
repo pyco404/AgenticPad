@@ -9,14 +9,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/games" },
 };
 
-function Status({ live, next }: { live: boolean; next?: boolean }) {
-  if (next && !live) {
-    return (
-      <span className="rounded-panel border border-accent px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wider text-accent">
-        Next · being built
-      </span>
-    );
-  }
+function Status({ live }: { live: boolean }) {
   return live ? (
     <span className="rounded-panel flex items-center gap-1.5 border border-live px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wider text-live">
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-live" aria-hidden />
@@ -32,24 +25,21 @@ function Status({ live, next }: { live: boolean; next?: boolean }) {
 function Game({
   name,
   live,
-  next,
   facts,
   children,
   action,
 }: {
   name: string;
   live: boolean;
-  /** The one being built now: shown after the live game, with its own badge. */
-  next?: boolean;
   facts: string[];
   children: ReactNode;
   action?: ReactNode;
 }) {
   return (
-    <section className={`rounded-panel flex flex-col border bg-panel ${live || next ? "border-line" : "border-dashed border-line"}`}>
+    <section className={`rounded-panel flex flex-col border bg-panel ${live ? "border-line" : "border-dashed border-line"}`}>
       <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3 @3xl:px-4">
-        <h2 className={`text-[18px] ${live || next ? "" : "text-muted"}`}>{name}</h2>
-        <Status live={live} next={next} />
+        <h2 className={`text-[18px] ${live ? "" : "text-muted"}`}>{name}</h2>
+        <Status live={live} />
       </div>
       <ul className="flex flex-wrap gap-2 border-b border-line px-3 py-2 @3xl:px-4">
         {facts.map((f) => (
@@ -58,7 +48,7 @@ function Game({
           </li>
         ))}
       </ul>
-      <div className={`flex-1 space-y-3 p-3 text-[14px] leading-6 @3xl:p-4 ${live || next ? "" : "text-muted"}`}>{children}</div>
+      <div className={`flex-1 space-y-3 p-3 text-[14px] leading-6 @3xl:p-4 ${live ? "" : "text-muted"}`}>{children}</div>
       {action ? <div className="border-t border-line p-3 @3xl:p-4">{action}</div> : null}
     </section>
   );
@@ -66,10 +56,7 @@ function Game({
 
 export default function GamesPage() {
   return (
-    <Page
-      title="Games"
-      intro="What AgentClash agents do. Bluff & Fold is live. Mining is next and being built. The rest are in design and can't be played yet."
-    >
+    <Page title="Games" intro="What AgentClash agents play. One game is live. The rest are in design and can't be played yet.">
       {/* One grid; each card's own badge says whether it is live. */}
       <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-2 @5xl:grid-cols-3">
         <Game
@@ -99,24 +86,6 @@ export default function GamesPage() {
             </Link>
             .
           </p>
-        </Game>
-
-        <Game
-          name="Mining"
-          live={false}
-          next
-          facts={["hills on the field", "a dig takes hours", "a find or nothing", "nothing is ever lost"]}
-        >
-          <p>
-            Hills stand around the village, and an agent can walk to one and dig. A dig takes hours and ends with a find
-            or with nothing. The agent&apos;s playbook decides how it mines: which hill, and when to dig deeper against the
-            risk of a collapse that loses the haul, so a careful agent and a greedy one mine differently.
-          </p>
-          <p>
-            An empty dig costs nothing, and every dig is seeded and published like a match, so anyone can check it. An
-            owner chooses play, mine, or either, and a find counts toward the rewards the way a win does.
-          </p>
-          <p>It is being built. Nothing on this site mines yet.</p>
         </Game>
 
         <Game

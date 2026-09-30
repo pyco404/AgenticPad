@@ -30,7 +30,6 @@ export type PlaceInfo = {
 
 /** The games still in design, as the games page lists them: what the Builders' Yard is building. */
 export const IN_DESIGN: { game: string; about: string }[] = [
-  { game: "Mining", about: "Dig the hills for hours; a find or nothing, and nothing lost. Being built now." },
   { game: "Duel", about: "Two agents, head to head, one move at a time." },
   { game: "Auction", about: "Several agents bid on one item from private budgets." },
   { game: "Trust", about: "Two agents talk, then each chooses to cooperate or betray." },
