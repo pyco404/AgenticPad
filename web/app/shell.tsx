@@ -235,9 +235,7 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
             <BuildingCard place={place} onClose={() => setBuilding(null)} onEnter={go} />
           </div>
         ) : null}
-        <Cover
-          up={villageUp || villageStatus === "failed" || waited}
-        />
+        <Cover up={villageUp || villageStatus === "failed" || waited} drawn={villageStatus === "ready"} />
       </OpenBuildingProvider>
     </WorldProvider>
   );
@@ -451,25 +449,57 @@ function Village({
  * village is drawn with its agents standing in it, and is gone for the rest of
  * the visit: moving between pages never brings it back.
  */
-function Cover({ up }: { up: boolean }) {
+function Cover({ up, drawn }: { up: boolean; drawn: boolean }) {
   const [gone, setGone] = useState(false);
+  // How long the cover has been up, for the bar's creep between the steps it can actually see.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (up) return;
+    const started = Date.now();
+    const timer = setInterval(() => setElapsed(Date.now() - started), 200);
+    return () => clearInterval(timer);
+  }, [up]);
   useEffect(() => {
     if (!up) return;
-    const timer = setTimeout(() => setGone(true), prefersReducedMotion() ? 0 : 500);
+    const timer = setTimeout(() => setGone(true), prefersReducedMotion() ? 0 : 700);
     return () => clearTimeout(timer);
   }, [up]);
   if (gone) return null;
+  // Two steps it can see - the village drawn, then its agents in it - and a creep toward each so it never sits still.
+  const creep = 1 - Math.exp(-elapsed / 2500);
+  const pct = up ? 100 : Math.round(Math.max(6, (drawn ? 45 : 0) + creep * 45));
   return (
     <div
       aria-hidden={up}
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center gap-5 bg-ink transition-opacity duration-500 motion-reduce:transition-none ${
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-[radial-gradient(ellipse_at_center,rgb(10_14_20/0.84),rgb(6_9_13/0.97)_55%,rgb(4_6_9)_85%)] transition-opacity delay-200 duration-500 motion-reduce:transition-none ${
         up ? "pointer-events-none opacity-0" : "opacity-100"
       }`}
     >
-      <img src="/agentclash-tb.png" alt="" width={474} height={239} className="h-auto w-56 [image-rendering:pixelated] md:w-80" />
-      <p className="font-pixel text-[44px] font-bold leading-none tracking-[0.04em] text-brand md:text-[56px]">AgentClash</p>
-      <p role="status" className="text-[18px] tracking-wide text-muted md:text-[20px]">
-        Opening...
+      <img
+        src="/agentclash-tb.png"
+        alt=""
+        width={474}
+        height={239}
+        className="h-auto w-60 [filter:drop-shadow(0_0_18px_rgb(111_158_92/0.35))] [image-rendering:pixelated] md:w-80"
+      />
+      <p className="font-pixel text-[48px] font-bold leading-none tracking-[0.04em] text-brand [text-shadow:0_3px_0_rgb(90_0_0),0_0_24px_rgb(255_45_45/0.25)] md:text-[64px]">
+        AgentClash
+      </p>
+      <div
+        role="progressbar"
+        aria-label="Loading the village"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        className="mt-4 h-4 w-[min(300px,72vw)] rounded-[3px] border-2 border-[#5b6068] bg-black/70 p-[2px] shadow-[0_0_0_1px_rgb(0_0_0/0.6)]"
+      >
+        <div
+          className="h-full rounded-[1px] bg-[linear-gradient(90deg,#1c5a33,#2f8f52_60%,#5fd88a)] shadow-[0_0_10px_rgb(95_216_138/0.55)] transition-[width] duration-300 ease-out motion-reduce:transition-none"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p role="status" className="text-[15px] tracking-wide text-muted md:text-[17px]">
+        Entering the arena...
       </p>
     </div>
   );
