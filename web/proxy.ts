@@ -12,7 +12,8 @@ const FORMER = new Set(["oxude.xyz", "www.oxude.xyz"]);
 export function proxy(request: NextRequest) {
   if (!canonical || canonical.hostname === "localhost") return NextResponse.next();
   const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(":")[0]!.toLowerCase();
-  const stray = host === `www.${canonical.hostname}` || host.endsWith(".up.railway.app") || FORMER.has(host);
+  // The canonical host itself is never stray, whatever the list says: redirecting it to itself would loop.
+  const stray = host !== canonical.hostname && (host === `www.${canonical.hostname}` || host.endsWith(".up.railway.app") || FORMER.has(host));
   if (!stray) return NextResponse.next();
   const target = new URL(request.nextUrl.pathname + request.nextUrl.search, canonical);
   return NextResponse.redirect(target, 308);
