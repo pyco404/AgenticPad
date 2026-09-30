@@ -27,7 +27,7 @@ async function fresh(): Promise<Db> {
  * rental leaves one: the ledger and the vault both hold the deposit.
  */
 async function depositAgent(db: Db, chain: FakeChain, name: string, presetName: "Anchor" | "Bully" | "Mirage" | "Hammer", chips = 900) {
-  const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit", band: "B" });
+  const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit" });
   const amount = baseUnits(chips, RATE);
   await record(db, [{ agentId: agent.id, amount, reason: "deposit" }]);
   await db.insert(chainOps).values({ kind: "open_vault", agentId: agent.id, owner: agent.ownerId, salt: agent.salt, amount: 0, status: "confirmed" });

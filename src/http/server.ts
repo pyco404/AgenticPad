@@ -11,7 +11,6 @@ import {
   activeAgentsOf,
   agentsOf,
   createAgent,
-  setBand,
   snapshotPreset,
   leaderboard,
   ownerAgent,
@@ -44,7 +43,7 @@ import {
   WithdrawalError,
   type WithdrawalChain,
 } from "../db/withdrawals.js";
-import { STAKE_BANDS, affordableBands, bandByName, canAffordBand, type BandName } from "../db/schema.js";
+import { DEFAULT_BAND, STAKE_BANDS, affordableBands, bandByName, canAffordBand, type BandName } from "../db/schema.js";
 import { SURVIVAL, SURVIVAL_HOURS, SURVIVAL_PACE_MINUTES, SURVIVAL_SEED_BALANCE, survivalFor } from "../survival.js";
 
 import { RateLimiter, type RateLimitRule } from "./rate-limit.js";
@@ -430,10 +429,8 @@ export function createApp(options: AppOptions): Server {
       table = validatePolicy(result.table);
     }
 
-    const wantedBand = ctx.body["band"];
-    if (wantedBand !== undefined && !STAKE_BANDS.some((b) => b.name === wantedBand)) {
-      throw new HttpError(400, `band must be one of ${STAKE_BANDS.map((b) => b.name).join(", ")}`);
-    }
+    // A band in the body is ignored: everyone plays at one scale now, and a
+    // page from before that still sends one.
     // Which flow this rental takes. A deposit rental is paid for by its owner
     // and cannot be created here and now: it needs a transaction signed in
     // their wallet, so the answer is the agent plus that transaction.
@@ -475,7 +472,6 @@ export function createApp(options: AppOptions): Server {
         ...(presetName ? { presetName } : {}),
         ...(brief ? { brief } : {}),
         ...(table ? { policyTable: table } : {}),
-        ...(wantedBand !== undefined ? { band: wantedBand as BandName } : {}),
       };
       if (!viaDeposit) return { row: await createAgent(t, wanted), rental: null };
       // Inside the lock on purpose. Building the transaction is a round trip to
@@ -706,21 +702,9 @@ export function createApp(options: AppOptions): Server {
     };
   }
 
-  async function postBand(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const id = requireUuid(ctx.params[0]);
-    const value = ctx.body["band"];
-    if (!STAKE_BANDS.some((b) => b.name === value)) {
-      throw new HttpError(400, `band must be one of ${STAKE_BANDS.map((b) => b.name).join(", ")}`);
-    }
-    try {
-      return { band: await setBand(db, id, ownerId, value as BandName) };
-    } catch (error) {
-      if (error instanceof Error && /another owner/.test(error.message)) throw new HttpError(403, error.message);
-      // Too poor for that band: the owner can pick a cheaper one.
-      if (error instanceof StakeError) throw new HttpError(409, error.message);
-      throw error;
-    }
+  /** Bands are gone: everyone plays everyone. Said plainly to a page from before. */
+  async function postBand(): Promise<never> {
+    throw new HttpError(410, "bands are gone: every agent plays every other at one scale");
   }
 
   /**
@@ -1430,14 +1414,8 @@ export function createApp(options: AppOptions): Server {
       table = validatePolicy(result.table);
       remember(ownerId, brief, table);
     }
-    // Priced in the band the player is looking at, so the numbers on the rent
-    // screen are the ones they would actually play for.
-    const wanted = ctx.body["band"];
-    if (wanted !== undefined && !STAKE_BANDS.some((b) => b.name === wanted)) {
-      throw new HttpError(400, `band must be one of ${STAKE_BANDS.map((b) => b.name).join(", ")}`);
-    }
-    const band = (wanted as BandName | undefined) ?? "B";
-    const preview = previewPolicy(table, await rosterProfile(db, band));
+    // Against the whole roster: everyone plays at one scale. A band in the body is ignored.
+    const preview = previewPolicy(table, await rosterProfile(db, DEFAULT_BAND));
     return { preview, policyTable: table, elicitation: supplied ? null : { free: freeCall } };
   }
 

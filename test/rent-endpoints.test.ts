@@ -550,8 +550,8 @@ describe("renting over HTTP", () => {
       expect(state.body.withdrawable.withdrawable).toBe(2_000);
       expect(state.body.withdrawable.locked).toBe(0);
       // The floor is the cheapest band's worst match, in chips.
-      expect(state.body.withdrawable.minStake).toBe(20);
-      expect(state.body.withdrawable.maxPartial).toBe(1_980);
+      expect(state.body.withdrawable.minStake).toBe(40);
+      expect(state.body.withdrawable.maxPartial).toBe(1_960);
       expect(state.body.withdrawable.reason).toBeNull();
     });
 
@@ -580,14 +580,14 @@ describe("renting over HTTP", () => {
       expect(after.body.agent.canPlay).toBe(true);
     });
 
-    it("refuses to leave less than a band's worst match, saying the figure in chips", async () => {
+    it("refuses to leave less than the minimum to play, saying the figure in chips", async () => {
       const who = "dep-floor";
       const agentId = await funded(who, 900);
       const out = await api(`/agents/${agentId}/withdrawals`, { method: "POST", body: { amount: 890 }, as: who });
       expect(out.status).toBe(400);
       // 10 left, not 10000000 left.
       expect(String(out.body.error)).toMatch(/would leave 10,? too little/);
-      expect(String(out.body.error)).toMatch(/at least 20/);
+      expect(String(out.body.error)).toMatch(/at least 40/);
     });
 
     it("takes the lot and retires the agent, which is how a wallet frees its slot", async () => {

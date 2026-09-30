@@ -39,7 +39,6 @@ import {
 } from "./schema.js";
 import { balanceOf, balancesOf, record, settle, StakeError } from "./ledger.js";
 import { isExiting } from "./exits.js";
-import { recordEvent } from "./events.js";
 import { baseUnits, chips, rateOf, type Funding } from "../chips.js";
 import { utcDay } from "../chain/common.js";
 import { rentalEndFor, rentalOpen, rentalOpenSql } from "./rental.js";
@@ -110,8 +109,6 @@ export type CreateAgentInput = {
   policyTable?: Policy;
   /** Defaults to the shipped stakes; must match the stakes matches are played at. */
   policyStakes?: Stakes;
-  /** The money scale to play at. Defaults to DEFAULT_BAND. */
-  band?: BandName;
   /** Balance to seed. Defaults to STARTING_BALANCE. Ignored on the deposit flow. */
   startingBalance?: number;
   /**
@@ -194,7 +191,8 @@ export async function createAgent(db: Db, input: CreateAgentInput) {
       ownerId: input.ownerId ?? null,
       policyTable: table,
       policyStakes: input.policyStakes ?? DEFAULT_RULES.stakes,
-      band: input.band ?? DEFAULT_BAND,
+      // Everyone plays at one scale (drizzle/0027_one_band.sql).
+      band: DEFAULT_BAND,
       funding,
       // A player's rental ends at the season boundary, however far into the
       // season it starts. House agents are not rented and never end.
@@ -286,11 +284,8 @@ export type RunMatchOptions = { seed?: number; rules?: RulesConfig };
 /** Plays one match and records it, updating both ratings in the same transaction. */
 export async function runMatch(db: Db, agentAId: string, agentBId: string, options: RunMatchOptions = {}) {
   const [rowA, rowB] = await Promise.all([loadAgent(db, agentAId), loadAgent(db, agentBId)]);
-  // Both agents must be on the same money scale, or the match has two prices.
-  if (rowA.band !== rowB.band) {
-    throw new StakeError(`${rowA.name} plays band ${rowA.band} and ${rowB.name} band ${rowB.band}`);
-  }
-  const band = rowA.band;
+  // One scale for everyone: agents are no longer kept apart by band.
+  const band = DEFAULT_BAND;
   const rules = options.rules ?? bandRules(band);
   assertStakesMatch(rowA, rules.stakes);
   assertStakesMatch(rowB, rules.stakes);
@@ -407,10 +402,7 @@ export async function runExhibition(db: Db, agentAId: string, agentBId: string, 
     if (row.retiredAt !== null) throw new StakeError(`${row.name} is retired`);
   }
   if (rowA.id === rowB.id) throw new StakeError("an agent cannot play itself");
-  if (rowA.band !== rowB.band) {
-    throw new StakeError(`${rowA.name} plays band ${rowA.band} and ${rowB.name} band ${rowB.band}`);
-  }
-  const band = rowA.band;
+  const band = DEFAULT_BAND;
   const rules = bandRules(band);
   // Nothing moves in an exhibition, so nothing is asked of either balance:
   // house agents need none. The stake is the band's worst match, which is what
@@ -519,59 +511,6 @@ export type OpponentPick = {
   candidates: number;
   ratingGap: number | null;
 };
-
-/**
- * How many agents are ready to play in each band, from this agent's point of
- * view: in the band, not retired, solvent for that band's worst match, not the
- * agent itself and not one of its owner's. Used to name a band worth trying
- * when the agent's own has nobody in it.
- */
-export async function playableBands(
-  db: Db,
-  agentId: string,
-  ownerId: string | null,
-  funding: Funding,
-  /**
-   * Whether house agents count. They must follow the caller's own rule: a
-   * band full of house agents is no advice to autoplay, which never meets them.
-   */
-  houseAllowed = true,
-): Promise<{ band: BandName; count: number }[]> {
-  // Joined rather than correlated: a subquery grouped by agent is the pattern
-  // the rest of this file uses, and it is the one that actually correlates.
-  const balances = db
-    .select({ agentId: ledger.agentId, balance: sql<number>`sum(${ledger.amount})::bigint`.as("balance") })
-    .from(ledger)
-    .groupBy(ledger.agentId)
-    .as("balances");
-  const rows = await db
-    .select({ band: agents.band, funding: agents.funding, balance: balances.balance, ownerId: agents.ownerId })
-    .from(agents)
-    // Left: a house agent needs no balance, and may have no ledger rows at all.
-    .leftJoin(balances, eq(balances.agentId, agents.id))
-    .where(
-      and(
-        ne(agents.id, agentId),
-        isNull(agents.retiredAt),
-        rentalOpenSql(),
-        ownerId === null ? sql`true` : or(isNull(agents.ownerId), ne(agents.ownerId, ownerId)),
-        // Only agents under the same program, as pickOpponent requires. Counting
-        // the other program's agents named bands full of opponents this agent
-        // could never be paired with - "try B" from C, "try C" from B.
-        eq(agents.funding, funding),
-        houseAllowed ? sql`true` : isNotNull(agents.ownerId),
-      ),
-    );
-  return STAKE_BANDS.map((b) => ({
-    band: b.name,
-    // Each row's balance is in its own agent's units, so each is converted at
-    // its own rate rather than the band's cover being converted once.
-    // A house agent is always ready: it never stakes, so no balance is asked of it.
-    count: rows.filter(
-      (r) => r.band === b.name && (r.ownerId === null || canAffordBand(Number(r.balance ?? 0), b.name, rateOf(r))),
-    ).length,
-  }));
-}
 
 export type PickOpponentOptions = {
   /**
@@ -764,21 +703,20 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
 
   // Paired on true rating: the only signal here that is not noise. No recency
   // gate, so a cold roster can bootstrap.
-  // Solvent for this band, in this agent's units. Candidates are all on the
-  // same flow as `me` (below), so one rate applies to every row here - a chip
-  // figure compared against a base-unit sum would call a vault holding fifty
-  // base units solvent for a forty-chip band.
+  // Holding enough to be in play, in this agent's units. Candidates are all on
+  // the same flow as `me` (below), so one rate applies to every row here - a
+  // chip figure compared against a base-unit sum would call a vault holding
+  // fifty base units enough for a forty-chip minimum.
   const myRate = rateOf(me);
   const solvent = db
     .select({ agentId: ledger.agentId, balance: sql<number>`sum(${ledger.amount})::bigint`.as("balance") })
     .from(ledger)
     .groupBy(ledger.agentId)
-    .having(sql`sum(${ledger.amount}) >= ${baseUnits(bandByName(me.band).worstMatch, myRate)}`)
+    .having(sql`sum(${ledger.amount}) >= ${baseUnits(bandByName(DEFAULT_BAND).worstMatch, myRate)}`)
     .as("solvent");
 
-  // Same band: a match has one money scale, so both agents must be on it.
-  const band = me.band;
-  const inBand = eq(agents.band, band);
+  // Everyone on their own: no band keeps anyone apart.
+  const band = DEFAULT_BAND;
   // A player looking for a match that counts needs another player. A house
   // opponent counts for nothing, so it is only ever offered when the caller asked for one.
   const houseAllowed = options.allowHouse === true || me.ownerId === null;
@@ -805,7 +743,6 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
         isNull(agents.retiredAt),
         // An expired agent is not matchable: it could not be recorded anyway.
         rentalOpenSql(),
-        inBand,
         // Two agents with no owner are not the same owner.
         me.ownerId === null ? sql`true` : or(isNull(agents.ownerId), ne(agents.ownerId, me.ownerId)),
         // Only agents whose vault is under the same program. Different programs
@@ -853,20 +790,12 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   const presets = candidates.filter((c) => c.presetName !== null);
   const preset = presets.length ? presets[randomInt(presets.length)] : undefined;
   if (!preset) {
-    // Nobody here. Point at a band that does have opponents rather than leaving
-    // the owner to guess which one to try.
-    const elsewhere = await playableBands(db, agentId, me.ownerId, me.funding, houseAllowed);
-    const best = elsewhere.filter((b) => b.band !== band && b.count > 0).sort((x, y) => y.count - x.count)[0];
     throw new StakeError(
-      best
-        ? `no opponent in the ${band} band right now. Band ${best.band} has ${best.count} ${
-            best.count === 1 ? "agent" : "agents"
-          } ready to play - move there, or try again later.`
-        : !houseAllowed
-          ? `no opponent in the ${band} band right now, and no other player's agent is ready in any band. ${me.name} only meets other players' agents here - press Play to take on a house agent, or wait.`
-          : me.funding === "deposit"
-            ? `no opponent for ${me.name} yet: it plays only other agents you fund yourself, and no other one is ready in any band. Try again later.`
-            : `no opponent in the ${band} band right now, and no other band has one either. Try again later.`,
+      !houseAllowed
+        ? `no opponent right now: no other player's agent is ready. ${me.name} only meets other players' agents here - press Play to take on a house agent, or wait.`
+        : me.funding === "deposit"
+          ? `no opponent for ${me.name} yet: it plays only other agents you fund yourself, and no other one is ready. Try again later.`
+          : `no opponent right now. Try again later.`,
     );
   }
   const pick: OpponentPick = {
@@ -1162,21 +1091,6 @@ export async function bandCounts(db: Db): Promise<Record<BandName, number>> {
  * it moved. The table itself needs no re-elicitation - a band is the same
  * prices at a different scale.
  */
-export async function setBand(db: Db, agentId: string, ownerId: string | null, band: BandName) {
-  const row = await ownerAgent(db, agentId, ownerId);
-  if (!row) throw new Error(`no agent ${agentId}`);
-  const balance = await balanceOf(db, agentId);
-  const rate = rateOf(row);
-  if (!canAffordBand(balance, band, rate)) {
-    throw new StakeError(
-      `${row.name} holds ${chips(balance, rate)} and cannot cover a band ${band} match, which can move ${bandByName(band).worstMatch}`,
-    );
-  }
-  await db.update(agents).set({ band }).where(eq(agents.id, agentId));
-  if (row.band !== band) await recordEvent(db, agentId, "band", "owner", `${row.band} -> ${band}`);
-  return band;
-}
-
 export {
   affordableBands,
   balanceOf,

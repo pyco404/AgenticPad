@@ -138,7 +138,7 @@ describe("the season's rate", () => {
 
 describe("a match at the season's rate", () => {
   const funded = async (db: Db, name: string, presetName: "Anchor" | "Bully", rate: number) => {
-    const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit", band: "B" });
+    const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit" });
     await record(db, [{ agentId: agent.id, amount: 900 * rate, reason: "deposit" }]);
     return agent;
   };

@@ -379,18 +379,19 @@ describe("CORS", () => {
 });
 
 describe("staking over HTTP", () => {
-  it("seeds a balance on renting and reports it with the band", async () => {
+  it("seeds a balance on renting, at the one scale whatever band a page asks for", async () => {
     const owner = someWallet();
     const created = await readBody(
       await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Banked", presetName: "Anchor", band: "A" }) }),
     );
     expect(created.agent.balance).toBe(STARTING_BALANCE);
-    expect(created.agent.band).toBe("A");
+    // A page from before sends a band; it is ignored.
+    expect(created.agent.band).toBe("B");
     expect(created.agent.retired).toBe(false);
 
     const seen = await readBody(await api(`/agents/${created.agent.id}`, { owner: OTHER }));
     expect(seen.agent.balance).toBe(STARTING_BALANCE);
-    expect(seen.agent.band).toBe("A");
+    expect(seen.agent.band).toBe("B");
   });
 
   it("plays a match, moves no money, and reports the balance as it stands", async () => {
@@ -411,32 +412,16 @@ describe("staking over HTTP", () => {
     expect(ledgerView.balance).toBe(played.balance);
   });
 
-  it("lets the owner change the band, and refuses anyone else", async () => {
+  it("tells a page that still changes bands that they are gone", async () => {
     const owner = someWallet();
     const created = await readBody(
       await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Banded", presetName: "Hammer" }) }),
     );
-    // A fresh rental holds 900, so every band is open to it.
-    const set = await readBody(
-      await api(`/agents/${created.agent.id}/band`, { method: "POST", owner, body: JSON.stringify({ band: "C" }) }),
-    );
-    expect(set.band).toBe("C");
-
-    const theirs = await api(`/agents/${created.agent.id}/band`, {
-      method: "POST",
-      owner: OTHER,
-      body: JSON.stringify({ band: "A" }),
-    });
-    expect(theirs.status).toBe(403);
-
-    const bad = await api(`/agents/${created.agent.id}/band`, { method: "POST", owner, body: JSON.stringify({}) });
-    expect(bad.status).toBe(400);
-    const nonsense = await api(`/agents/${created.agent.id}/band`, {
-      method: "POST",
-      owner,
-      body: JSON.stringify({ band: "Z" }),
-    });
-    expect(nonsense.status).toBe(400);
+    const res = await api(`/agents/${created.agent.id}/band`, { method: "POST", owner, body: JSON.stringify({ band: "C" }) });
+    expect(res.status).toBe(410);
+    expect((await readBody(res)).error).toMatch(/bands are gone/);
+    const seen = await readBody(await api(`/agents/${created.agent.id}`, { owner }));
+    expect(seen.agent.band).toBe("B");
   });
 
   it("refuses to play an agent that holds too little to be in play", async () => {

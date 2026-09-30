@@ -23,7 +23,7 @@ import {
   recordElicitation,
   elicitationCount,
 } from "../src/db/ledger.js";
-import { assertSameFlow, createAgent, pickOpponent, playableBands, roster, runMatch, setBand } from "../src/db/runner.js";
+import { assertSameFlow, createAgent, pickOpponent, roster, runMatch, updateRating } from "../src/db/runner.js";
 import { refreshTrueRatings } from "../src/db/rating.js";
 import { someWallet } from "./helpers.js";
 
@@ -137,52 +137,23 @@ describe("settlement", () => {
     await c();
   });
 
-  it("moves a full band C net, which no clamp would have allowed", async () => {
+  it("puts everyone in one pool: any agent can be matched against any other", async () => {
     const { db: d, close: c } = await fresh();
-    const big = await createAgent(d, { name: "Big", presetName: "Bully", band: "C" });
-    const bold = await createAgent(d, { name: "Bold", presetName: "Mirage", band: "C" });
-
-    let sawBeyondBandB = false;
-    for (let seed = 1; seed <= 200 && !sawBeyondBandB; seed++) {
-      const before = { a: await balanceOf(d, big.id), b: await balanceOf(d, bold.id) };
-      if (Math.min(before.a, before.b) < bandByName("C").worstMatch) break;
-      const { stake, match } = await runMatch(d, big.id, bold.id, { seed });
-      // The band alone sets the stake; balances beyond it buy nothing.
-      expect(stake).toBe(60);
-      const [row] = await d.select().from(matches).where(eq(matches.id, match.id));
-      // Nothing is clamped: the recorded net is the net the engine produced.
-      expect(row!.netA).toBe(row!.log.nets.A);
-      expect(Math.abs(row!.netA)).toBeLessThanOrEqual(60);
-      // Band B's widest possible net is 40; band C reaches past it.
-      if (Math.abs(row!.netA) > 40) sawBeyondBandB = true;
+    const me = await createAgent(d, { name: "Me", presetName: "Anchor", ownerId: someWallet() });
+    const others = [];
+    for (let i = 0; i < 6; i++) {
+      others.push(await createAgent(d, { name: `Other ${i}`, presetName: (["Bully", "Hammer", "Mirage"] as const)[i % 3]!, ownerId: someWallet() }));
     }
-    // Band C really does move more than band B ever could.
-    expect(sawBeyondBandB).toBe(true);
-    await c();
-  });
-
-  it("the band decides who an agent is matched against", async () => {
-    const { db: d, close: c } = await fresh();
-    const owner = someWallet();
-    const cautious = await createAgent(d, { name: "Cautious", presetName: "Anchor", ownerId: owner, band: "A" });
-    // Four on the cheap scale, four on the dear one.
-    const low = [];
-    for (let i = 0; i < 4; i++) low.push(await createAgent(d, { name: `Low ${i}`, presetName: "Bully", band: "A", ownerId: someWallet() }));
-    for (let i = 0; i < 4; i++) await createAgent(d, { name: `High ${i}`, presetName: "Hammer", band: "C", ownerId: someWallet() });
+    // Even an agent left in another band by an older page is on the one scale now.
+    await d.update(agents).set({ band: "C" }).where(eq(agents.id, others[0]!.id));
     await refreshTrueRatings(d);
-
-    for (let i = 0; i < 20; i++) {
-      const pick = await pickOpponent(d, cautious.id);
-      expect(pick.band).toBe("A");
-      expect(low.map((a) => a.id)).toContain(pick.opponentId);
-    }
-
-    // Changing band moves the agent to another scale, and another set of opponents.
-    expect(await setBand(d, cautious.id, owner, "C")).toBe("C");
-    const pick = await pickOpponent(d, cautious.id);
-    expect(pick.band).toBe("C");
-    expect(low.map((a) => a.id)).not.toContain(pick.opponentId);
-    await expect(setBand(d, cautious.id, "88888888-8888-4888-8888-888888888888", "C")).rejects.toThrow(/another owner/);
+    // All six are candidates, the one left in band C among them.
+    const pick = await pickOpponent(d, me.id, { spread: true });
+    expect(pick.band).toBe("B");
+    expect(pick.candidates).toBe(6);
+    // And the match is played at the one scale whatever the row says.
+    const { stake } = await runMatch(d, me.id, others[0]!.id, { seed: 1 });
+    expect(stake).toBe(bandByName("B").worstMatch);
     await c();
   });
 
@@ -191,13 +162,13 @@ describe("settlement", () => {
     const owner = someWallet();
     // Two agents, one wallet, one band, and nobody else at all. The rating path
     // needs four candidates, so this always falls through to the preset one.
-    const mine = await createAgent(d, { name: "Mine", presetName: "Anchor", ownerId: owner, band: "C" });
-    await createAgent(d, { name: "Also mine", presetName: "Bully", ownerId: owner, band: "C" });
+    const mine = await createAgent(d, { name: "Mine", presetName: "Anchor", ownerId: owner });
+    await createAgent(d, { name: "Also mine", presetName: "Bully", ownerId: owner });
     await refreshTrueRatings(d);
-    await expect(pickOpponent(d, mine.id)).rejects.toThrow(/no opponent in the C band/);
+    await expect(pickOpponent(d, mine.id)).rejects.toThrow(/no opponent right now/);
 
     // A stranger in the band is picked by that same fallback.
-    const stranger = await createAgent(d, { name: "Stranger", presetName: "Hammer", ownerId: someWallet(), band: "C" });
+    const stranger = await createAgent(d, { name: "Stranger", presetName: "Hammer", ownerId: someWallet() });
     await refreshTrueRatings(d);
     const pick = await pickOpponent(d, mine.id);
     expect(pick.opponentId).toBe(stranger.id);
@@ -205,71 +176,31 @@ describe("settlement", () => {
     await c();
   });
 
-  it("names a band that does have opponents when this one has none", async () => {
-    const { db: d, close: c } = await fresh();
-    const lonely = await createAgent(d, { name: "Lonely", presetName: "Anchor", ownerId: someWallet(), band: "C" });
-    // Other players' agents: house ones would be no advice here, because this
-    // call (no allowHouse, as autoplay makes it) never meets them.
-    for (let i = 0; i < 3; i++) await createAgent(d, { name: `B ${i}`, presetName: "Bully", band: "B", ownerId: someWallet() });
-    await createAgent(d, { name: "A one", presetName: "Mirage", band: "A", ownerId: someWallet() });
-    await refreshTrueRatings(d);
-    // Band B has the most ready opponents, so that is the one suggested.
-    await expect(pickOpponent(d, lonely.id)).rejects.toThrow(/Band B has 3 agents ready to play/);
-
-    // Counting is per band and respects the cover rule: an agent too poor for
-    // its own band is not offered as a reason to go there.
-    const counts = await playableBands(d, lonely.id, null, "seed");
-    expect(counts.find((x) => x.band === "B")?.count).toBe(3);
-    expect(counts.find((x) => x.band === "A")?.count).toBe(1);
-    expect(counts.find((x) => x.band === "C")?.count).toBe(0);
-    await c();
-  });
-
-  it("says so when nobody in the band can play", async () => {
-    const { db: d, close: c } = await fresh();
-    const lonely = await createAgent(d, { name: "Lonely", presetName: "Anchor", band: "A" });
-    for (let i = 0; i < 4; i++) await createAgent(d, { name: `High ${i}`, presetName: "Bully", band: "C" });
-    await expect(pickOpponent(d, lonely.id)).rejects.toThrow(/no opponent in the A band/);
-    await c();
-  });
 });
 
 describe("rating across bands", () => {
-  it("normalises the ranked record onto band B's scale, so bands rank against each other", async () => {
+  it("still normalises an old match recorded in another band onto band B's scale", async () => {
     const { db: d, close: c } = await fresh();
-    // The same preset, the same seed, the same opponent preset - one pair in
-    // band A, one in band C. Owned on both sides, so the match is ranked. The
-    // money differs by the scale; the ranked record must not.
-    const results: Record<string, { cumulative: number; ranked: number; form: number; raw: number }> = {};
-    for (const band of ["A", "C"] as const) {
-      const a = await createAgent(d, { name: `A-${band}`, presetName: "Bully", band, ownerId: someWallet() });
-      const b = await createAgent(d, { name: `B-${band}`, presetName: "Mirage", band, ownerId: someWallet() });
-      const { match } = await runMatch(d, a.id, b.id, { seed: 7 });
-      const [row] = await d.select().from(matches).where(eq(matches.id, match.id));
-      const [rating] = await d.select().from(ratings).where(eq(ratings.agentId, a.id));
-      results[band] = {
-        cumulative: rating!.cumulativeNet,
-        ranked: rating!.rankedNet,
-        form: rating!.rollingNet50,
-        raw: row!.netA,
-      };
-    }
-    // Band C moved three times band A's money on the same match.
-    expect(results["C"]!.raw).toBe(results["A"]!.raw * 3);
-    // What the ladder ranks is identical, and on band B's scale: a band A net of n reads as 2n.
-    expect(results["C"]!.ranked).toBe(results["A"]!.ranked);
-    expect(results["C"]!.form).toBe(results["A"]!.form);
-    expect(results["A"]!.ranked).toBe(results["A"]!.raw * 2);
-    // But net won is money, and stays the money each band actually moved.
-    expect(results["A"]!.cumulative).toBe(results["A"]!.raw);
-    expect(results["C"]!.cumulative).toBe(results["C"]!.raw);
+    // Matches played before everyone moved to one scale keep the band they were
+    // played at, and the ranked record still reads them on band B's scale.
+    const a = await createAgent(d, { name: "Old-A", presetName: "Bully", ownerId: someWallet() });
+    const b = await createAgent(d, { name: "Old-B", presetName: "Mirage", ownerId: someWallet() });
+    let played = await runMatch(d, a.id, b.id, { seed: 7 });
+    for (let seed = 8; played.settled.A === 0; seed++) played = await runMatch(d, a.id, b.id, { seed });
+    const raw = played.settled.A;
+    await d.update(matches).set({ band: "A" }).where(eq(matches.id, played.match.id));
+    await updateRating(d, a.id);
+    const [rating] = await d.select().from(ratings).where(eq(ratings.agentId, a.id));
+    // A band A net of n reads as 2n; net won stays the chips it was won by.
+    expect(rating!.rankedNet).toBe(Math.trunc(raw * 2));
+    expect(rating!.cumulativeNet).toBe(raw);
     await c();
   });
 
   it("keeps net won as the chips its matches were won by, though none of it is money", async () => {
     const { db: d, close: c } = await fresh();
-    const me = await createAgent(d, { name: "Banded", presetName: "Mirage", band: "A", ownerId: someWallet() });
-    const opp = await createAgent(d, { name: "Opp", presetName: "Anchor", band: "A", ownerId: someWallet() });
+    const me = await createAgent(d, { name: "Banded", presetName: "Mirage", ownerId: someWallet() });
+    const opp = await createAgent(d, { name: "Opp", presetName: "Anchor", ownerId: someWallet() });
     let won = 0;
     for (let seed = 1; seed <= 12; seed++) won += (await runMatch(d, me.id, opp.id, { seed })).settled.A;
     const [rating] = await d.select().from(ratings).where(eq(ratings.agentId, me.id));
@@ -283,8 +214,8 @@ describe("rating across bands", () => {
 describe("running out", () => {
   it("never happens in a match: however many it loses, an agent keeps what it holds", async () => {
     const { db: d, close: c } = await fresh();
-    const small = await createAgent(d, { name: "Small", presetName: "Mirage", band: "A", startingBalance: 24, ownerId: someWallet() });
-    const rival = await createAgent(d, { name: "Rival", presetName: "Bully", band: "A", startingBalance: 900, ownerId: someWallet() });
+    const small = await createAgent(d, { name: "Small", presetName: "Mirage", startingBalance: 45, ownerId: someWallet() });
+    const rival = await createAgent(d, { name: "Rival", presetName: "Bully", startingBalance: 900, ownerId: someWallet() });
 
     let lost = 0;
     for (let seed = 1; seed <= 30; seed++) {
@@ -293,7 +224,7 @@ describe("running out", () => {
       if (result.settled.A < 0) lost++;
     }
     expect(lost).toBeGreaterThan(0);
-    expect(await balanceOf(d, small.id)).toBe(24);
+    expect(await balanceOf(d, small.id)).toBe(45);
     const [row] = await d.select().from(agents).where(eq(agents.id, small.id));
     expect(row!.retiredAt).toBeNull();
     await c();
@@ -394,7 +325,7 @@ describe("lists that show many agents at once", () => {
     expect(byName.get("Deposited")).toBe(900);
   });
 
-  it("count a band's playable agents in each agent's own units", async () => {
+  it("judge who holds enough to play in each agent's own units", async () => {
     const { db } = await connect();
     await migrate(db);
     const me = await createAgent(db, { name: "Mine", presetName: "Anchor", ownerId: someWallet() });
@@ -402,44 +333,35 @@ describe("lists that show many agents at once", () => {
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, rich.id));
     await record(db, [{ agentId: rich.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
     // A deposit agent holding 30 base units is holding nothing: it must not be
-    // counted as covering a 40-chip band because 30 happens to look like chips.
+    // offered as holding the 40-chip minimum because 30 happens to look like chips.
     const pauper = await createAgent(db, { name: "Pauper", presetName: "Mirage", ownerId: someWallet() });
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, pauper.id));
     await record(db, [{ agentId: pauper.id, amount: 30 - 900, reason: "adjustment" }]);
 
-    // Counted from a deposit agent's side: only its own program's agents count.
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, me.id));
-    const counts = await playableBands(db, me.id, null, "deposit");
-    const bandB = counts.find((c) => c.band === "B")!;
-    expect(bandB.count).toBe(1);
+    await record(db, [{ agentId: me.id, amount: baseUnits(900, DEVNET_CHIP_RATE) - 900, reason: "deposit" }]);
+    for (let i = 0; i < 10; i++) expect((await pickOpponent(db, me.id, { minCandidates: 1 })).opponentId).toBe(rich.id);
   });
 
-  it("never sends autoplay to a band whose only agents are house agents", async () => {
+  it("never sends autoplay to house agents, and says Play is the way to meet one", async () => {
     // Korarwick again, once the deposit program had a house roster: autoplay
-    // was told "Band A has 12 agents ready" - all house, which it never meets.
+    // was pointed at agents that were all house, which it never meets.
     const { db } = await connect();
     await migrate(db);
-    const me = await createAgent(db, { name: "Waiting", presetName: "Anchor", ownerId: someWallet(), band: "C" });
-    for (const band of ["A", "B"] as const) await createAgent(db, { name: `House ${band}`, presetName: "Bully", band });
-    expect((await playableBands(db, me.id, me.ownerId, "seed", false)).every((c) => c.count === 0)).toBe(true);
-    expect((await playableBands(db, me.id, me.ownerId, "seed", true)).find((c) => c.band === "A")?.count).toBe(1);
-    await expect(pickOpponent(db, me.id, { spread: true })).rejects.toThrow(/no opponent in the C band.*press Play to take on a house agent/);
+    const me = await createAgent(db, { name: "Waiting", presetName: "Anchor", ownerId: someWallet() });
+    for (let i = 0; i < 2; i++) await createAgent(db, { name: `House ${i}`, presetName: "Bully" });
+    await expect(pickOpponent(db, me.id, { spread: true })).rejects.toThrow(/no opponent right now.*press Play to take on a house agent/);
   });
 
-  it("never names a band whose agents are all under the other program", async () => {
-    // Korarwick, 2026-09-27: the first deposit agent to play was told "try C"
-    // from B and "try B" from C, because the count included seed agents that
-    // pickOpponent will never pair it with.
+  it("never offers an agent under the other program", async () => {
+    // Korarwick, 2026-09-27: the first deposit agent to play was pointed at
+    // seed agents that pickOpponent will never pair it with.
     const { db } = await connect();
     await migrate(db);
     const me = await createAgent(db, { name: "Funded", presetName: "Anchor", ownerId: someWallet() });
     await db.update(agents).set({ funding: "deposit" }).where(eq(agents.id, me.id));
     await record(db, [{ agentId: me.id, amount: baseUnits(900, DEVNET_CHIP_RATE) - 900, reason: "deposit" }]);
-    for (const band of ["A", "B", "C"] as const) {
-      await createAgent(db, { name: `Seeded ${band}`, presetName: "Bully", ownerId: someWallet(), band });
-    }
-    const counts = await playableBands(db, me.id, null, "deposit");
-    expect(counts.every((c) => c.count === 0)).toBe(true);
+    for (let i = 0; i < 3; i++) await createAgent(db, { name: `Seeded ${i}`, presetName: "Bully", ownerId: someWallet() });
     await expect(pickOpponent(db, me.id, { allowHouse: true })).rejects.toThrow(/plays only other agents you fund yourself/);
   });
 });

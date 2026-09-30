@@ -2,7 +2,7 @@ import "./env.js";
 import { existsSync } from "node:fs";
 import { connect, migrate } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
-import { assignMissingMarks, createAgent, STAKE_BANDS } from "../src/db/runner.js";
+import { assignMissingMarks, createAgent } from "../src/db/runner.js";
 import { refreshTrueRatings } from "../src/db/rating.js";
 import { ensureDepositHouse } from "../src/db/house.js";
 import { agents, AUTOPLAY_INTERVAL_MS } from "../src/db/schema.js";
@@ -40,15 +40,13 @@ if (rosterSize > 0 && depositProgram && !seedProgram && (await db.select({ id: a
   console.log(`Seeded the deposit program's house roster: ${roster.length} agents, vaults opened by the worker`);
 } else if (rosterSize > 0 && (await db.select({ id: agents.id }).from(agents).limit(1)).length === 0) {
   const nextName = nameFactory(mulberry32(Date.now() % 1_000_000));
-  const bands = STAKE_BANDS.map((b) => b.name);
   for (let i = 0; i < rosterSize; i++) {
     await createAgent(db, {
       name: nextName(),
       presetName: PRESET_NAMES[i % PRESET_NAMES.length]!,
-      band: bands[i % bands.length]!,
     });
   }
-  console.log(`Seeded a house roster of ${rosterSize} agents across ${bands.length} bands`);
+  console.log(`Seeded a house roster of ${rosterSize} agents`);
 }
 // Every agent has its own emoji; agents from before marks existed get theirs now, oldest first.
 const marked = await assignMissingMarks(db);

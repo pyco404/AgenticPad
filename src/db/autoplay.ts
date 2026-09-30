@@ -219,7 +219,7 @@ export async function tick(
         log(`autoplay: ${who(row)} stopped waiting after ${minutes(playedAt.getTime() - row.autoplayWaitingSince.getTime())}`);
       }
       result.played.push(row.id);
-      plays.push(`${who(row)} ${settled.A >= 0 ? "+" : ""}${settled.A} in band ${match.band}`);
+      plays.push(`${who(row)} ${settled.A >= 0 ? "+" : ""}${settled.A}`);
       options.onMatch?.(match.id);
     } catch (error) {
       // No opponent, or a vault with no room left in its window. Neither is a

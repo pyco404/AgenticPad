@@ -2,7 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { randomInt } from "node:crypto";
 import type { Db } from "./client.js";
 import { createAgent, runExhibition } from "./runner.js";
-import { agents, chainOps, matches, STAKE_BANDS, type BandName } from "./schema.js";
+import { agents, chainOps, matches, type BandName } from "./schema.js";
 import { PRESET_NAMES, type PresetName } from "../presets.js";
 
 /**
@@ -13,8 +13,8 @@ import { PRESET_NAMES, type PresetName } from "../presets.js";
 
 /**
  * Picks a pair that spreads play across the house roster rather than repeating
- * one matchup. Both agents are always in the same band and both can cover its
- * worst match, because runExhibition refuses anything else.
+ * one matchup. Both agents are always under the same program, because
+ * runExhibition refuses anything else.
  *
  * That constraint is not decoration. Picking across the whole roster once bands
  * existed meant the least-played agent - a freshly seeded one, on zero plays -
@@ -33,8 +33,8 @@ export async function pickHousePair(
 
   // Only groups with at least two agents - a lone agent has nobody to meet.
   // No balance is asked of anyone: an exhibition moves nothing, and house
-  // agents need no money. Grouped by band
-  // *and* program: runExhibition refuses a pair under different programs, and
+  // agents need no money. Grouped by program (the band is the same for
+  // everyone now): runExhibition refuses a pair under different programs, and
   // the least-played agent is picked first, so a fresh deposit-program agent
   // offered seed-program opponents would be refused, stay least-played, and be
   // picked again - every time.
@@ -72,7 +72,7 @@ export async function pickHousePair(
   // Whoever has played least goes next, against whoever it has met least,
   // then whoever has played least; ties at random.
   const first = leastBy(house, (id) => plays.get(id) ?? 0);
-  // Its opponent comes from its own band and program only.
+  // Its opponent comes from its own program only.
   const others = byGroup.get(groupOf.get(first)!)!.filter((id) => id !== first);
   const second = leastBy(others, (id) => (met.get(pairKey(first, id)) ?? 0) * 1000 + (plays.get(id) ?? 0));
   return random(2) === 0 ? [first, second] : [second, first];
@@ -113,7 +113,9 @@ export function startHouseExhibitions(
 }
 
 /**
- * The house roster on the deposit program: three of each preset in every band.
+ * The house roster on the deposit program: nine of each preset, all at the one
+ * scale everyone plays at. Thirty-six, as it was when it was three of each
+ * preset in each of three bands.
  *
  * House agents never stake, so they need no balance (docs/mainnet.md, decision
  * 5): matchmaking, exhibitions and retirement ask nothing of it. `chips` is
@@ -122,8 +124,8 @@ export function startHouseExhibitions(
  * to; a mainnet roster is not funded at all.
  */
 export const DEPOSIT_HOUSE = {
-  perPreset: 3,
-  chips: { A: 900, B: 1_350, C: 1_800 } as Record<BandName, number>,
+  perPreset: 9,
+  chips: 1_350,
 };
 
 export type HouseSeat = { id: string; name: string; band: BandName; presetName: PresetName; chips: number };
@@ -161,25 +163,23 @@ export async function ensureDepositHouse(
     name: r.name,
     band: r.band,
     presetName: r.presetName as PresetName,
-    chips: DEPOSIT_HOUSE.chips[r.band],
+    chips: DEPOSIT_HOUSE.chips,
   });
   const roster = existing.map(seat);
   const created: HouseSeat[] = [];
-  for (const { name: band } of STAKE_BANDS) {
-    for (const presetName of PRESET_NAMES) {
-      const have = roster.filter((r) => r.band === band && r.presetName === presetName).length;
-      for (let k = have; k < DEPOSIT_HOUSE.perPreset; k++) {
-        const row = await db.transaction(async (tx) => {
-          const agent = await createAgent(tx as unknown as Db, { name: nextName(), presetName, band, funding: "deposit" });
-          // No owner, and no amount: the program opens a house vault empty,
-          // and a house agent needs nothing in it.
-          await tx.insert(chainOps).values({ kind: "open_vault", agentId: agent.id, owner: null, salt: agent.salt, amount: 0 });
-          return agent;
-        });
-        const made = seat({ id: row.id, name: row.name, band, presetName });
-        created.push(made);
-        roster.push(made);
-      }
+  for (const presetName of PRESET_NAMES) {
+    const have = roster.filter((r) => r.presetName === presetName).length;
+    for (let k = have; k < DEPOSIT_HOUSE.perPreset; k++) {
+      const row = await db.transaction(async (tx) => {
+        const agent = await createAgent(tx as unknown as Db, { name: nextName(), presetName, funding: "deposit" });
+        // No owner, and no amount: the program opens a house vault empty,
+        // and a house agent needs nothing in it.
+        await tx.insert(chainOps).values({ kind: "open_vault", agentId: agent.id, owner: null, salt: agent.salt, amount: 0 });
+        return agent;
+      });
+      const made = seat({ id: row.id, name: row.name, band: row.band, presetName });
+      created.push(made);
+      roster.push(made);
     }
   }
   return { created, roster };

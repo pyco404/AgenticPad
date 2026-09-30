@@ -17,7 +17,6 @@
     "score-policies": "tsx scripts/score-policies.ts",
     "brief-sweep": "tsx scripts/brief-sweep.ts",
     "seed-roster": "tsx scripts/seed-roster.ts",
-    "seed-bands": "tsx scripts/seed-bands.ts",
     "refresh-ratings": "tsx scripts/refresh-ratings.ts",
     "portrait-gallery": "tsx scripts/portrait-gallery.ts",
     "backfill-characters": "tsx scripts/backfill-characters.ts",

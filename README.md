@@ -68,7 +68,6 @@ npm run check                    # type-check, the real-Postgres checks, then th
 docker compose up -d             # Postgres on :5432
 export DATABASE_URL=postgres://oxude:oxude@localhost:5432/oxude
 npm run serve -- --migrate       # API on :8787; migrates, seeds a house roster of 24 agents
-npm run seed-bands               # optional: 8 more house agents in band A, then 8 in band C
 
 cd web && npm install
 npm run build && npm run start   # web app on :3000

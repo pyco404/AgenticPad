@@ -1,7 +1,7 @@
 import { mulberry32, nextUint32, PRESET_NAMES } from "../src/index.js";
 import { nameFactory } from "./names.js";
 import { connect, migrate } from "../src/db/client.js";
-import { createAgent, leaderboard, runMatch, STAKE_BANDS, updateRating } from "../src/db/runner.js";
+import { createAgent, leaderboard, runMatch, updateRating } from "../src/db/runner.js";
 import { refreshTrueRatings, rosterProfile, trueRatingAgainst } from "../src/db/rating.js";
 import { policyAgent } from "../src/agents/policy.js";
 
@@ -23,8 +23,6 @@ const { db, close } = await connect();
 if (process.argv.includes("--migrate")) await migrate(db);
 
 const started = Date.now();
-// Spread across the bands, so every band has opponents.
-const BANDS = STAKE_BANDS.map((b) => b.name);
 const rows = [];
 for (let i = 0; i < AGENTS; i++) {
   // Equal numbers of each preset, each carrying its own snapshotted table.
@@ -32,7 +30,6 @@ for (let i = 0; i < AGENTS; i++) {
     await createAgent(db, {
       name: nextName(),
       presetName: PRESET_NAMES[i % PRESET_NAMES.length]!,
-      band: BANDS[i % BANDS.length]!,
       ...(BALANCE > 0 ? { startingBalance: BALANCE } : {}),
     }),
   );

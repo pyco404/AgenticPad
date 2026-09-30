@@ -3,7 +3,7 @@ import pg from "pg";
 import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { balanceOf, balancesOf, record } from "../src/db/ledger.js";
-import { createAgent, hasBudgetRoom, hasOutflowRoom, leaderboard, lostToday, playableBands, publicAgent, runMatch } from "../src/db/runner.js";
+import { createAgent, hasBudgetRoom, hasOutflowRoom, leaderboard, lostToday, pickOpponent, publicAgent, runMatch } from "../src/db/runner.js";
 import { stakedMatch } from "./staked-match.js";
 import { liveCounters } from "../src/db/feed.js";
 import { faucetStatus } from "../src/db/faucet.js";
@@ -93,13 +93,13 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     const many = await balancesOf(db, [agent.id]);
     expect(many.get(agent.id)).toBe(expected);
 
-    // playableBands compares the same sum inside SQL rather than reading it
-    // out, so what it proves is that the arithmetic does not overflow: a
-    // 32-bit cast raised "integer out of range" on a balance this size.
-    const other = await createAgent(db, { name: "Opponent", presetName: "Bully" });
+    // Matchmaking compares the same sum inside SQL rather than reading it out,
+    // to find who holds enough to play, so what it proves is that the
+    // arithmetic does not overflow: a 32-bit cast raised "integer out of
+    // range" on a balance this size.
+    const other = await createAgent(db, { name: "Opponent", presetName: "Bully", ownerId: someWallet() });
     await record(db, [{ agentId: other.id, amount: big, reason: "adjustment" }]);
-    const bands = await playableBands(db, agent.id, owner, "seed");
-    expect(bands.find((b) => b.band === "B")?.count).toBe(1);
+    expect((await pickOpponent(db, agent.id, { minCandidates: 1 })).opponentId).toBe(other.id);
 
     const view = await publicAgent(db, agent.id);
     expect(typeof view!.balance).toBe("number");
@@ -119,7 +119,7 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     const { db, close } = await fresh();
     const made = [];
     for (const [name, presetName] of [["NetA", "Anchor"], ["NetB", "Bully"]] as const) {
-      const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit", band: "B" });
+      const agent = await createAgent(db, { name, presetName, ownerId: someWallet(), funding: "deposit" });
       await record(db, [{ agentId: agent.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
       made.push(agent);
     }

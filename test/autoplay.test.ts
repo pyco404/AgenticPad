@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
 import { agentEvents, agents, chainOps, matches, withdrawals, bandByName, outflowBudget } from "../src/db/schema.js";
 import { record } from "../src/db/ledger.js";
-import { createAgent, hasBudgetRoom, hasOutflowRoom, lossBudgetOn, lostToday, setBand } from "../src/db/runner.js";
+import { createAgent, hasBudgetRoom, hasOutflowRoom, lossBudgetOn, lostToday } from "../src/db/runner.js";
 import { utcDay } from "../src/chain/common.js";
 import { autoplayStatus, checkAgent, dueAgents, isHold, markSeen, setAutoplay, sinceYouLeft, stopAgent, tick } from "../src/db/autoplay.js";
 import { someWallet } from "./helpers.js";
@@ -31,21 +31,20 @@ const playerOn = async (db: Awaited<ReturnType<typeof fresh>>["db"], opts: Overr
  * a match against one stakes nothing and counts for nothing, and filling an
  * owner's week with those would be a week that earned nothing.
  */
-const opponents = async (db: Awaited<ReturnType<typeof fresh>>["db"], n: number, band: "A" | "B" | "C" = "B") => {
+const opponents = async (db: Awaited<ReturnType<typeof fresh>>["db"], n: number) => {
   for (let i = 0; i < n; i++) {
     await createAgent(db, {
       name: `O${i}-${Math.random().toString(36).slice(2, 6)}`,
       presetName: (["Anchor", "Hammer", "Mirage", "Bully"] as const)[i % 4]!,
       ownerId: someWallet(),
-      band,
     });
   }
 };
 
 /** Unowned agents, for the tests that are about house behaviour itself. */
-const house = async (db: Awaited<ReturnType<typeof fresh>>["db"], n: number, band: "A" | "B" | "C" = "B") => {
+const house = async (db: Awaited<ReturnType<typeof fresh>>["db"], n: number) => {
   for (let i = 0; i < n; i++) {
-    await createAgent(db, { name: `H${i}-${Math.random().toString(36).slice(2, 6)}`, presetName: (["Anchor", "Hammer", "Mirage", "Bully"] as const)[i % 4]!, band });
+    await createAgent(db, { name: `H${i}-${Math.random().toString(36).slice(2, 6)}`, presetName: (["Anchor", "Hammer", "Mirage", "Bully"] as const)[i % 4]! });
   }
 };
 
@@ -170,17 +169,16 @@ describe("autoplay: the tick", () => {
     await close();
   });
 
-  it("waits rather than pausing when the band has nobody, and keeps the wait time", async () => {
+  it("waits rather than pausing when nobody else is playing, and keeps the wait time", async () => {
     const { db, close } = await fresh();
-    // An empty band C: the agent is solvent and willing, with no opponent.
-    const row = await playerOn(db, { band: "C" });
+    // Nobody else: the agent holds enough and is willing, with no opponent.
+    const row = await playerOn(db);
     const first = await tick(db, { intervalMs: 0 });
     expect(first.waiting).toEqual([row.id]);
     expect(first.stopped).toEqual([]);
     const [waiting] = await db.select().from(agents).where(eq(agents.id, row.id));
     expect(waiting!.autoplay).toBe(true);
     expect(waiting!.autoplayWaitingSince).not.toBeNull();
-    expect(waiting!.band).toBe("C");
 
     // Still waiting on the next tick, and the original wait time is kept, so
     // the panel can say how long it has been rather than restarting the clock.
@@ -190,7 +188,7 @@ describe("autoplay: the tick", () => {
     expect(again!.autoplayWaitingSince?.getTime()).toBe(started?.getTime());
 
     // An opponent appears: it plays, and the wait is cleared.
-    await opponents(db, 4, "C");
+    await opponents(db, 4);
     const played = await tick(db, { intervalMs: 0 });
     expect(played.played).toEqual([row.id]);
     const [done] = await db.select().from(agents).where(eq(agents.id, row.id));
@@ -200,7 +198,7 @@ describe("autoplay: the tick", () => {
 
   it("logs a wait once when it starts, with the reason, and how long it lasted when it ends", async () => {
     const { db, close } = await fresh();
-    const row = await playerOn(db, { band: "C" });
+    const row = await playerOn(db);
     const lines: string[] = [];
     const onLog = (line: string) => lines.push(line);
     await tick(db, { intervalMs: 0, onLog });
@@ -208,15 +206,15 @@ describe("autoplay: the tick", () => {
     // Two retries, one line: a wait is logged when it starts, not on every poll.
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain(row.id.slice(0, 8));
-    expect(lines[0]).toMatch(/waiting: no opponent in the C band/);
+    expect(lines[0]).toMatch(/waiting: no opponent right now/);
     // Waiting alone plays and stops nothing, so there is no tick summary.
     expect(lines.some((l) => l.includes("tick played"))).toBe(false);
 
     lines.length = 0;
-    await opponents(db, 4, "C");
+    await opponents(db, 4);
     await tick(db, { intervalMs: 0, onLog });
     expect(lines[0]).toMatch(/stopped waiting after \d+m/);
-    expect(lines[1]).toMatch(/^autoplay: tick played 1, stopped 0, waiting 0 - .* in band C$/);
+    expect(lines[1]).toMatch(/^autoplay: tick played 1, stopped 0, waiting 0 - .* [+-]\d+$/);
     await close();
   });
 
@@ -369,7 +367,7 @@ describe("autoplay: what the panel says", () => {
 
   it("shows how long it has waited, and no countdown while it waits", async () => {
     const { db, close } = await fresh();
-    const row = await playerOn(db, { band: "C" });
+    const row = await playerOn(db);
     await tick(db, { intervalMs: 0 });
     const status = await autoplayStatus(db, await rowOf(db, row.id));
     expect(status.state).toBe("waiting");
@@ -462,16 +460,6 @@ describe("agent events", () => {
     await stopAgent(db, row.id, "withdrawal");
     await stopAgent(db, row.id, "floor");
     expect(await eventsOf(db, row.id)).toEqual(["autoplay autoplay-off paused: floor"]);
-    await close();
-  });
-
-  it("records a band change with where it moved from, and not a move to the band it is already in", async () => {
-    const { db, close } = await fresh();
-    const owner = someWallet();
-    const row = await createAgent(db, { name: "Mover", presetName: "Anchor", ownerId: owner });
-    await setBand(db, row.id, owner, "A");
-    await setBand(db, row.id, owner, "A");
-    expect(await eventsOf(db, row.id)).toEqual(["owner band B -> A"]);
     await close();
   });
 });

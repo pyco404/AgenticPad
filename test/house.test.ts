@@ -3,7 +3,7 @@ import { count, eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
 import { agents, chainOps, ledger, matches, ratings } from "../src/db/schema.js";
 import { balanceOf } from "../src/db/ledger.js";
-import { createAgent, pickOpponent, playableBands, runExhibition, runMatch } from "../src/db/runner.js";
+import { createAgent, pickOpponent, runExhibition, runMatch } from "../src/db/runner.js";
 import { agentRecord, matchActivity, recentMatches } from "../src/db/feed.js";
 import { DEPOSIT_HOUSE, ensureDepositHouse, pickHousePair, retireSeedHouse, startHouseExhibitions } from "../src/db/house.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
@@ -100,16 +100,13 @@ describe("house exhibitions", () => {
   // The wait below is the point of the test, so its budget has to be comfortably
   // inside the timeout: at the default 5s they were equal, and a loaded suite
   // failed here for no reason but contention.
-  it("only pairs agents in the same band, and does not stall on a freshly seeded one", async () => {
+  it("pairs anyone with anyone, and does not stall on a freshly seeded one", async () => {
     const { db, close } = await fresh();
-    // The shape production had: a full band B, fresh agents on zero plays in A
-    // and C, and one agent alone in its band with nobody to meet.
+    // Everyone plays at one scale now, so the whole house is one pool.
     const band = new Map<string, string>();
-    for (const [b, n] of [["B", 6], ["A", 3], ["C", 3]] as const) {
-      for (let i = 0; i < n; i++) {
-        const row = await createAgent(db, { name: `${b}${i}`, presetName: "Anchor", band: b });
-        band.set(row.id, b);
-      }
+    for (let i = 0; i < 12; i++) {
+      const row = await createAgent(db, { name: `H${i}`, presetName: "Anchor" });
+      band.set(row.id, row.band);
     }
 
     // Run the real loop's own steps: pick, then play. Every pick must be
@@ -123,33 +120,29 @@ describe("house exhibitions", () => {
       await runExhibition(db, x, y, { seed: k + 1 });
       played.add(x).add(y);
     }
-    // Nobody is stuck on zero - the fresh A and C agents included.
+    // Nobody is stuck on zero.
     expect(played.size).toBe(band.size);
     await close();
   });
 
-  it("leaves out a band with nobody to pair, and asks no balance of anyone", async () => {
+  it("asks no balance of anyone", async () => {
     const { db, close } = await fresh();
-    const b1 = await createAgent(db, { name: "B1", presetName: "Anchor", band: "B" });
+    const b1 = await createAgent(db, { name: "B1", presetName: "Anchor" });
     // Too little to cover a band B match - and it does not matter: an
     // exhibition moves nothing, so a house agent needs no money to play one.
-    const poor = await createAgent(db, { name: "Poor", presetName: "Mirage", band: "B", startingBalance: 39 });
-    // Alone in band C: there is no one it could meet.
-    const lonely = await createAgent(db, { name: "C1", presetName: "Hammer", band: "C" });
+    const poor = await createAgent(db, { name: "Poor", presetName: "Mirage", startingBalance: 39 });
 
     for (let k = 0; k < 20; k++) {
       const pair = await pickHousePair(db);
       expect(pair).not.toBeNull();
       expect([...pair!].sort()).toEqual([b1.id, poor.id].sort());
-      expect(pair).not.toContain(lonely.id);
     }
     await close();
   });
 
-  it("schedules nothing when no band holds two agents that could play", async () => {
+  it("schedules nothing with fewer than two house agents", async () => {
     const { db, close } = await fresh();
-    await createAgent(db, { name: "OnlyA", presetName: "Anchor", band: "A" });
-    await createAgent(db, { name: "OnlyC", presetName: "Bully", band: "C" });
+    await createAgent(db, { name: "Only", presetName: "Anchor" });
     expect(await pickHousePair(db)).toBeNull();
     await close();
   });
@@ -198,17 +191,14 @@ describe("the house on the deposit program", () => {
   let n = 0;
   const nextName = () => `DepHouse${n++}`;
 
-  it("seeds three of each preset in every band, each with a vault op the worker can send", async () => {
+  it("seeds nine of each preset at the one scale, each with a vault op the worker can send", async () => {
     const { db, close } = await fresh();
     const { created, roster } = await ensureDepositHouse(db, nextName);
     expect(created).toHaveLength(36);
     expect(roster).toHaveLength(36);
-    for (const band of ["A", "B", "C"] as const) {
-      const here = roster.filter((r) => r.band === band);
-      expect(here).toHaveLength(12);
-      for (const preset of ["Anchor", "Hammer", "Mirage", "Bully"]) expect(here.filter((r) => r.presetName === preset)).toHaveLength(3);
-      expect(new Set(here.map((r) => r.chips))).toEqual(new Set([DEPOSIT_HOUSE.chips[band]]));
-    }
+    for (const preset of ["Anchor", "Hammer", "Mirage", "Bully"]) expect(roster.filter((r) => r.presetName === preset)).toHaveLength(9);
+    expect(new Set(roster.map((r) => r.band))).toEqual(new Set(["B"]));
+    expect(new Set(roster.map((r) => r.chips))).toEqual(new Set([DEPOSIT_HOUSE.chips]));
     // Each on the deposit program, with no owner, and a pending open_vault op
     // carrying the salt - which is the only place that salt is kept.
     const ops = await db.select().from(chainOps).where(eq(chainOps.kind, "open_vault"));
@@ -258,8 +248,8 @@ describe("house agents with no balance", () => {
   // They never stake, so nothing may be asked of their balance: on mainnet
   // they hold none (docs/mainnet.md, decision 5). A deposit-program house agent
   // is written with no ledger rows at all, which is the case these cover.
-  const houseWithNothing = (db: Awaited<ReturnType<typeof fresh>>["db"], name: string, band: "A" | "B" | "C" = "B") =>
-    createAgent(db, { name, presetName: "Bully", band, funding: "deposit" });
+  const houseWithNothing = (db: Awaited<ReturnType<typeof fresh>>["db"], name: string) =>
+    createAgent(db, { name, presetName: "Bully", funding: "deposit" });
   const player = async (db: Awaited<ReturnType<typeof fresh>>["db"], name: string) => {
     const row = await createAgent(db, { name, presetName: "Anchor", ownerId: someWallet(), funding: "deposit" });
     await record(db, [{ agentId: row.id, amount: baseUnits(900, DEVNET_CHIP_RATE), reason: "deposit" }]);
@@ -298,17 +288,6 @@ describe("house agents with no balance", () => {
     expect([...pair!].sort()).toEqual([a.id, b.id].sort());
     await runExhibition(db, a.id, b.id, { seed: 1 });
     expect((await db.select({ n: count() }).from(matches))[0]!.n).toBe(1);
-    await close();
-  });
-
-  it("counts toward a band's ready agents when the house is allowed, and not otherwise", async () => {
-    const { db, close } = await fresh();
-    const me = await player(db, "Me");
-    await houseWithNothing(db, "Empty", "C");
-    const withHouse = await playableBands(db, me.id, me.ownerId, "deposit", true);
-    const without = await playableBands(db, me.id, me.ownerId, "deposit", false);
-    expect(withHouse.find((b) => b.band === "C")?.count).toBe(1);
-    expect(without.find((b) => b.band === "C")?.count).toBe(0);
     await close();
   });
 

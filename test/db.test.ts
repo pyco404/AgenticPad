@@ -356,31 +356,23 @@ describe("true rating", () => {
     await closeFresh();
   });
 
-  it("rates against the agent's own band only, since no match crosses bands", async () => {
+  it("rates against the whole roster, since everyone can meet everyone", async () => {
     const { db: fresh, close: closeFresh } = await connect();
     await migrate(fresh);
-    // Band A holds only Anchors, band C only Bullys: the same table is worth
-    // different amounts in each, and neither band sees the other's agents.
-    for (let i = 0; i < 4; i++) await createAgent(fresh, { name: `A${i}`, presetName: "Anchor", band: "A" });
-    for (let i = 0; i < 4; i++) await createAgent(fresh, { name: `C${i}`, presetName: "Bully", band: "C" });
-    const inA = await createAgent(fresh, { name: "MirageA", presetName: "Mirage", band: "A", ownerId: someWallet() });
-    const inC = await createAgent(fresh, { name: "MirageC", presetName: "Mirage", band: "C", ownerId: someWallet() });
+    // Four Anchors and four Bullys, all in one pool: a Mirage meets both.
+    for (let i = 0; i < 4; i++) await createAgent(fresh, { name: `A${i}`, presetName: "Anchor" });
+    for (let i = 0; i < 4; i++) await createAgent(fresh, { name: `C${i}`, presetName: "Bully" });
+    const me = await createAgent(fresh, { name: "Mirage", presetName: "Mirage", ownerId: someWallet() });
     await refreshTrueRatings(fresh);
 
     const mirage = policyAgent(snapshotPreset("Mirage"));
     const vs = (a: "Anchor" | "Bully") => seatAveragedNet(mirage, PRESETS[a], AGENTCLASH_RULES);
-    const [a] = await fresh.select().from(agents).where(eq(agents.id, inA.id));
-    const [c] = await fresh.select().from(agents).where(eq(agents.id, inC.id));
-    expect(a!.trueRating).toBeCloseTo(vs("Anchor"), 9);
-    expect(c!.trueRating).toBeCloseTo(vs("Bully"), 9);
+    const [row] = await fresh.select().from(agents).where(eq(agents.id, me.id));
+    expect(row!.trueRating).toBeCloseTo((vs("Anchor") + vs("Bully")) / 2, 9);
 
-    // The preview for band A rates against band A's roster, priced in band A's money.
-    const preview = previewPolicy(snapshotPreset("Mirage"), await rosterProfile(fresh, "A"));
-    expect(preview.band).toBe("A");
-    expect(preview.roster).toBe(5);
-    // A preview rates a table that is not on the roster yet, so it counts MirageA too, which nets 0 against itself.
-    expect(preview.trueRating).toBeCloseTo((4 * vs("Anchor")) / 5, 9);
-    expect(preview.priced.perMatch).toBeCloseTo(preview.trueRating * 0.5, 12);
+    // A preview rates against the same roster: all nine.
+    const preview = previewPolicy(snapshotPreset("Mirage"), await rosterProfile(fresh, "B"));
+    expect(preview.roster).toBe(9);
     await closeFresh();
   });
 

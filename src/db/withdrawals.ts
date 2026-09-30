@@ -4,19 +4,18 @@ import type { PreparedWithdrawal } from "../chain/common.js";
 import type { Db } from "./client.js";
 import { balanceOf, record } from "./ledger.js";
 import { exitState, isExiting, type ExitState } from "./exits.js";
-import { agents, chainOps, STAKE_BANDS, withdrawals, type WithdrawalStatus } from "./schema.js";
+import { agents, bandByName, chainOps, DEFAULT_BAND, withdrawals, type WithdrawalStatus } from "./schema.js";
 import { baseUnits, chips, rateOf } from "../chips.js";
 import { requestEarlySettlement } from "./netting.js";
 
 /**
  * The least a vault can be left with and still be worth keeping, in **chips**:
- * the cheapest band's worst match. Below this no band is affordable, which is
- * exactly the point at which an agent retires, so leaving less would strand it
- * holding money it can never play. Comfortably above either program's own
- * MIN_STAKE of 10 chips, which only asks that a vault be left empty or
- * non-trivial.
+ * the least an agent must hold to play (runner.ts, runMatch). Leaving less
+ * would strand it holding money it can never play. Comfortably above either
+ * program's own MIN_STAKE of 10 chips, which only asks that a vault be left
+ * empty or non-trivial.
  */
-const MIN_TO_KEEP_PLAYING_CHIPS = Math.min(...STAKE_BANDS.map((b) => b.worstMatch));
+const MIN_TO_KEEP_PLAYING_CHIPS = bandByName(DEFAULT_BAND).worstMatch;
 
 /**
  * Withdrawals from an agent's vault to its owner.
@@ -183,7 +182,7 @@ export async function prepareWithdrawal(
   if (remaining !== 0 && remaining < minToKeep) {
     throw new WithdrawalError(
       400,
-      `that would leave ${chips(remaining, rate)}, too little to play a match in any band: take it all and retire, or leave at least ${MIN_TO_KEEP_PLAYING_CHIPS}`,
+      `that would leave ${chips(remaining, rate)}, too little to play: take it all and retire, or leave at least ${MIN_TO_KEEP_PLAYING_CHIPS}`,
     );
   }
 
