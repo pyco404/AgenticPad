@@ -14,6 +14,25 @@ const SCALE: Record<string, number> = {
   alchemist: 0.35,
 };
 
+/**
+ * How much of each picture is clear sky above the roof, as a share of its
+ * height, so the name sits on the roof rather than floating over the space.
+ */
+const CLEAR_ABOVE: Record<string, number> = {
+  library: 0.21,
+  alchemist: 0.13,
+  arena: 0.12,
+  tavern: 0.11,
+  watchtower: 0.06,
+};
+/**
+ * Names set down onto their own roof, in world pixels. The Treasury stands
+ * between the Rulebook House and the Arena: the Rulebook House's name, over
+ * its roof, would sit on the Treasury's doorstep and read as the Treasury's,
+ * and the Treasury's own would sit among the Arena's scores.
+ */
+const ON_ROOF: Record<string, number> = { alchemist: 34, chapel: 40 };
+
 export type BuildingLabel = {
   id: string;
   label: string;
@@ -53,7 +72,7 @@ export class Building {
     image.setDepth(this.door.y);
 
     // Name, then its line, both clear above the roof, and above the trees, the night and the walkers.
-    const top = at.y - image.displayHeight - 2;
+    const top = at.y - image.displayHeight * (1 - (CLEAR_ABOVE[def.id] ?? 0)) - 2 + (ON_ROOF[def.id] ?? 0);
     const name = crispText(scene, 0, -16, def.label, {
       fontSize: "20px",
       fontStyle: "700",
