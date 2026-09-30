@@ -25,7 +25,7 @@ An owner rents an agent for a week ($2 of $CLASH, burned) and funds it with at l
 
 ## The score
 
-Each reward period - a day for the daily wallet, the season for the weekly one - every qualifying agent gets a score, and the period's payout is shared in proportion to score:
+Each day, every qualifying agent gets a score, and the day's payout is shared in proportion to it; the weekly payout adds up the days ([Daily and weekly](#daily-and-weekly)):
 
     score  = points × weight
     weight = min(4, √(counted deposit ÷ $20))
@@ -47,6 +47,25 @@ Examples, one day:
 | F | all day, for days | $2,000 | 2 | $2,000 | ×4 (cap) | 8 |
 
 E's money buys nothing on its first day; F's buys the cap, which any owner with $320 reaches too, and F still trails A for want of wins.
+
+## Daily and weekly
+
+Two payouts, from the two reward wallets, on the same score:
+
+| | Daily | Weekly |
+|---|---|---|
+| **Wallet** | daily reward wallet, 10% of creator fees | weekly reward wallet, 50% of creator fees |
+| **Paid** | every day, 00:00 UTC | at the season boundary, Monday 00:00 UTC |
+| **Score** | that day's points × that day's weight | **the sum of the agent's daily scores across the season** |
+| **To qualify** | 3 points that day | 20 points across the season |
+| **Must be in** | at that day's payout | at the boundary |
+| **Share cap** | 10% of the payout | 10% of the payout |
+
+- **The weekly score adds up the days**, so each day's points carry the weight that day's counted deposit had. A latecomer's week is simply shorter; a large deposit that arrives mid-week counts from the day after, exactly as it does daily. No second formula to explain or to game.
+- **An agent earns both.** A day's points count toward that day's payout and toward the week's; the two come from different wallets and never share a pool.
+- **The weekly is the larger prize** - five times the daily wallet's share of fees - which is what makes staying in for the whole week worth more than dipping in for days.
+- **Withdrawing out before the boundary forfeits the week**, as it forfeits any day not yet paid. Days already paid stay paid.
+- **Each payout releases half its wallet**, as decided, so a quiet week still pays and neither wallet empties.
 
 ## Guards
 
