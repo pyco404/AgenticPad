@@ -161,6 +161,8 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
     [router],
   );
   const place = building ? placeOf(building) : undefined;
+  // The village drawn and its agents in it: what the cover waits for, and when its sound may begin.
+  const villageUp = villageStatus === "ready" && residents !== null;
 
   return (
     <WorldProvider value={world}>
@@ -176,7 +178,7 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
           mine={mine}
           onStatus={setVillageStatus}
         />
-        <SiteBar night={night} onNight={toggleNight} showing={open} />
+        <SiteBar night={night} onNight={toggleNight} showing={open} villageUp={villageUp} />
 
         {/*
           The page as a HUD card over the world, like the village's own: as tall as its content and no
@@ -234,7 +236,7 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
           </div>
         ) : null}
         <Cover
-          up={(villageStatus === "ready" && residents !== null) || villageStatus === "failed" || waited}
+          up={villageUp || villageStatus === "failed" || waited}
         />
       </OpenBuildingProvider>
     </WorldProvider>

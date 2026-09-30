@@ -1,9 +1,9 @@
 /**
  * The village's sound, every bit of it made here with the Web Audio API rather
- * than played from files: no licences, nothing to download. Off until the
- * visitor turns it on - browsers refuse sound before a click anyway, and sound
- * that starts unasked is the quickest way to get a tab closed - and silent
- * while the tab is hidden. Nothing here can reach a match: it only listens.
+ * than played from files: no licences, nothing to download. On unless the
+ * visitor has turned it off, though a browser holds it back until the page is
+ * first touched (the setting in site-bar.tsx waits for that), and silent while
+ * the tab is hidden. Nothing here can reach a match: it only listens.
  */
 
 let ctx: AudioContext | null = null;
@@ -131,6 +131,16 @@ function startAmbience(): { stop: () => void } | null {
 export const sound = {
   get enabled() {
     return enabled;
+  },
+
+  /** Actually playing: switched on, and let through by the browser. */
+  get playing() {
+    return enabled && ctx?.state === "running";
+  },
+
+  /** Switched on but held back by the browser until the page was touched: let it through now, from a touch. */
+  wake(): void {
+    if (enabled && ctx && ctx.state !== "running" && !document.hidden) void ctx.resume();
   },
 
   /** Turn sound on or off. On has to come from a click or a tap: that is what lets the browser play it. */

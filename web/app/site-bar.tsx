@@ -48,7 +48,7 @@ function sectionOf(path: string): string | null {
 function Mark() {
   return (
     <Link href="/" aria-label="AgentClash home" className="flex shrink-0 items-center gap-2">
-      <img src="/agentclash-tb.png" alt="" width={474} height={239} className="h-8 w-auto [image-rendering:pixelated] lg:h-12" />
+      <img src="/agentclash-tb.png" alt="" width={474} height={239} className="h-6 w-auto [image-rendering:pixelated] lg:h-8" />
     </Link>
   );
 }
@@ -158,29 +158,35 @@ function WalletControl() {
 }
 
 /**
- * Sound on or off, remembered in this browser; off until someone turns it on.
- * A browser only lets a page play sound after a click, so a visitor who left it
- * on last time hears it again from their first tap on the page.
+ * Sound on or off, remembered in this browser, and on unless the visitor has
+ * turned it off. A browser plays a page's sound only once someone has clicked,
+ * tapped or pressed a key on it - loading, however long, is not enough - so
+ * once the village is up it tries, which some browsers allow for a site
+ * visited often, and otherwise starts on the first touch of the page: a drag
+ * of the map, a tap, a click on a building.
  */
-export function useSoundSetting(): [boolean, () => void] {
+export function useSoundSetting(villageUp: boolean): [boolean, () => void] {
   const [on, setOn] = useState(false);
   useEffect(() => {
-    let remembered = false;
+    let off = false;
     try {
-      remembered = localStorage.getItem("agentclash.sound") === "1";
+      off = localStorage.getItem("agentclash.sound") === "0";
     } catch {
-      // No storage: it stays off.
+      // No storage: nothing was turned off, so it is on.
     }
-    if (!remembered) return;
-    setOn(true);
-    const start = () => sound.setEnabled(true);
-    window.addEventListener("pointerdown", start, { once: true });
-    window.addEventListener("keydown", start, { once: true });
-    return () => {
-      window.removeEventListener("pointerdown", start);
-      window.removeEventListener("keydown", start);
-    };
+    if (!off) setOn(true);
   }, []);
+  useEffect(() => {
+    if (!on || !villageUp || sound.playing) return;
+    const start = () => (sound.enabled ? sound.wake() : sound.setEnabled(true));
+    // Straight away where the browser allows it; wherever it does not, this waits, silent, for the first touch.
+    start();
+    const events = ["pointerdown", "keydown", "touchend"] as const;
+    for (const e of events) window.addEventListener(e, start, { once: true, capture: true });
+    return () => {
+      for (const e of events) window.removeEventListener(e, start, { capture: true });
+    };
+  }, [on, villageUp]);
   const toggle = () =>
     setOn((was) => {
       const now = !was;
@@ -223,9 +229,20 @@ export function useNight(): [boolean, () => void] {
  * day or night, and the wallet. Below xl the ☰ menu holds the sections the
  * bar has no room for - on a phone, all of them.
  */
-export function SiteBar({ night, onNight, showing }: { night: boolean; onNight: () => void; showing: boolean }) {
+export function SiteBar({
+  night,
+  onNight,
+  showing,
+  villageUp,
+}: {
+  night: boolean;
+  onNight: () => void;
+  showing: boolean;
+  /** The village is on screen: the moment its sound may begin. */
+  villageUp: boolean;
+}) {
   const path = usePathname() ?? "/";
-  const [soundOn, toggleSound] = useSoundSetting();
+  const [soundOn, toggleSound] = useSoundSetting(villageUp);
   // A section is current only while its page is showing: with the page closed, only the village is.
   const active = showing ? sectionOf(path) : null;
   const [open, setOpen] = useState(false);
