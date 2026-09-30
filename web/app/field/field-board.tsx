@@ -8,6 +8,7 @@ import { useLive } from "@/lib/live";
 import { presetLabel } from "@/lib/agent-mark";
 import { useFlip, useTicker } from "@/lib/motion";
 import { LiveDot } from "@/app/live-dot";
+import { Portrait } from "@/app/portrait";
 
 type Opponent = { id: string; name: string; mark: string | null };
 
@@ -170,13 +171,11 @@ function Tile({ agent, state, vs = null }: { agent: FieldAgent; state: keyof typ
             : "border-line bg-panel-2"
       }`}
     >
-      <span aria-hidden className="shrink-0 text-[20px] leading-none">
-        {agent.mark ?? <span className="font-mono text-[13px] text-muted">{agent.name.slice(0, 1)}</span>}
-      </span>
+      <Portrait id={agent.id} size={24} />
       <span className="w-full min-w-0 @lg:w-auto @lg:flex-1">
         <span className="block truncate text-[12px] leading-4 text-text">{agent.name}</span>
         <span className="block truncate font-mono text-[10px] uppercase leading-3 tracking-wider text-muted">
-          {state === "retired" ? "retired" : vs ? `vs ${vs.mark ?? vs.name}` : agent.house ? "house" : presetLabel(agent.presetName)}
+          {state === "retired" ? "retired" : vs ? `vs ${vs.name}` : agent.house ? "house" : presetLabel(agent.presetName)}
         </span>
       </span>
     </Link>
