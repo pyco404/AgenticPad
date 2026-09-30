@@ -89,6 +89,8 @@ for (const unit of HERO_UNITS) {
 }
 
 // Buildings: Agent Quest's own art, not the pack's, under its MIT licence (buildings/LICENSE.txt).
+// After importing, Tavern.png (the Hiring Hall) has its sign's lettering - "Locanda del Telaio" - painted
+// out to plain board; an import brings the lettering back.
 const BUILDING_FILES: Record<string, string> = {
   castle: "Castle", library: "Library", forge: "Forge", tavern: "Tavern",
   chapel: "Chapel", watchtower: "Tower", arena: "Arena", alchemist: "Alchemist",

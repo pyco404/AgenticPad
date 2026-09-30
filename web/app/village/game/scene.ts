@@ -11,6 +11,17 @@ import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
 import { GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
 
+/**
+ * Props that say what a building is for where its art alone does not: the
+ * Treasury is a chapel in the pack, so sacks of gold stand at its door. The
+ * art is the pack's, cropped, in public/fixtures.
+ */
+const PROPS: { key: string; image: string; x: number; y: number; scale: number }[] = [
+  { key: "prop-gold", image: "/fixtures/Gold.png", x: 1596, y: 852, scale: 0.42 },
+  { key: "prop-gold", image: "/fixtures/Gold.png", x: 1609, y: 858, scale: 0.34 },
+  { key: "prop-gold", image: "/fixtures/Gold.png", x: 1583, y: 860, scale: 0.36 },
+];
+
 /** How often two sides in a match go at each other. */
 const BOUT_MS: [number, number] = [650, 1300];
 /** How far a lunge goes: a little under half the gap between the two (PAIR_GAP), so two charging at once meet in the middle. */
@@ -123,11 +134,14 @@ export class VillageScene extends Phaser.Scene {
     // The places the map does not have bring their own pictures, from the site's root.
     this.load.setPath("");
     for (const b of this.opts.buildings) if (b.at && b.image) this.load.image(`building-${b.id}`, b.image);
+    for (const p of PROPS) if (!this.textures.exists(p.key)) this.load.image(p.key, p.image);
   }
 
   create(): void {
     this.cameras.main.setBackgroundColor("#141a24");
     drawMap(this, this.map);
+    // Props that say what a building is for, where its art alone does not: set at their feet, like the map's own.
+    for (const p of PROPS) this.add.image(p.x, p.y, p.key).setOrigin(0.5, 1).setScale(p.scale).setDepth(p.y);
 
     const labels = new Map(this.opts.buildings.map((b) => [b.id, b]));
     const placed = this.opts.buildings.flatMap((b) => (b.at ? [{ id: b.id, ...b.at }] : []));
