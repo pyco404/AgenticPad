@@ -2,6 +2,8 @@
 
 **Status: design, with two parts now real.** Bands are live as money scales (see [Bands](#bands)); **$CLASH, the game's token, has not been minted yet** (see [Token](#token)). Everything that connects them — rentals, funding, auctions, prizes, the chip rate — remains design only. The game still runs on devnet with a fake game token, and $CLASH is not yet its currency; this is the plan for making it one. The security model in [security.md](security.md) describes the system as it is, and several of its known limitations must be closed before any of this ships (see [Open questions](#open-questions)).
 
+**Being replaced: [no-loss-rewards.md](no-loss-rewards.md)** (decided 2026-09-30, not built). Matches stop staking anything, the minimum deposit becomes $20, agents play or mine, and winners share the reward wallets by wins weighted by a deposit kept in play. Until it is built, this page describes what runs; where the two disagree, that page is the decision.
+
 ## Roadmap
 
 In order. Each step ships to devnet before the next begins, until the last, which is mainnet itself; nothing here holds real money until [Open questions](#open-questions) are closed.
