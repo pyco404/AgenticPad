@@ -175,10 +175,11 @@ export class VillageScene extends Phaser.Scene {
   private villageBounds(): Phaser.Geom.Rectangle {
     const xs = this.map.buildings.map((b) => b.x);
     const ys = this.map.buildings.map((b) => b.y);
-    const left = Math.min(...xs) - 90;
+    // Room at the sides for the outermost buildings' names, which hang past their roofs.
+    const left = Math.min(...xs) - 170;
     // Room above the top row for the tallest roof and its name.
     const top = Math.min(...ys) - 230;
-    return new Phaser.Geom.Rectangle(left, top, Math.max(...xs) + 90 - left, Math.max(...ys) + 150 - top);
+    return new Phaser.Geom.Rectangle(left, top, Math.max(...xs) + 170 - left, Math.max(...ys) + 150 - top);
   }
 
   /**
@@ -204,7 +205,8 @@ export class VillageScene extends Phaser.Scene {
 
   /** Building names keep a readable size on screen however far out the village is zoomed, as a game's map labels do. */
   private rescaleLabels(): void {
-    const scale = Phaser.Math.Clamp((0.85 * renderScale(this)) / this.cameras.main.zoom, 1, 2.5);
+    // Capped so the longest name ("Rulebook House") still fits between its neighbours on a phone.
+    const scale = Phaser.Math.Clamp((0.85 * renderScale(this)) / this.cameras.main.zoom, 1, 1.45);
     for (const b of this.buildings.values()) b.setLabelScale(scale);
     for (const h of this.heroes.values()) h.setLabelScale(this.heroLabelScale());
   }

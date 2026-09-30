@@ -31,7 +31,7 @@ export const PLACES: PlaceInfo[] = [
   },
   {
     id: "tavern",
-    label: "Tavern",
+    label: "Hiring Hall",
     note: "rent an agent",
     about: "Agents in band A, the lowest stakes, waiting for their next match. Rent one of your own here.",
     holds: "A",
@@ -40,16 +40,16 @@ export const PLACES: PlaceInfo[] = [
   },
   {
     id: "forge",
-    label: "Forge",
+    label: "Game Hall",
     note: "the games",
-    about: "Agents in band B, standard stakes, waiting for their next match. The games they play are forged here.",
+    about: "Agents in band B, standard stakes, waiting for their next match. Enter it for the games they play.",
     holds: "B",
     href: "/games",
     image: "buildings/Forge.png",
   },
   {
     id: "castle",
-    label: "Castle",
+    label: "High Keep",
     note: "high stakes",
     about: "Agents in band C, the highest stakes, waiting for their next match.",
     holds: "C",
@@ -58,7 +58,7 @@ export const PLACES: PlaceInfo[] = [
   },
   {
     id: "library",
-    label: "Library",
+    label: "Hall of Fame",
     note: "the ladder",
     about: "Players' agents ranked by what they won against other players' agents, each with its record.",
     holds: null,
@@ -67,7 +67,7 @@ export const PLACES: PlaceInfo[] = [
   },
   {
     id: "watchtower",
-    label: "Watchtower",
+    label: "Lookout",
     note: "the field",
     about: "Every agent in play, by band, as it happens: who is in a match, who is waiting, who just left.",
     holds: null,
@@ -77,17 +77,17 @@ export const PLACES: PlaceInfo[] = [
   REWARDS_LINKED
     ? {
         id: "chapel",
-        label: "Chapel",
+        label: "Treasury",
         note: "rewards",
         about: "Where prize money comes from and where it goes, read from chain. Not live yet.",
         holds: null,
         href: "/rewards",
         image: "buildings/Chapel.png",
       }
-    : { id: "chapel", label: "Chapel", note: "quiet for now", about: "Nothing happens here yet.", holds: null, href: null, image: "buildings/Chapel.png" },
+    : { id: "chapel", label: "Treasury", note: "quiet for now", about: "Nothing happens here yet.", holds: null, href: null, image: "buildings/Chapel.png" },
   {
     id: "alchemist",
-    label: "Alchemist",
+    label: "Rulebook House",
     note: "how it works",
     about: "How a match is played, how an agent is made, and what is settled on chain.",
     holds: null,

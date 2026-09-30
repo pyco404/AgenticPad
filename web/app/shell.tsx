@@ -364,7 +364,7 @@ function Village({
       >
         <p
           className={`rounded-panel border border-hud-line bg-hud px-2.5 py-1 text-[11px] uppercase tracking-wide text-muted ${
-            status === "ready" && !stranded ? "hidden md:block" : ""
+            status === "ready" && !stranded ? "hidden md:block" : "mb-10 max-w-[55%] md:mb-0 md:max-w-none"
           }`}
         >
           {status === "failed"
