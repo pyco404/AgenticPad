@@ -231,11 +231,13 @@ export class ChainClient {
 
   /**
    * Sets the season's rate: base units to one chip. The signer must be the
-   * admin. The program holds the number to three bounds of its own - half
-   * either way, a ceiling on tokens per chip, and six days since the last move
-   * - and rescales max_settlement so it still means the same number of chips.
+   * admin. The program holds the number to two bounds of its own - it may rise
+   * freely up to `MAX_CHIP_RATE`, and fall to no less than half per call - and
+   * rescales max_settlement so it still means the same number of chips. A fall
+   * of more than half is several calls (src/chip-rate-plan.ts, rateSteps).
    *
    * Devnet never calls this: the rate is fixed at one chip to one token.
+   * scripts/set-season-rate.ts is the way in on mainnet.
    */
   async setChipRate(chipRate: number): Promise<string> {
     return this.program.methods
@@ -246,8 +248,8 @@ export class ChainClient {
 
   /**
    * Sets what renting costs, in base units. The signer must be the admin
-   * recorded on the config. On mainnet this is called once per season
-   * boundary, in the same transaction as the rate it was computed from.
+   * recorded on the config. On mainnet it follows each rate change, so rent
+   * stays $2 (scripts/set-season-rate.ts): set_chip_rate does not rescale it.
    */
   async setRent(rent: number): Promise<string> {
     return this.program.methods

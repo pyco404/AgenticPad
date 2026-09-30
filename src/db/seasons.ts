@@ -3,6 +3,7 @@ import { randomInt } from "node:crypto";
 import type { Db } from "./client.js";
 import { recordEvent } from "./events.js";
 import { prizeOrder, standings } from "./standings.js";
+import { syncSeasonRate, type ChainRate, type RateSync } from "./chip-rate.js";
 import { GRACE_MS, nextSeason, RENEWAL_REMINDER_MS, seasonAt, seasonByKey, type Season } from "../season.js";
 import { agents, seasonStandings, seasons, type AgentRow } from "./schema.js";
 
@@ -25,19 +26,6 @@ export async function ensureSeason(db: Db, season: Season): Promise<void> {
     .values({ key: season.key, startsAt: season.start, endsAt: season.end })
     .onConflictDoNothing();
 }
-
-/**
- * The hook for what changes between seasons on chain. Runs inside the closing
- * transaction, once per boundary, after the old season's standings are frozen.
- *
- * On devnet it does nothing: there is no chip rate. On mainnet this is where
- * the next season's rate is set - computed from the published TWAP, checked
- * against the ±50% band and the tokens-per-chip ceiling, written to the next
- * season's `chip_rate`, and queued for the program through the outbox in this
- * same transaction, so the ledger and the chain agree on it or neither has it
- * (docs/economy.md, The chip rate).
- */
-export async function onSeasonBoundary(_db: Db, _closing: Season, _next: Season): Promise<void> {}
 
 export type CloseResult = { closed: boolean; expired: number; autoplayStopped: number; standings: number };
 
@@ -127,9 +115,9 @@ export async function closeSeason(db: Db, key: string, now = new Date()): Promis
       autoplayStopped++;
     }
 
-    const next = nextSeason(season);
-    await onSeasonBoundary(t, season, next);
-    await ensureSeason(t, next);
+    // The next season's rate is not set here: it is read from the program on the
+    // first pass after the boundary, outside any transaction (src/db/chip-rate.ts).
+    await ensureSeason(t, nextSeason(season));
     await tx.update(seasons).set({ status: "closed", closedAt: now }).where(eq(seasons.key, key));
     return { closed: true, expired, autoplayStopped, standings: table.length };
   });
@@ -154,15 +142,16 @@ export async function lapseExpired(db: Db, now = new Date()): Promise<string[]> 
   });
 }
 
-export type SeasonTick = { closed: { key: string; result: CloseResult }[]; lapsed: string[] };
+export type SeasonTick = { closed: { key: string; result: CloseResult }[]; lapsed: string[]; rate: RateSync };
 
 /**
  * One pass: close every season that has ended and is still open, oldest
- * first; make sure the current season has its row; lapse whoever's grace is
+ * first; settle the rate for the season now in play; lapse whoever's grace is
  * over. Runs at startup and then every minute, so a boundary missed while the
- * api was down is closed as soon as it is back.
+ * api was down is closed as soon as it is back, and a new season's rate is in
+ * use within a minute of it starting.
  */
-export async function seasonTick(db: Db, now = new Date()): Promise<SeasonTick> {
+export async function seasonTick(db: Db, now = new Date(), readRate: (() => Promise<ChainRate>) | null = null): Promise<SeasonTick> {
   const ended = await db
     .select({ key: seasons.key })
     .from(seasons)
@@ -170,21 +159,47 @@ export async function seasonTick(db: Db, now = new Date()): Promise<SeasonTick> 
     .orderBy(asc(seasons.key));
   const closed: SeasonTick["closed"] = [];
   for (const { key } of ended) closed.push({ key, result: await closeSeason(db, key, now) });
-  await ensureSeason(db, seasonAt(now));
-  return { closed, lapsed: await lapseExpired(db, now) };
+  const rate = await syncSeasonRate(db, readRate, now);
+  return { closed, lapsed: await lapseExpired(db, now), rate };
 }
 
 export function startSeasons(
   db: Db,
-  options: { pollMs?: number; onLog?: (line: string) => void; onError?: (error: unknown) => void } = {},
+  options: {
+    pollMs?: number;
+    onLog?: (line: string) => void;
+    onError?: (error: unknown) => void;
+    /** Reads the deposit program's rate and rent; absent where there is no deposit program. */
+    readRate?: () => Promise<ChainRate>;
+    /** Every pass's rate, so the caller can keep the rent it quotes in step with the program's. */
+    onRate?: (rate: RateSync) => void;
+  } = {},
 ): { stop: () => void } {
   const pollMs = options.pollMs ?? 60_000;
   const log = options.onLog ?? (() => {});
   let stopped = false;
+  let lastSaid = "";
   let timer: ReturnType<typeof setTimeout> | undefined;
   const once = async () => {
     try {
-      const result = await seasonTick(db);
+      const result = await seasonTick(db, new Date(), options.readRate ?? null);
+      options.onRate?.(result.rate);
+      const r = result.rate;
+      // Said once per change, not every minute.
+      const said = `${r.season}:${r.rate}:${r.source}:${r.drift?.chain ?? ""}`;
+      if (said !== lastSaid) {
+        lastSaid = said;
+        if (r.source === "chain") log(`season: ${r.season} plays at ${r.rate} base units a chip, read from the program`);
+        if (r.source === "unreadable") options.onError?.(new Error(`season ${r.season} has no chip rate and the program could not be read; still using ${r.rate}`));
+        if (r.drift) {
+          options.onError?.(
+            new Error(
+              `chip rate drift: the program is at ${r.drift.chain} but season ${r.season} plays at ${r.drift.season}; ` +
+                `the program's limits already count in the new rate, and the ledger takes it up at the next boundary`,
+            ),
+          );
+        }
+      }
       for (const { key, result: r } of result.closed) {
         if (r.closed) {
           log(`season: closed ${key} - ${r.standings} standings frozen, ${r.expired} expired, autoplay stopped for ${r.autoplayStopped}`);

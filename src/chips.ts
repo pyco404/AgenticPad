@@ -20,7 +20,7 @@
  *   seed     the frozen program's mint: 0 decimals, and one token was one chip.
  *            Rate 1, for ever - that program is frozen and its rate cannot move.
  *   deposit  the stake token: 6 decimals. One chip is one whole token on
- *            devnet; on mainnet the season boundary sets it.
+ *            devnet; on mainnet it is the season's rate (seasonRate below).
  *
  * Because the seed flow's rate is 1, every ledger row written before any of
  * this is already a correct base-unit value, and widening the columns needed no
@@ -46,9 +46,37 @@ export type Funding = "seed" | "deposit";
  */
 export const SEED_CHIP_RATE = 1;
 
+/**
+ * The season's rate, for this process: base units of the stake token in one
+ * chip on the deposit flow, this week.
+ *
+ * Held here, once, rather than threaded through every call that turns base
+ * units into chips, because it is one number for everything a server does: an
+ * api serves one deposit program (docs/rehearsal.md, finding 3), and the rate
+ * changes only at a season boundary (docs/economy.md, The chip rate). It
+ * starts at devnet's fixed rate; src/db/chip-rate.ts adopts the season's
+ * recorded rate at startup and at each boundary, and only there.
+ */
+let current = DEVNET_CHIP_RATE;
+
+/** The season's rate this process is using. */
+export function seasonRate(): number {
+  return current;
+}
+
+/**
+ * Makes `rate` the season's rate. Only src/db/chip-rate.ts calls this, from
+ * the rate recorded against the season in play: a rate changing anywhere else
+ * would let one week's stakes be worth two different amounts.
+ */
+export function adoptSeasonRate(rate: number): void {
+  if (!Number.isSafeInteger(rate) || rate <= 0) throw new Error(`not a chip rate: ${rate}`);
+  current = rate;
+}
+
 /** Base units in one chip for an agent on this flow, at this season's rate. */
-export function chipRate(funding: Funding, seasonRate: number = DEVNET_CHIP_RATE): number {
-  return funding === "seed" ? SEED_CHIP_RATE : seasonRate;
+export function chipRate(funding: Funding, rate: number = seasonRate()): number {
+  return funding === "seed" ? SEED_CHIP_RATE : rate;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { chips, DEVNET_CHIP_RATE } from "../chips.js";
+import { chips, seasonRate } from "../chips.js";
 import { matches, rentals, seasons } from "./schema.js";
 import { prizeTable, type PrizeRow } from "./standings.js";
 import { seasonByKey } from "../season.js";
@@ -31,6 +31,12 @@ export type SeasonStatement = {
     endsAt: Date;
     /** "closed" means the figures below are final and will not move again. */
     status: "open" | "closed";
+    /**
+     * Base units of the stake token in one chip, this season: what its chips
+     * were worth, so an owner can check what they were charged and paid. Null
+     * where none was recorded - devnet, where one chip is one token.
+     */
+    chipRate: number | null;
   };
   play: {
     /** Player against player: what placement is decided on. */
@@ -81,7 +87,7 @@ export type SeasonStatement = {
  */
 export async function seasonStatement(db: Db, key: string, places = 50): Promise<SeasonStatement> {
   const season = seasonByKey(key);
-  const [row] = await db.select({ status: seasons.status }).from(seasons).where(eq(seasons.key, key)).limit(1);
+  const [row] = await db.select({ status: seasons.status, chipRate: seasons.chipRate }).from(seasons).where(eq(seasons.key, key)).limit(1);
   const inSeason = eq(matches.season, key);
 
   const [play] = await db
@@ -121,6 +127,7 @@ export async function seasonStatement(db: Db, key: string, places = 50): Promise
       startsAt: season.start,
       endsAt: season.end,
       status: row?.status === "closed" ? "closed" : "open",
+      chipRate: row?.chipRate ?? null,
     },
     play: {
       rankedMatches: Number(play?.rankedMatches ?? 0),
@@ -133,8 +140,9 @@ export async function seasonStatement(db: Db, key: string, places = 50): Promise
     burned: {
       rentals: Number(rent?.count ?? 0),
       // Rentals are the deposit flow, which is the only flow that ever charged
-      // rent: the seed flow gave agents away.
-      chips: chips(Number(rent?.fee ?? 0), DEVNET_CHIP_RATE),
+      // rent: the seed flow gave agents away. In the chips of the season they
+      // were paid in: its recorded rate, or the rate in use if it has none yet.
+      chips: chips(Number(rent?.fee ?? 0), row?.chipRate ?? seasonRate()),
     },
     prizes: {
       funded: false,

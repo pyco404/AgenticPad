@@ -50,7 +50,7 @@ import { SURVIVAL, SURVIVAL_HOURS, SURVIVAL_PACE_MINUTES, SURVIVAL_SEED_BALANCE,
 import { RateLimiter, type RateLimitRule } from "./rate-limit.js";
 import { LiveStream, resumeFrom, type LiveOptions } from "./live.js";
 import { settlementStatus, settlementLag, SETTLEMENT_LAG_ALARM_MS } from "../chain/worker.js";
-import { DEVNET_CHIP_RATE, rateOf, type Funding } from "../chips.js";
+import { rateOf, seasonRate, type Funding } from "../chips.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../db/faucet.js";
 import { prepareRental, rejectRental, submitRental, RentalError, type RentalChain } from "../db/rentals.js";
 import { checkDeposit, depositBlocked, prepareDeposit, submitDeposit, DepositError, type DepositChain } from "../db/deposits.js";
@@ -137,24 +137,18 @@ export type AppOptions = {
    * The deposit-funded flow. Absent until its program is deployed and
    * configured, and while it is absent every rental takes the seed flow.
    *
-   * `fee` and `chipRate` are read from the program's own config at startup
-   * rather than set here, so the price a player is quoted is the price the
-   * program will insist on when their transaction arrives.
+   * `fee` is read from the program's own config rather than set here, so the
+   * price a player is quoted is the price the program will insist on when their
+   * transaction arrives; serve.ts keeps it in step on every season pass. The
+   * rate is the season's (src/chips.ts, seasonRate), never a figure of its own.
    */
   deposit?: {
     chain: RentalChain & DepositChain & WithdrawalChain & LossBudgetChain;
     /** Base units burned per rental, as the program's config carries it. */
     fee: number;
-    /** Base units to one chip this season. */
-    chipRate: number;
     /** Whose rentals take this flow. */
     allow: (ownerId: string) => boolean;
   };
-  /**
-   * Base units to one chip, as the settlement program's config carries it.
-   * Defaults to devnet's fixed rate of one chip to one whole token.
-   */
-  chipRate?: number;
   /**
    * How often autoplay plays one agent, so the panel's countdown matches the
    * loop that is actually running. Defaults to AUTOPLAY_INTERVAL_MS from the
@@ -205,7 +199,6 @@ export function createApp(options: AppOptions): Server {
   const autoplayIntervalMs =
     options.autoplayIntervalMs ?? (Number(process.env["AUTOPLAY_INTERVAL_MS"]) || AUTOPLAY_INTERVAL_MS);
   const elicit = options.elicit ?? defaultElicit;
-  const chipRate = options.chipRate ?? DEVNET_CHIP_RATE;
   // No model unless one is given: scripts/serve.ts passes Haiku when a key is set.
   const characterDeps = options.character ?? NO_MODEL;
   const limiter = new RateLimiter(options.rateLimit ?? { limit: 5, windowMs: 60_000 }, options.now);
@@ -379,7 +372,7 @@ export function createApp(options: AppOptions): Server {
        */
       funding: {
         mode: viaDeposit ? ("deposit" as const) : ("seed" as const),
-        feeChips: viaDeposit ? toChips(deposit!.fee, deposit!.chipRate) : 0,
+        feeChips: viaDeposit ? toChips(deposit!.fee, seasonRate()) : 0,
       },
       /** Set while the seed flow is closing, so the screen can say so. */
       cutover: cutoverNotice(),
@@ -460,7 +453,7 @@ export function createApp(options: AppOptions): Server {
       if (typeof asked !== "number" || !Number.isFinite(asked) || asked <= 0) {
         throw new HttpError(400, "deposit is required, in chips, and must be above zero");
       }
-      depositAmount = baseUnits(Math.floor(asked), deposit!.chipRate);
+      depositAmount = baseUnits(Math.floor(asked), seasonRate());
     }
 
     // One agent in play per wallet. The check and the rental share a transaction
@@ -533,9 +526,9 @@ export function createApp(options: AppOptions): Server {
             /** Base64. The owner's wallet signs exactly this and sends it back. */
             transaction: rental.transaction,
             fee: rental.fee,
-            feeChips: toChips(rental.fee, deposit!.chipRate),
+            feeChips: toChips(rental.fee, seasonRate()),
             deposit: rental.deposit,
-            depositChips: toChips(rental.deposit, deposit!.chipRate),
+            depositChips: toChips(rental.deposit, seasonRate()),
             /**
              * False, always, in this answer. No fee has been paid and the vault
              * does not exist yet; the agent is a placeholder for an address
@@ -1076,9 +1069,9 @@ export function createApp(options: AppOptions): Server {
       const out = await prepareDeposit(db, deposit.chain, {
         agentId,
         ownerId,
-        amount: baseUnits(Math.floor(asked), deposit.chipRate),
+        amount: baseUnits(Math.floor(asked), seasonRate()),
       });
-      return { deposit: { ...out, chips: toChips(out.amount, deposit.chipRate) } };
+      return { deposit: { ...out, chips: toChips(out.amount, seasonRate()) } };
     } catch (error) {
       if (error instanceof DepositError) throw new HttpError(error.status, error.message);
       throw error;
@@ -1105,7 +1098,7 @@ export function createApp(options: AppOptions): Server {
         lossBudget: await prepareLossBudget(db, deposit.chain, {
           agentId,
           ownerId,
-          perDay: baseUnits(Math.floor(asked), deposit.chipRate),
+          perDay: baseUnits(Math.floor(asked), seasonRate()),
         }),
       };
     } catch (error) {
@@ -1125,7 +1118,7 @@ export function createApp(options: AppOptions): Server {
     const lastValidBlockHeight = Number(ctx.body["lastValidBlockHeight"] ?? 0);
     try {
       const out = await submitLossBudget(db, deposit.chain, { agentId, ownerId, signedTx: signed, lastValidBlockHeight });
-      return { lossBudget: { status: out.status, ...budgetInChips(out.budget, deposit.chipRate) } };
+      return { lossBudget: { status: out.status, ...budgetInChips(out.budget, seasonRate()) } };
     } catch (error) {
       if (error instanceof LossBudgetError) throw new HttpError(error.status, error.message);
       throw error;
@@ -1223,7 +1216,7 @@ export function createApp(options: AppOptions): Server {
   async function getFaucet(ctx: Ctx) {
     const wallet = ctx.requireOwner();
     if (!options.faucet) throw new HttpError(503, "there is no faucet on this network");
-    return { faucet: await faucetStatus(db, wallet, chipRate) };
+    return { faucet: await faucetStatus(db, wallet, seasonRate()) };
   }
 
   /** Devnet only: hands this wallet one grant of stake tokens. */
@@ -1233,7 +1226,7 @@ export function createApp(options: AppOptions): Server {
     if (!faucet) throw new HttpError(503, "there is no faucet on this network");
     spendBoth(faucetLimiter, faucetByAddress, wallet, ctx.clientKey, "faucet requests");
     try {
-      return { grant: await grantFaucet(db, faucet, wallet, chipRate) };
+      return { grant: await grantFaucet(db, faucet, wallet, seasonRate()) };
     } catch (error) {
       if (error instanceof FaucetError) throw new HttpError(error.status, error.message);
       throw error;
@@ -1252,7 +1245,7 @@ export function createApp(options: AppOptions): Server {
     if (!row) throw new HttpError(404, "no such agent");
     if (row.funding === "deposit") {
       if (!options.deposit) throw new HttpError(503, "this server isn't connected to the deposit program");
-      return { chain: options.deposit.chain, rate: options.deposit.chipRate };
+      return { chain: options.deposit.chain, rate: seasonRate() };
     }
     return { chain: needChain(), rate: rateOf(row) };
   }

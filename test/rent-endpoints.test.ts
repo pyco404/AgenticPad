@@ -198,7 +198,7 @@ beforeAll(async () => {
   await migrate(db);
   ({ url, close: closeServer } = await listen({
     db,
-    deposit: { chain, fee: FEE, chipRate: RATE, allow: (o) => onDepositFlow.has(o) },
+    deposit: { chain, fee: FEE, allow: (o) => onDepositFlow.has(o) },
     rateLimit: { limit: 1000, windowMs: 60_000 },
     rentRateLimit: { limit: 1000, windowMs: 60_000 },
     rentAddressRateLimit: { limit: 1000, windowMs: 60_000 },
@@ -455,7 +455,7 @@ describe("renting over HTTP", () => {
     beforeAll(async () => {
       ({ url: tight, close: closeTight } = await listen({
         db,
-        deposit: { chain, fee: FEE, chipRate: RATE, allow: (o) => onDepositFlow.has(o) },
+        deposit: { chain, fee: FEE, allow: (o) => onDepositFlow.has(o) },
         rentRateLimit: { limit: 2, windowMs: 3_600_000 },
         rentAddressRateLimit: { limit: 1000, windowMs: 60_000 },
         nonceRateLimit: { limit: 1000, windowMs: 60_000 },

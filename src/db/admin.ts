@@ -2,7 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { agents, chainOps, deposits, matches, rentals, withdrawals } from "./schema.js";
 import { dueAtSql } from "./netting.js";
-import { chipRate, chips, DEVNET_CHIP_RATE } from "../chips.js";
+import { chipRate, chips, seasonRate } from "../chips.js";
 
 /**
  * The numbers an operator needs, read from where they already live.
@@ -194,7 +194,9 @@ export async function volume(db: Db, now = new Date()): Promise<Volume> {
     })
     .from(matches);
 
-  const rate = DEVNET_CHIP_RATE;
+  // All-time sums span seasons at different rates, so these are today's chips:
+  // what that money is worth now, not what it was worth when it moved.
+  const rate = seasonRate();
   const atRent = Number(r?.deposited ?? 0);
   const topUps = Number(d?.amount ?? 0);
   return {

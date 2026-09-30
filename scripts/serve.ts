@@ -67,41 +67,6 @@ if (exhibitionMs > 0) {
   });
   console.log(`House exhibitions: about one every ${Math.round(exhibitionMs / 1000)}s, off-chain`);
 }
-// Seasons: close each one at its boundary and lapse agents whose grace is
-// over. Runs now, before anything plays, so a boundary missed while the api was
-// down is closed first; then once a minute.
-{
-  const { startSeasons } = await import("../src/db/seasons.js");
-  startSeasons(db, {
-    onLog: (line) => console.log(line),
-    onError: (error) => console.error(`season: ${String(error).slice(0, 160)}`),
-  });
-}
-// Traits: counted from match logs in the background, never in the match path.
-{
-  const { startTraits } = await import("../src/character/trait-store.js");
-  startTraits(db, {
-    onLog: (line) => console.log(line),
-    onError: (error) => console.error(`traits: ${String(error).slice(0, 160)}`),
-  });
-}
-// Autoplay: rented agents play on a timer, without their owners present. On by
-// default, because an agent only plays once its own owner has switched it on;
-// AUTOPLAY_INTERVAL_MS=0 turns the loop off entirely.
-const autoplayMs = Number(process.env["AUTOPLAY_INTERVAL_MS"] ?? AUTOPLAY_INTERVAL_MS);
-if (autoplayMs > 0) {
-  const { startAutoplay } = await import("../src/db/autoplay.js");
-  startAutoplay(db, {
-    intervalMs: autoplayMs,
-    onError: (error) => console.error(`autoplay: ${String(error).slice(0, 160)}`),
-    onLog: (line) => console.log(line),
-  });
-  const every = autoplayMs < 60_000 ? `${Math.round(autoplayMs / 1000)} seconds` : `${autoplayMs / 60_000} minutes`;
-  console.log(`Autoplay: one match per agent every ${every}`);
-} else {
-  console.log("Autoplay: off (AUTOPLAY_INTERVAL_MS=0)");
-}
-
 // Settlement on chain, when configured. The ledger is authoritative either
 // way; without a chain the outbox simply waits, and withdrawals are unavailable.
 const rpc = process.env["CHAIN_RPC_URL"];
@@ -119,8 +84,9 @@ if (rpc && seedProgram) {
 }
 
 // The deposit-funded flow, when its program is deployed and configured. The
-// fee and the chip rate are read from the program's own config rather than set
-// here, so a player is never quoted a price the program will then refuse.
+// fee is read from the program's own config rather than set here, so a player
+// is never quoted a price the program will then refuse; the chip rate is the
+// season's, settled below before anything plays.
 //
 // FUNDING_MODE=deposit switches every new rental to it. FUNDING_DEPOSIT_WALLETS
 // is a comma-separated allowlist for trying it on the live site while everyone
@@ -163,8 +129,9 @@ if (rpc && process.env["CHAIN_STAKE_MINT"]) {
     depositClient = client;
     depositFlow = {
       chain: client,
+      // Kept in step with the program on every season pass below, so a rent the admin changes is quoted
+      // at once instead of every rental failing with WrongRent until a restart.
       fee: config.rent.toNumber(),
-      chipRate: config.chipRate.toNumber(),
       allow: (ownerId) => mode || allowed.has(ownerId),
     };
     const who = mode ? "every new rental" : allowed.size ? `${allowed.size} allowlisted wallet(s)` : "nobody yet";
@@ -172,6 +139,57 @@ if (rpc && process.env["CHAIN_STAKE_MINT"]) {
   } catch (error) {
     console.log(`Deposits: off - ${String(error).slice(0, 140)}`);
   }
+}
+
+// Seasons: close each one at its boundary, settle the season's chip rate, and
+// lapse agents whose grace is over. The first pass is awaited here, before
+// anything plays: a boundary missed while the api was down is closed first, and
+// no match stakes at any rate but the season's (src/db/chip-rate.ts). Then once
+// a minute, keeping the rent quoted in step with the program's.
+{
+  const { startSeasons } = await import("../src/db/seasons.js");
+  const { syncSeasonRate } = await import("../src/db/chip-rate.js");
+  const readRate = depositClient
+    ? async () => {
+        const c = await depositClient!.config();
+        return { chipRate: c.chipRate.toNumber(), rent: c.rent.toNumber() };
+      }
+    : null;
+  const first = await syncSeasonRate(db, readRate);
+  console.log(`Chip rate: ${first.rate} base units a chip for season ${first.season} (${first.source})`);
+  if (first.drift) console.error(`season: chip rate drift - the program is at ${first.drift.chain}, the season plays at ${first.drift.season}`);
+  startSeasons(db, {
+    onLog: (line) => console.log(line),
+    onError: (error) => console.error(`season: ${String(error).slice(0, 220)}`),
+    ...(readRate ? { readRate } : {}),
+    onRate: (r) => {
+      if (depositFlow && r.rent !== null) depositFlow.fee = r.rent;
+    },
+  });
+}
+// Traits: counted from match logs in the background, never in the match path.
+{
+  const { startTraits } = await import("../src/character/trait-store.js");
+  startTraits(db, {
+    onLog: (line) => console.log(line),
+    onError: (error) => console.error(`traits: ${String(error).slice(0, 160)}`),
+  });
+}
+// Autoplay: rented agents play on a timer, without their owners present. On by
+// default, because an agent only plays once its own owner has switched it on;
+// AUTOPLAY_INTERVAL_MS=0 turns the loop off entirely.
+const autoplayMs = Number(process.env["AUTOPLAY_INTERVAL_MS"] ?? AUTOPLAY_INTERVAL_MS);
+if (autoplayMs > 0) {
+  const { startAutoplay } = await import("../src/db/autoplay.js");
+  startAutoplay(db, {
+    intervalMs: autoplayMs,
+    onError: (error) => console.error(`autoplay: ${String(error).slice(0, 160)}`),
+    onLog: (line) => console.log(line),
+  });
+  const every = autoplayMs < 60_000 ? `${Math.round(autoplayMs / 1000)} seconds` : `${autoplayMs / 60_000} minutes`;
+  console.log(`Autoplay: one match per agent every ${every}`);
+} else {
+  console.log("Autoplay: off (AUTOPLAY_INTERVAL_MS=0)");
 }
 
 // The devnet faucet, when there is a treasury to hand out from. It refuses any
