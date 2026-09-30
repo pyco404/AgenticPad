@@ -152,10 +152,25 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   const briefTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    void api.presets().then((r) => {
-      setPresets(r.presets);
-      setChosen((c) => c || r.presets[0]?.name || "");
-    });
+    // Unreachable server: try again shortly, rather than leave the rent form without presets for good.
+    let gone = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const load = () =>
+      api.presets().then(
+        (r) => {
+          if (gone) return;
+          setPresets(r.presets);
+          setChosen((c) => c || r.presets[0]?.name || "");
+        },
+        () => {
+          if (!gone) retry = setTimeout(load, 10_000);
+        },
+      );
+    void load();
+    return () => {
+      gone = true;
+      clearTimeout(retry);
+    };
   }, []);
 
   // Signing out, from here or the top bar, puts the agent card away.
