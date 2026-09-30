@@ -3,7 +3,8 @@ import { and, asc, eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { agents, chainOps, exits } from "../src/db/schema.js";
 import { balanceOf, record } from "../src/db/ledger.js";
-import { createAgent, hasOutflowRoom, runMatch } from "../src/db/runner.js";
+import { createAgent, hasOutflowRoom } from "../src/db/runner.js";
+import { stakedMatch } from "./staked-match.js";
 import { cutDue, cutNetSettlements, NET_PERIOD_MS } from "../src/db/netting.js";
 import { withdrawable } from "../src/db/withdrawals.js";
 import { drainChainOps, reconcile, settlementLag, settlementStatus, solvency } from "../src/chain/worker.js";
@@ -39,7 +40,7 @@ async function play(db: Db, roster: { id: string }[], n: number) {
   const played = [];
   for (let seed = 1; played.length < n && seed < 500; seed++) {
     const [a, b] = [roster[seed % roster.length]!, roster[(seed + 1) % roster.length]!];
-    const m = await runMatch(db, a.id, b.id, { seed });
+    const m = await stakedMatch(db, a.id, b.id, { seed });
     if (m.settled.A !== 0) played.push(m);
   }
   return played;

@@ -1,18 +1,6 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import {
-  agents,
-  elicitations,
-  ledger,
-  FREE_ELICITATIONS,
-  MIN_STAKE,
-  affordableBands,
-  bandByName,
-  canAffordBand,
-  type BandName,
-  type LedgerReason,
-} from "./schema.js";
-import { chips, rateOf, type Funding } from "../chips.js";
+import { elicitations, ledger, FREE_ELICITATIONS, MIN_STAKE, type LedgerReason } from "./schema.js";
 
 /**
  * Money. Balances are derived from the ledger, never accumulated in a column,
@@ -67,61 +55,10 @@ export async function statement(db: Db, agentId: string, limit = 50) {
 export class StakeError extends Error {}
 
 /**
- * What a match in this band puts at risk: the whole of the band's worst match,
- * every time. There is no clamp any more - a band is a money scale, and scaling
- * only works if both sides pay the scale in full - so both agents must be able
- * to cover it before the match is played at all.
- *
- * The old ceiling clamp is gone deliberately. It let a short balance drag a
- * stronger opponent's match down to it, which is what made the top two ceiling
- * bands play identically.
- */
-export function stakeBetween(
-  a: { name: string; balance: number; funding: Funding },
-  b: { name: string; balance: number; funding: Funding },
-  band: BandName,
-): number {
-  const worst = bandByName(band).worstMatch;
-  for (const side of [a, b]) {
-    const rate = rateOf(side);
-    if (!canAffordBand(side.balance, band, rate)) {
-      throw new StakeError(
-        `${side.name} cannot cover a band ${band} match: balance ${chips(side.balance, rate)}, needs ${worst}`,
-      );
-    }
-  }
-  return worst;
-}
-
-/**
- * A match's net, as the ledger will record it. Nothing is clamped: the engine
- * already cannot produce a net beyond the band's worst match, and both sides
- * were checked against that before playing.
+ * A match's net in chips, as the match row records it. Nothing is clamped: the
+ * engine cannot produce a net beyond the band's worst match. It moves no money.
  */
 export const settle = (net: number): number => net;
-
-/**
- * An agent is retired only when no band is open to it - below the cheapest
- * band's worst match, where the only thing left to do is withdraw. Falling
- * below its *own* band's cover is not retirement: the agent is simply barred
- * from that band until its owner moves it to one it can cover. The band is the
- * owner's choice, so nothing here spends it on their behalf.
- */
-export async function retireIfBroke(db: Writable, agentId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ funding: agents.funding, ownerId: agents.ownerId })
-    .from(agents)
-    .where(eq(agents.id, agentId))
-    .limit(1);
-  if (!row) return false;
-  // A house agent never stakes, so it holds nothing and never needs to: it is
-  // never broke, however empty its balance.
-  if (row.ownerId === null) return false;
-  const balance = await balanceOf(db, agentId);
-  if (affordableBands(balance, rateOf(row)).length > 0) return false;
-  await db.update(agents).set({ retiredAt: new Date(), retiredReason: "broke" }).where(eq(agents.id, agentId));
-  return true;
-}
 
 /** How many model calls this owner has had, and whether the next one is free. */
 export async function elicitationCount(db: Writable, ownerId: string): Promise<number> {

@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { balanceOf, balancesOf, record } from "../src/db/ledger.js";
 import { createAgent, hasBudgetRoom, hasOutflowRoom, leaderboard, lostToday, playableBands, publicAgent, runMatch } from "../src/db/runner.js";
+import { stakedMatch } from "./staked-match.js";
 import { liveCounters } from "../src/db/feed.js";
 import { faucetStatus } from "../src/db/faucet.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
@@ -125,7 +126,7 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     const [a, b] = made;
     let moved = 0;
     for (let seed = 1; moved < 2 && seed < 200; seed++) {
-      const m = await runMatch(db, a!.id, b!.id, { seed });
+      const m = await stakedMatch(db, a!.id, b!.id, { seed });
       if (m.settled.A !== 0) moved++;
       // Cut after the first, so the second numbers on from a max(batch).
       if (moved === 1) await cutDue(db, new Date(Date.now() + NET_PERIOD_MS));
@@ -236,7 +237,7 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     const a = await createAgent(db, { name: "Fly-A", presetName: "Bully", ownerId: someWallet() });
     const b = await createAgent(db, { name: "Fly-B", presetName: "Anchor", ownerId: someWallet() });
     // Played and not drained: the settlement sits in the outbox.
-    await runMatch(db, a.id, b.id, { seed: 5 });
+    await stakedMatch(db, a.id, b.id, { seed: 5 });
 
     const sums = await solvency(db, new FakeChain());
     expect(Object.keys(sums.inFlight)).toEqual(["seed"]);

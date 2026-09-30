@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
 import { agentEvents, agents, chainOps, matches, withdrawals, bandByName, outflowBudget } from "../src/db/schema.js";
 import { record } from "../src/db/ledger.js";
-import { createAgent, hasBudgetRoom, hasOutflowRoom, lossBudgetOn, lostToday, pickOpponent, setBand } from "../src/db/runner.js";
+import { createAgent, hasBudgetRoom, hasOutflowRoom, lossBudgetOn, lostToday, setBand } from "../src/db/runner.js";
 import { utcDay } from "../src/chain/common.js";
 import { autoplayStatus, checkAgent, dueAgents, isHold, markSeen, setAutoplay, sinceYouLeft, stopAgent, tick } from "../src/db/autoplay.js";
 import { someWallet } from "./helpers.js";
@@ -296,47 +296,6 @@ describe("autoplay: the popular-opponent budget", () => {
     expect(await hasOutflowRoom(db, row.id, worst)).toBe(true);
     await close();
   });
-
-  it("leaves a spent opponent out of matchmaking rather than pairing into a refusal", async () => {
-    const { db, close } = await fresh();
-    const me = await createAgent(db, { name: "Me", presetName: "Anchor", ownerId: someWallet() });
-    const spent = await createAgent(db, { name: "Spent", presetName: "Hammer", ownerId: someWallet() });
-    const fresh2 = await createAgent(db, { name: "Fresh", presetName: "Mirage", ownerId: someWallet() });
-    // Everyone else is out of window, so matchmaking has one legal choice.
-    await db.insert(chainOps).values({ kind: "settle", fromAgent: spent.id, amount: outflowBudget(900, SEED_CHIP_RATE) });
-    const pick = await pickOpponent(db, me.id, { minCandidates: 1 });
-    expect(pick.opponentId).toBe(fresh2.id);
-    await close();
-  });
-
-  it("the preset fallback respects the window too, rather than pairing into a refusal", async () => {
-    const { db, close } = await fresh();
-    const me = await createAgent(db, { name: "Me", presetName: "Anchor", ownerId: someWallet() });
-    // Two presets - too few for the closest-rating path, so the fallback decides.
-    const spent = await createAgent(db, { name: "SpentPreset", presetName: "Hammer", ownerId: someWallet() });
-    const room = await createAgent(db, { name: "RoomPreset", presetName: "Mirage", ownerId: someWallet() });
-    await db.insert(chainOps).values({ kind: "settle", fromAgent: spent.id, amount: outflowBudget(900, SEED_CHIP_RATE) });
-    // Many draws, because the fallback chooses at random: a spent preset must never come up.
-    for (let i = 0; i < 20; i++) {
-      const pick = await pickOpponent(db, me.id);
-      expect(pick.path).toBe("preset-fallback");
-      expect(pick.opponentId).toBe(room.id);
-    }
-    await close();
-  });
-
-  it("refuses to play an agent whose own vault has no room left", async () => {
-    const { db, close } = await fresh();
-    await opponents(db, 4);
-    const row = await playerOn(db);
-    await db.insert(chainOps).values({ kind: "settle", fromAgent: row.id, amount: outflowBudget(900, SEED_CHIP_RATE) });
-    const result = await tick(db, { intervalMs: 0 });
-    // Waiting, not paused: the window passes on its own.
-    expect(result.waiting).toEqual([row.id]);
-    const [after] = await db.select().from(agents).where(eq(agents.id, row.id));
-    expect(after!.autoplay).toBe(true);
-    await close();
-  });
 });
 
 describe("autoplay: what the panel says", () => {
@@ -561,27 +520,5 @@ describe("autoplay: the owner's daily loss budget", () => {
     expect(lossBudgetOn(row, today)).toBe(500);
     expect(lossBudgetOn(row, today + 1)).toBe(100);
     expect(lossBudgetOn({ lossBudget: null, lossBudgetNext: null, lossBudgetNextFromDay: null }, today)).toBeNull();
-  });
-
-  it("leaves an opponent at its limit out of matchmaking", async () => {
-    const { db, close } = await fresh();
-    const me = await createAgent(db, { name: "Me", presetName: "Anchor", ownerId: someWallet() });
-    const limited = await budgeted(db, "AtLimit", 30);
-    const open = await createAgent(db, { name: "Open", presetName: "Mirage", ownerId: someWallet() });
-    // A full loss is 40, more than AtLimit's whole day: it cannot be paired.
-    for (let i = 0; i < 10; i++) {
-      const pick = await pickOpponent(db, me.id, { minCandidates: 1 });
-      expect(pick.opponentId).toBe(open.id);
-    }
-    expect(limited.id).not.toBe(open.id);
-    await close();
-  });
-
-  it("refuses to play an agent that has reached its own limit, and says when it can again", async () => {
-    const { db, close } = await fresh();
-    const me = await budgeted(db, "Spent", 30);
-    await createAgent(db, { name: "Opp", presetName: "Mirage", ownerId: someWallet() });
-    await expect(pickOpponent(db, me.id, { minCandidates: 1 })).rejects.toThrow(/daily loss limit.*00:00 UTC/);
-    await close();
   });
 });

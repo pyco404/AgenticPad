@@ -120,14 +120,13 @@ describe("only player-versus-player matches are ranked", () => {
     await close();
   });
 
-  it("stakes only when both sides belong to players, which is the same question as ranked", async () => {
+  it("counts only when both sides belong to players, and moves money in neither case", async () => {
     const { db, close } = await fresh();
     const p1 = await createAgent(db, { name: "P1", presetName: "Anchor", ownerId: someWallet() });
     const p2 = await createAgent(db, { name: "P2", presetName: "Bully", ownerId: someWallet() });
     const houseAgent = await createAgent(db, { name: "House", presetName: "Mirage" });
 
-    // Every combination, and the two answers never disagree: a match is played
-    // for money exactly when it is played for the ladder.
+    // Every combination: ranked exactly when both sides are players' agents.
     for (const [x, y] of [
       [p1, p2],
       [p1, houseAgent],
@@ -138,9 +137,9 @@ describe("only player-versus-player matches are ranked", () => {
       const bothPlayers = x.ownerId !== null && y.ownerId !== null;
       expect(row!.ranked).toBe(bothPlayers);
       expect(row!.exhibition).toBe(!bothPlayers);
-      // And the ledger agrees with the flag, rather than being decided separately.
+      // And nothing moves either way: a lost match costs nothing.
       const moved = await db.select().from(ledger).where(eq(ledger.matchId, match.id));
-      expect(moved.length > 0).toBe(bothPlayers);
+      expect(moved).toHaveLength(0);
     }
     await close();
   });

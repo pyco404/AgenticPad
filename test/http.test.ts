@@ -393,7 +393,7 @@ describe("staking over HTTP", () => {
     expect(seen.agent.band).toBe("A");
   });
 
-  it("stakes a match, settles it against balances, and reports both", async () => {
+  it("plays a match, moves no money, and reports the balance as it stands", async () => {
     const owner = someWallet();
     const created = await readBody(
       await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Stakes", presetName: "Bully" }) }),
@@ -402,7 +402,8 @@ describe("staking over HTTP", () => {
     expect(played.stake).toBeGreaterThanOrEqual(MIN_STAKE);
     expect(played.stake).toBeLessThanOrEqual(bandByName("C").worstMatch);
     expect(Math.abs(played.result.net)).toBeLessThanOrEqual(played.stake);
-    expect(played.balance).toBe(STARTING_BALANCE + played.result.net);
+    // Won or lost, nothing moved: a lost match costs nothing.
+    expect(played.balance).toBe(STARTING_BALANCE);
     expect(played.balance).toBe(await balanceOf(db, created.agent.id));
 
     const ledgerView = await readBody(await api(`/agents/${created.agent.id}/ledger`, { owner: null }));
@@ -438,18 +439,18 @@ describe("staking over HTTP", () => {
     expect(nonsense.status).toBe(400);
   });
 
-  it("refuses to play an agent that cannot cover a stake", async () => {
+  it("refuses to play an agent that holds too little to be in play", async () => {
     const owner = someWallet();
     const created = await readBody(
       await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Skint", presetName: "Mirage" }) }),
     );
-    // Drain it to below the minimum stake.
+    // Drain it to below the minimum to play.
     await db.execute(
       sql`insert into ledger (agent_id, amount, reason) values (${created.agent.id}::uuid, ${-(STARTING_BALANCE - 2)}, 'adjustment')`,
     );
     const res = await api(`/agents/${created.agent.id}/play`, { method: "POST", owner });
     expect(res.status).toBe(409);
-    expect((await readBody(res)).error).toMatch(/cannot cover a band/);
+    expect((await readBody(res)).error).toMatch(/holds too little to play/);
   });
 });
 

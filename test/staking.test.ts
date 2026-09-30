@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { baseUnits, DEVNET_CHIP_RATE, SEED_CHIP_RATE } from "../src/chips.js";
-const SEED = "seed" as const;
 import { connect, migrate, type Db } from "../src/db/client.js";
 import {
   agents,
+  chainOps,
   bandByName,
   canAffordBand,
   affordableBands,
@@ -18,14 +18,12 @@ import {
   balanceOf,
   record,
   settle,
-  stakeBetween,
-  StakeError,
   statement,
   isFirstElicitationFree,
   recordElicitation,
   elicitationCount,
 } from "../src/db/ledger.js";
-import { assertSameFlow, createAgent, leaderboard, pickOpponent, playableBands, roster, runMatch, setBand } from "../src/db/runner.js";
+import { assertSameFlow, createAgent, pickOpponent, playableBands, roster, runMatch, setBand } from "../src/db/runner.js";
 import { refreshTrueRatings } from "../src/db/rating.js";
 import { someWallet } from "./helpers.js";
 
@@ -63,24 +61,6 @@ describe("balances", () => {
 });
 
 describe("stakes", () => {
-  it("are the band's worst match, whatever either side holds beyond it", () => {
-    const rich = { name: "rich", balance: 5_000, funding: SEED } as const;
-    // No clamp any more: a band is a money scale, and both sides pay it in full.
-    expect(stakeBetween(rich, rich, "A")).toBe(20);
-    expect(stakeBetween(rich, rich, "B")).toBe(40);
-    expect(stakeBetween(rich, rich, "C")).toBe(60);
-    // A bigger balance buys nothing; the band alone decides.
-    expect(stakeBetween({ name: "just enough", balance: 60, funding: SEED }, rich, "C")).toBe(60);
-  });
-
-  it("refuse a side that cannot cover the band's worst match", () => {
-    const ok = { name: "ok", balance: 900, funding: SEED } as const;
-    expect(() => stakeBetween({ name: "skint", balance: 59, funding: SEED }, ok, "C")).toThrow(StakeError);
-    expect(() => stakeBetween(ok, { name: "skint", balance: 39, funding: SEED }, "B")).toThrow(/cannot cover a band B match/);
-    // The same balance is fine one band down.
-    expect(stakeBetween({ name: "skint", balance: 39, funding: SEED }, ok, "A")).toBe(20);
-  });
-
   it("know which bands a balance can still afford", () => {
     expect(affordableBands(900, SEED_CHIP_RATE)).toEqual(["A", "B", "C"]);
     expect(affordableBands(59, SEED_CHIP_RATE)).toEqual(["A", "B"]);
@@ -104,12 +84,6 @@ describe("stakes", () => {
     // it is - which is why the rate is required rather than defaulted.
     expect(canAffordBand(900, "A", rate)).toBe(false);
     expect(canAffordBand(900, "A", SEED_CHIP_RATE)).toBe(true);
-
-    const rich = { name: "rich", balance: baseUnits(5_000, rate), funding: "deposit" } as const;
-    expect(stakeBetween(rich, rich, "C")).toBe(60);
-    expect(() => stakeBetween({ name: "skint", balance: baseUnits(59, rate), funding: "deposit" }, rich, "C")).toThrow(
-      /skint cannot cover a band C match: balance 59, needs 60/,
-    );
   });
 
   it("normalise a net onto band B's scale so bands compare", () => {
@@ -141,23 +115,25 @@ describe("stakes", () => {
 });
 
 describe("settlement", () => {
-  it("moves money between balances and records both sides against the match", async () => {
+  it("moves no money, whoever wins: a lost match costs nothing", async () => {
     const { db: d, close: c } = await fresh();
     const a = await createAgent(d, { name: "A", presetName: "Bully", ownerId: someWallet() });
     const b = await createAgent(d, { name: "B", presetName: "Mirage", ownerId: someWallet() });
 
-    const { match, log, stake, settled } = await runMatch(d, a.id, b.id, { seed: 5 });
-    // Both agents default to band B, whose worst match is 60.
-    expect(stake).toBe(bandByName("B").worstMatch);
-    expect(settled.A).toBe(settle(log.nets.A));
-    expect(settled.A + settled.B).toBe(0);
-    expect(await balanceOf(d, a.id)).toBe(STARTING_BALANCE + settled.A);
-    expect(await balanceOf(d, b.id)).toBe(STARTING_BALANCE + settled.B);
-
-    const rows = await d.select().from(ledger).where(eq(ledger.matchId, match.id));
-    expect(rows).toHaveLength(2);
-    expect(rows.reduce((s, r) => s + r.amount, 0)).toBe(0);
-    expect(rows.every((r) => r.reason === "match-settlement")).toBe(true);
+    let decided = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const { match, log, stake, settled } = await runMatch(d, a.id, b.id, { seed });
+      // The match is still played in chips, and the row still says what it was played at.
+      expect(stake).toBe(bandByName("B").worstMatch);
+      expect(settled.A).toBe(settle(log.nets.A));
+      if (settled.A !== 0) decided++;
+      // But nothing moves: no ledger row, and nothing for the chain.
+      expect(await d.select().from(ledger).where(eq(ledger.matchId, match.id))).toHaveLength(0);
+      expect(await d.select().from(chainOps).where(eq(chainOps.matchId, match.id))).toHaveLength(0);
+    }
+    expect(decided).toBeGreaterThan(0);
+    expect(await balanceOf(d, a.id)).toBe(STARTING_BALANCE);
+    expect(await balanceOf(d, b.id)).toBe(STARTING_BALANCE);
     await c();
   });
 
@@ -290,55 +266,36 @@ describe("rating across bands", () => {
     await c();
   });
 
-  it("keeps net won equal to the ledger's settlements in a band that is not B", async () => {
+  it("keeps net won as the chips its matches were won by, though none of it is money", async () => {
     const { db: d, close: c } = await fresh();
     const me = await createAgent(d, { name: "Banded", presetName: "Mirage", band: "A", ownerId: someWallet() });
     const opp = await createAgent(d, { name: "Opp", presetName: "Anchor", band: "A", ownerId: someWallet() });
-    for (let seed = 1; seed <= 12; seed++) await runMatch(d, me.id, opp.id, { seed });
+    let won = 0;
+    for (let seed = 1; seed <= 12; seed++) won += (await runMatch(d, me.id, opp.id, { seed })).settled.A;
     const [rating] = await d.select().from(ratings).where(eq(ratings.agentId, me.id));
-    const [settled] = await d
-      .select({ total: sql<number>`coalesce(sum(${ledger.amount}), 0)::int` })
-      .from(ledger)
-      .where(and(eq(ledger.agentId, me.id), eq(ledger.reason, "match-settlement")));
     expect(rating!.matchesPlayed).toBe(12);
-    expect(rating!.cumulativeNet).toBe(Number(settled!.total));
+    expect(rating!.cumulativeNet).toBe(won);
+    expect(await balanceOf(d, me.id)).toBe(STARTING_BALANCE);
     await c();
   });
 });
 
 describe("running out", () => {
-  it("retires an agent at zero, freezes its record, and marks it on the ladder", async () => {
+  it("never happens in a match: however many it loses, an agent keeps what it holds", async () => {
     const { db: d, close: c } = await fresh();
-    // Enough to cover one band A match and very little more. Both are players:
-    // the ladder lists only rented agents, and that is where a retirement shows.
-    const doomed = await createAgent(d, { name: "Doomed", presetName: "Mirage", band: "A", startingBalance: 24, ownerId: someWallet() });
+    const small = await createAgent(d, { name: "Small", presetName: "Mirage", band: "A", startingBalance: 24, ownerId: someWallet() });
     const rival = await createAgent(d, { name: "Rival", presetName: "Bully", band: "A", startingBalance: 900, ownerId: someWallet() });
 
-    let retiredAfter = 0;
-    for (let seed = 1; seed <= 60; seed++) {
-      const result = await runMatch(d, doomed.id, rival.id, { seed });
-      if (result.retired.includes(doomed.id)) {
-        retiredAfter = seed;
-        break;
-      }
+    let lost = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      const result = await runMatch(d, small.id, rival.id, { seed });
+      expect(result.retired).toEqual([]);
+      if (result.settled.A < 0) lost++;
     }
-    expect(retiredAfter).toBeGreaterThan(0);
-    // Retired only when no band at all is open to it, which may leave small change.
-    expect(await balanceOf(d, doomed.id)).toBeLessThan(bandByName("A").worstMatch);
-    expect(affordableBands(await balanceOf(d, doomed.id), SEED_CHIP_RATE)).toEqual([]);
-
-    const [row] = await d.select().from(agents).where(eq(agents.id, doomed.id));
-    expect(row!.retiredAt).not.toBeNull();
-    expect(row!.retiredReason).toBe("broke");
-
-    // Frozen: it cannot be matched again, in either direction.
-    await expect(runMatch(d, doomed.id, rival.id, { seed: 99 })).rejects.toThrow(/retired/);
-    await expect(runMatch(d, rival.id, doomed.id, { seed: 99 })).rejects.toThrow(/retired/);
-
-    const board = await leaderboard(d);
-    const listed = board.find((r) => r.agentId === doomed.id);
-    expect(listed?.retired).toBe(true);
-    expect(listed?.balance).toBeLessThan(bandByName("A").worstMatch);
+    expect(lost).toBeGreaterThan(0);
+    expect(await balanceOf(d, small.id)).toBe(24);
+    const [row] = await d.select().from(agents).where(eq(agents.id, small.id));
+    expect(row!.retiredAt).toBeNull();
     await c();
   });
 
@@ -384,16 +341,7 @@ describe("agents on different funding flows", () => {
   // instruction that moves tokens from a vault under one to a vault under the
   // other, so a match across them would be recorded, would move both ledgers,
   // and could never settle. That happened on 2026-09-25 before this existed.
-  it("cannot stake against each other", async () => {
-    expect(() =>
-      stakeBetween(
-        { name: "Deposited", balance: baseUnits(2_000, DEVNET_CHIP_RATE), funding: "deposit" },
-        { name: "Seeded", balance: 900, funding: SEED },
-        "B",
-      ),
-    ).not.toThrow();
-    // stakeBetween only checks cover; the flow check is its own, so that a
-    // caller cannot pass one and skip the other.
+  it("are told apart by the flow check", async () => {
     expect(() =>
       assertSameFlow({ name: "Deposited", funding: "deposit" }, { name: "Seeded", funding: "seed" }),
     ).toThrow(/different programs and cannot settle/);

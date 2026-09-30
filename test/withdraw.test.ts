@@ -6,7 +6,8 @@ import nacl from "tweetnacl";
 import { Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
-import { createAgent, runMatch } from "../src/db/runner.js";
+import { createAgent } from "../src/db/runner.js";
+import { stakedMatch } from "./staked-match.js";
 import { balanceOf } from "../src/db/ledger.js";
 import { affordableBands, agents, chainOps, ledger, MIN_STAKE, STAKE_BANDS, STARTING_BALANCE, withdrawals } from "../src/db/schema.js";
 import { drainChainOps, reconcile, type ChainPort } from "../src/chain/worker.js";
@@ -242,8 +243,8 @@ describe("withdrawals", () => {
     chain.down = true;
     try {
       let seed = 1;
-      let played = await runMatch(db, agent.id, (await houseAgent()).id, { seed });
-      while (played.settled.A === 0) played = await runMatch(db, agent.id, (await houseAgent()).id, { seed: ++seed });
+      let played = await stakedMatch(db, agent.id, (await houseAgent()).id, { seed });
+      while (played.settled.A === 0) played = await stakedMatch(db, agent.id, (await houseAgent()).id, { seed: ++seed });
       await drainChainOps(db, chain); // the chain is down: the settlement stays pending
       const state = await api(`/agents/${agent.id}/withdrawable`, { as: "dave" });
       expect(state.body.withdrawable.withdrawable).toBe(0);
@@ -314,8 +315,8 @@ describe("withdrawals", () => {
     const agent = await ownedAgent("hank", "Hank's");
     const prepared = await api(`/agents/${agent.id}/withdrawals`, { method: "POST", body: { amount: 40 }, as: "hank" });
     let seed = 50;
-    let played = await runMatch(db, agent.id, (await houseAgent()).id, { seed });
-    while (played.settled.A === 0) played = await runMatch(db, agent.id, (await houseAgent()).id, { seed: ++seed });
+    let played = await stakedMatch(db, agent.id, (await houseAgent()).id, { seed });
+    while (played.settled.A === 0) played = await stakedMatch(db, agent.id, (await houseAgent()).id, { seed: ++seed });
     const tx = Transaction.from(Buffer.from(prepared.body.withdrawal.transaction, "base64"));
     tx.partialSign(keypairFor("hank"));
     const submitted = await api(`/withdrawals/${prepared.body.withdrawal.withdrawalId}/submit`, {
@@ -336,7 +337,7 @@ describe("withdrawals", () => {
     expect(submitted!.body.withdrawal.status).toBe("submitted");
     // Recorded, retired, and holding the agent until it resolves.
     expect(await balanceOf(db, agent.id)).toBe(0);
-    const play = await runMatch(db, agent.id, (await houseAgent()).id, { seed: 3 }).then(
+    const play = await stakedMatch(db, agent.id, (await houseAgent()).id, { seed: 3 }).then(
       () => "played",
       (e: Error) => e.message,
     );

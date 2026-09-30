@@ -4,7 +4,8 @@ import nacl from "tweetnacl";
 import { createHash } from "node:crypto";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
-import { createAgent, runMatch } from "../src/db/runner.js";
+import { createAgent } from "../src/db/runner.js";
+import { stakedMatch } from "./staked-match.js";
 import { chainOps, rentals } from "../src/db/schema.js";
 import { troubledOps, oldestPending, volume } from "../src/db/admin.js";
 import { reconcile, solvency } from "../src/chain/worker.js";
@@ -124,7 +125,7 @@ describe("what it reports", () => {
     const chain = new FakeChain();
     const a = await createAgent(d, { name: "Sa", presetName: "Bully", ownerId: someWallet() });
     const b = await createAgent(d, { name: "Sb", presetName: "Anchor", ownerId: someWallet() });
-    for (let i = 0; i < 4; i++) await runMatch(d, a.id, b.id, { seed: 70 + i });
+    for (let i = 0; i < 4; i++) await stakedMatch(d, a.id, b.id, { seed: 70 + i });
     await drainChainOps(d, chain, { limit: 200 });
 
     const sums = await solvency(d, chain);
@@ -160,7 +161,7 @@ describe("what it reports", () => {
     const a = await createAgent(d, { name: "Fa", presetName: "Bully", ownerId: someWallet() });
     const b = await createAgent(d, { name: "Fb", presetName: "Anchor", ownerId: someWallet() });
     await drainChainOps(d, chain, { limit: 200 });
-    await runMatch(d, a.id, b.id, { seed: 5 });
+    await stakedMatch(d, a.id, b.id, { seed: 5 });
 
     const sums = await solvency(d, chain);
     expect(sums.counted).toBe(2);
@@ -199,8 +200,8 @@ describe("what it reports", () => {
     const a = await createAgent(d, { name: "Va", presetName: "Bully", ownerId: someWallet() });
     const b = await createAgent(d, { name: "Vb", presetName: "Anchor", ownerId: someWallet() });
     const h = await createAgent(d, { name: "Vh", presetName: "Anchor" });
-    for (let i = 0; i < 3; i++) await runMatch(d, a.id, b.id, { seed: 800 + i });
-    await runMatch(d, a.id, h.id, { seed: 999 });
+    for (let i = 0; i < 3; i++) await stakedMatch(d, a.id, b.id, { seed: 800 + i });
+    await stakedMatch(d, a.id, h.id, { seed: 999 });
 
     const v = await volume(d);
     expect(v.agents.active).toBe(2);

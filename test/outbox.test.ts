@@ -3,7 +3,8 @@ import { asc, eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { agents, chainOps, deposits, STARTING_BALANCE } from "../src/db/schema.js";
 import { balanceOf, record } from "../src/db/ledger.js";
-import { createAgent, runMatch } from "../src/db/runner.js";
+import { createAgent } from "../src/db/runner.js";
+import { stakedMatch } from "./staked-match.js";
 import {
   creditSurplus,
   drainChainOps,
@@ -41,7 +42,7 @@ describe("the outbox", () => {
     const opens = await d.select().from(chainOps).where(eq(chainOps.kind, "open_vault"));
     expect(opens.map((o) => o.amount)).toEqual([STARTING_BALANCE, STARTING_BALANCE]);
 
-    const { match, settled } = await runMatch(d, a.id, b.id, { seed: 7 });
+    const { match, settled } = await stakedMatch(d, a.id, b.id, { seed: 7 });
     const settles = await d.select().from(chainOps).where(eq(chainOps.matchId, match.id));
     if (settled.A === 0) {
       expect(settles).toHaveLength(0);
@@ -64,7 +65,7 @@ describe("the worker", () => {
       const [x, y] = [agentsMade[seed % 6]!, agentsMade[(seed * 5 + 1) % 6]!];
       if (x.id === y.id) continue;
       try {
-        await runMatch(d, x.id, y.id, { seed });
+        await stakedMatch(d, x.id, y.id, { seed });
       } catch {
         /* a retired agent sits out */
       }
@@ -116,7 +117,7 @@ describe("the worker", () => {
     // A match this agent loses, and then matches between others.
     let lost: string | null = null;
     for (let seed = 1; seed <= 60 && !lost; seed++) {
-      const { match, settled } = await runMatch(d, throttled.id, rival.id, { seed });
+      const { match, settled } = await stakedMatch(d, throttled.id, rival.id, { seed });
       if (settled.A < 0) lost = match.id;
     }
     expect(lost).not.toBeNull();
@@ -171,7 +172,7 @@ describe("the worker", () => {
     await d.update(chainOps).set({ salt: null }).where(eq(chainOps.agentId, stranded.id));
     let settled: string | null = null;
     for (let seed = 1; seed <= 60 && !settled; seed++) {
-      const { match, settled: nets } = await runMatch(d, stranded.id, rival.id, { seed });
+      const { match, settled: nets } = await stakedMatch(d, stranded.id, rival.id, { seed });
       if (nets.A !== 0) settled = match.id;
     }
     expect(settled).not.toBeNull();
@@ -219,7 +220,7 @@ describe("the worker", () => {
     await drainChainOps(d, chain);
     let matchId = "";
     for (let seed = 1; !matchId; seed++) {
-      const { match, settled } = await runMatch(d, a.id, b.id, { seed });
+      const { match, settled } = await stakedMatch(d, a.id, b.id, { seed });
       if (settled.A !== 0) matchId = match.id;
     }
 
@@ -638,7 +639,7 @@ describe("reconcile and failed ops", () => {
     let moved = 0;
     let matchId = "";
     for (let seed = 1; seed <= 60 && moved === 0; seed++) {
-      const { match, settled } = await runMatch(d, a.id, b.id, { seed });
+      const { match, settled } = await stakedMatch(d, a.id, b.id, { seed });
       moved = settled.A;
       matchId = match.id;
       if (moved === 0) await drainChainOps(d, chain);
@@ -692,7 +693,7 @@ describe("reconcile and failed ops", () => {
       { agentId: a.id, amount: -moved, reason: "adjustment", matchId },
       { agentId: b.id, amount: moved, reason: "adjustment", matchId },
     ]);
-    await runMatch(d, a.id, b.id, { seed: 1000 });
+    await stakedMatch(d, a.id, b.id, { seed: 1000 });
     const check = await reconcile(d, chain);
     expect(check.checked).toBe(0);
     await c();

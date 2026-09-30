@@ -37,7 +37,7 @@ import {
   type MatchRow,
   type RulesConfig,
 } from "./schema.js";
-import { balanceOf, balancesOf, record, retireIfBroke, settle, stakeBetween, StakeError } from "./ledger.js";
+import { balanceOf, balancesOf, record, settle, StakeError } from "./ledger.js";
 import { isExiting } from "./exits.js";
 import { recordEvent } from "./events.js";
 import { baseUnits, chips, rateOf, type Funding } from "../chips.js";
@@ -299,51 +299,51 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
     if (!rentalOpen(row)) throw new StakeError(`${row.name}'s rental ended with the season; renew it to play`);
     // An exit is on chain for this agent and the money may be about to leave.
     // Checked here as well as at the sources that pick opponents, because this
-    // is the one place every staked match passes through.
+    // is the one place every match passes through.
     if (await isExiting(db, row.id)) {
-      throw new StakeError(`${row.name} has an exit waiting on chain, so it can't stake anything until that resolves`);
+      throw new StakeError(`${row.name} has an exit waiting on chain, so it can't play until that resolves`);
     }
   }
 
   /**
-   * A match is played for money only when both agents belong to players.
+   * Nothing is staked: a match moves no money, whoever plays it. A lost match
+   * costs the owner nothing (docs/no-loss-rewards.md); what a player's agent
+   * earns is points toward the reward wallets, and those come from wins.
    *
-   * A house agent's money is the platform's, so a staked match against one is
-   * the platform gambling with itself against its customers - it can lose, and
-   * the house presets are fixed and exactly computable, so it is not a contest
-   * either. Against a house agent the match is still played, still recorded and
-   * still has a transcript; nothing moves.
-   *
-   * This makes "staked" and "ranked" the same question, which they always
-   * should have been: both sides player-owned, or neither counts.
+   * A match still counts - is ranked - only when both agents belong to players.
+   * A house agent is a fixed preset whose weaknesses are exactly computable, so
+   * a win over one measures nothing. Against a house agent the match is still
+   * played, still recorded and still has a transcript; it just counts for nothing.
    */
-  const staked = rowA.ownerId !== null && rowB.ownerId !== null;
+  const ranked = rowA.ownerId !== null && rowB.ownerId !== null;
+  // Nothing is at risk, but a player's agent must still hold the minimum to be
+  // in play at all. A house agent holds nothing and needs nothing.
   const balances = await balancesOf(db, [rowA.id, rowB.id]);
-  // The band's worst match, which both sides must be able to cover outright -
-  // asked only of a match that will actually move money.
-  const stake = staked
-    ? stakeBetween(
-        { name: rowA.name, balance: balances.get(rowA.id) ?? 0, funding: rowA.funding },
-        { name: rowB.name, balance: balances.get(rowB.id) ?? 0, funding: rowB.funding },
-        band,
-      )
-    : bandByName(band).worstMatch;
-  if (staked) assertSameFlow(rowA, rowB);
+  for (const row of [rowA, rowB]) {
+    if (row.ownerId === null) continue;
+    const balance = balances.get(row.id) ?? 0;
+    if (!canAffordBand(balance, band, rateOf(row))) {
+      throw new StakeError(
+        `${row.name} holds too little to play: balance ${chips(balance, rateOf(row))}, needs ${bandByName(band).worstMatch}`,
+      );
+    }
+  }
+  // The chips the match was played at: the band's worst match, what the match
+  // row shows so it reads like any other. Nobody's balance is asked to cover it.
+  const stake = bandByName(band).worstMatch;
   const seed = options.seed ?? newSeed();
   // No display names in the log: the match row references both agents, and a
   // name-free log is exactly what a replay reproduces.
   const log = playMatch(resolveAgent(rowA), resolveAgent(rowB), { seed, ...rules });
   // The engine's own bound, asked of the engine rather than assumed by the
-  // code that spends the answer. Before anything is recorded or moved.
+  // code that reads the answer. Before anything is recorded.
   assertNetWithinBound(log.nets.A, rules.stakes, `${rowA.name} against ${rowB.name}`);
 
   // One transaction: a recorded match and the ratings derived from it move together.
-  // Nothing is capped: the engine cannot produce more than the band's worst
-  // match, and both sides were checked against that above.
   const settledA = settle(log.nets.A);
-  const { match, retired } = await db.transaction(async (tx) => {
-    // Lock both agents, then make sure neither has a withdrawal on its way: while one is
-    // in flight the vault is spoken for, and a match would move money the chain isn't expecting.
+  const match = await db.transaction(async (tx) => {
+    // Lock both agents, then make sure neither has a withdrawal on its way: while
+    // one is in flight the agent is on its way out, and plays again once it lands.
     await tx.execute(sql`select id from ${agents} where ${agents.id} in (${rowA.id}, ${rowB.id}) for update`);
     // Checked again under the lock, because the checks above ran before it: the
     // season may have ended, or the agent retired, while the match was played.
@@ -376,50 +376,20 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
         stake,
         band,
         // Both sides player-rented, decided here and stored, so a later sale
-        // cannot change what this match counted for. The same question decides
-        // whether it was played for money at all.
-        ranked: staked,
-        exhibition: !staked,
+        // cannot change what this match counted for.
+        ranked,
+        exhibition: !ranked,
         season: seasonAt(now).key,
         log,
         createdAt: now,
       })
       .returning();
-    // The engine plays in chips; the ledger and the chain hold base units. Both
-    // agents are on the same flow - assertSameFlow above - so one rate converts
-    // both sides, and a settlement stays zero-sum in base units as it is in
-    // chips. The match row keeps the chips, because that is what a transcript,
-    // a rating and the ladder are all in.
-    const rate = rateOf(rowA);
-    const movedA = staked ? baseUnits(settledA, rate) : 0;
-    if (staked) {
-      await record(tx, [
-        { agentId: rowA.id, amount: movedA, reason: "match-settlement", matchId: inserted!.id },
-        { agentId: rowB.id, amount: -movedA, reason: "match-settlement", matchId: inserted!.id },
-      ]);
-    }
-    // Queue the same movement for the chain. A level match moves nothing, and
-    // an exhibition never had any to move. On the deposit flow it settles in
-    // its agents' hourly nets (src/db/netting.ts); the seed program has no
-    // net settlement, so its matches still go one by one.
-    if (movedA !== 0) {
-      const [loser, winner] = movedA > 0 ? [rowB.id, rowA.id] : [rowA.id, rowB.id];
-      await tx.insert(chainOps).values({
-        kind: "settle",
-        matchId: inserted!.id,
-        fromAgent: loser,
-        toAgent: winner,
-        amount: Math.abs(movedA),
-        netted: rowA.funding === "deposit",
-      });
-    }
     await updateRating(tx, rowA.id);
     await updateRating(tx, rowB.id);
-    // An agent with nothing left stops here; its record freezes as it stands.
-    const broke: string[] = [];
-    for (const id of [rowA.id, rowB.id]) if (await retireIfBroke(tx, id)) broke.push(id);
-    return { match: inserted!, retired: broke };
+    return inserted!;
   });
+  // Nobody is retired by a match any more: nothing is lost, so nobody goes broke.
+  const retired: string[] = [];
   return { match, log, stake, settled: { A: settledA, B: -settledA }, retired };
 }
 
@@ -809,11 +779,10 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   // Same band: a match has one money scale, so both agents must be on it.
   const band = me.band;
   const inBand = eq(agents.band, band);
-  // A player looking for a staked match needs another player. A house opponent
-  // stakes nothing, so it is only ever offered when the caller asked for one.
+  // A player looking for a match that counts needs another player. A house
+  // opponent counts for nothing, so it is only ever offered when the caller asked for one.
   const houseAllowed = options.allowHouse === true || me.ownerId === null;
 
-  const worstMatch = bandByName(band).worstMatch;
   const all = await db
     .select({
       id: agents.id,
@@ -824,12 +793,6 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
       // Each candidate's own unit: its funding flow decides how many base
       // units a chip of its balance is.
       funding: agents.funding,
-      // Every candidate is on this agent's flow (below), so one mirror serves.
-      spent: committedOutflow(agents.id, me.funding),
-      lossBudget: agents.lossBudget,
-      lossBudgetNext: agents.lossBudgetNext,
-      lossBudgetNextFromDay: agents.lossBudgetNextFromDay,
-      lostToday: netLossOn(agents.id, utcDay(new Date())),
     })
     .from(agents)
     // Left, not inner: a house agent never stakes, so it needs no balance to be
@@ -856,41 +819,14 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
       ),
     );
 
-  // Drop anyone whose vault could not pay a full loss inside the chain's
-  // window. Both sides are checked: this agent can lose too, and its own vault
-  // is under exactly the same cap.
-  // And anyone whose owner's daily loss budget could not take a full loss: the
-  // program would refuse that settlement, so the ledger must not make it.
-  const today = utcDay(new Date());
-  const candidates = all.filter((c) => {
-    // A house opponent pays nothing - its matches never stake - so neither the
-    // chain's outflow window nor a loss budget has anything to say about it.
-    if (c.ownerId === null) return true;
-    const rate = rateOf(c);
-    const worst = baseUnits(worstMatch, rate);
-    return (
-      Number(c.spent) + worst <= outflowBudget(Number(c.balance), rate) &&
-      withinBudget(lossBudgetOn(c, today), Number(c.lostToday), worst)
-    );
-  });
-  if (!(await hasOutflowRoom(db, agentId, worstMatch))) {
-    throw new StakeError(
-      `${me.name} has settled as much as its vault can pay out in one window. It plays again ${
-        me.funding === "deposit" ? "when the hour turns" : "within fifteen minutes"
-      }.`,
-    );
-  }
-  if (!(await hasBudgetRoom(db, agentId, worstMatch))) {
-    throw new StakeError(
-      `${me.name} has reached its owner's daily loss limit. It plays again after 00:00 UTC, or sooner if the limit is raised.`,
-    );
-  }
+  // Nothing is staked, so neither side's vault or loss budget has anything to say
+  // about a pairing: every candidate above can play.
+  const candidates = all;
 
   if (candidates.length >= minCandidates) {
     // Closest rating is the signal. With `spread`, an opponent met in the last
     // few matches is pushed down it, so a timer that fires every ten minutes
-    // does not keep serving the same pairing - and does not keep charging the
-    // same vault's window.
+    // does not keep serving the same pairing.
     const recent = options.spread ? await recentOpponents(db, agentId, RECENT_OPPONENTS) : new Map<string, number>();
     const distance = (c: (typeof candidates)[number]) =>
       Math.abs((c.rating ?? 0) - mine) + (recent.get(c.id) ?? 0) * RECENT_OPPONENT_PENALTY;
@@ -910,11 +846,10 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   // silently put a cautious agent in with the boldest on the roster.
   //
   // Drawn from `candidates`, not from a query of its own. An earlier version
-  // ran a separate, looser query here that checked neither a pending
-  // withdrawal nor the vault's window - so the one path meant to guarantee an
-  // opponent was the one path that could pair into a settlement the chain
-  // would refuse. Everything in `candidates` has already passed every check
-  // above, including the owner check, so reusing it cannot reintroduce any.
+  // ran a separate, looser query here that skipped the pending-withdrawal
+  // check, so the one path meant to guarantee an opponent was the one path
+  // that could pair into a refusal. Everything in `candidates` has already
+  // passed every check above, including the owner check.
   const presets = candidates.filter((c) => c.presetName !== null);
   const preset = presets.length ? presets[randomInt(presets.length)] : undefined;
   if (!preset) {

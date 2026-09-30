@@ -143,20 +143,20 @@ describe("a match at the season's rate", () => {
     return agent;
   };
 
-  it("stakes and settles in the season's base units, not devnet's", async () => {
+  it("judges who can play in the season's base units, not devnet's, and moves nothing", async () => {
     const db = await fresh();
     const rate = (await syncSeasonRate(db, program(13_228).read)).rate;
     const a = await funded(db, "Ada", "Anchor", rate);
     const b = await funded(db, "Bo", "Bully", rate);
+    // 900 chips at this rate is far below 40 chips at devnet's: read at the
+    // wrong rate, both would be refused as holding too little to play.
+    expect(900 * rate).toBeLessThan(40 * DEVNET_CHIP_RATE);
     let m = await runMatch(db, a.id, b.id, { seed: 1 });
     for (let seed = 2; m.settled.A === 0 && seed < 50; seed++) m = await runMatch(db, a.id, b.id, { seed });
     expect(m.settled.A).not.toBe(0);
-    // The ledger moved the match's chips at the season's rate, and nothing else.
-    const net = (await balanceOf(db, a.id)) - 900 * rate;
-    expect(net % rate).toBe(0);
-    expect((await balanceOf(db, a.id)) + (await balanceOf(db, b.id))).toBe(2 * 900 * rate);
-    // And the chain is asked to move the same.
-    const [op] = await db.select().from(chainOps).where(eq(chainOps.matchId, m.match.id));
-    expect(op!.amount).toBe(Math.abs(m.settled.A) * rate);
+    // A decided match, and neither balance moved, nor was the chain asked to move one.
+    expect(await balanceOf(db, a.id)).toBe(900 * rate);
+    expect(await balanceOf(db, b.id)).toBe(900 * rate);
+    expect(await db.select().from(chainOps).where(eq(chainOps.matchId, m.match.id))).toHaveLength(0);
   });
 });
