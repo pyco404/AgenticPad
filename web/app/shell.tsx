@@ -420,7 +420,7 @@ function Cover({ up }: { up: boolean }) {
         up ? "pointer-events-none opacity-0" : "opacity-100"
       }`}
     >
-      <img src="/agentclash-tb.png" alt="" width={450} height={425} className="h-auto w-56 [image-rendering:pixelated] md:w-80" />
+      <img src="/agentclash-tb.png" alt="" width={474} height={239} className="h-auto w-56 [image-rendering:pixelated] md:w-80" />
       <p className="font-pixel text-[44px] font-bold leading-none tracking-[0.04em] text-brand md:text-[56px]">AgentClash</p>
       <p role="status" className="text-[18px] tracking-wide text-muted md:text-[20px]">
         Opening...

@@ -48,7 +48,7 @@ function sectionOf(path: string): string | null {
 function Mark() {
   return (
     <Link href="/" aria-label="AgentClash home" className="flex shrink-0 items-center gap-2">
-      <img src="/agentclash-tb.png" alt="" width={32} height={32} className="h-7 w-7 md:h-8 md:w-8" />
+      <img src="/agentclash-tb.png" alt="" width={474} height={239} className="h-11 w-auto [image-rendering:pixelated] md:h-12" />
     </Link>
   );
 }
@@ -96,7 +96,9 @@ function WalletControl() {
       {open ? (
         <div
           role="menu"
-          className="rounded-panel absolute right-0 top-12 z-40 w-64 border border-hud-line bg-hud p-3 text-[12px] leading-5 shadow-[0_6px_18px_rgb(0_0_0/0.45)]"
+          // On a phone the button sits mid-bar, so a menu hung from it would run off the screen: there it spans
+          // the width under the bar. Near-solid, so what it says about signing reads clearly over the village.
+          className="rounded-panel fixed inset-x-2 top-16 z-40 border border-hud-line bg-ink/95 p-4 text-[13px] leading-5 shadow-[0_10px_32px_rgb(0_0_0/0.6)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-72"
         >
           {session ? (
             <>
@@ -334,7 +336,7 @@ function MenuPanel({ active, onClose }: { active: string | null; onClose: () => 
       className="rounded-panel fixed inset-x-2 top-2 z-40 flex max-h-[calc(100dvh-1rem)] flex-col overflow-y-auto border border-hud-line bg-hud px-4 pb-4 pt-3 shadow-[0_10px_32px_rgb(0_0_0/0.6)] sm:inset-x-auto sm:right-3 sm:top-16 sm:w-80"
     >
       <div className="flex items-center justify-between pb-2">
-        <img src="/agentclash-tb.png" alt="AgentClash" width={32} height={32} className="h-8 w-8" />
+        <img src="/agentclash-tb.png" alt="AgentClash" width={474} height={239} className="h-12 w-auto [image-rendering:pixelated]" />
         <div className="flex items-center gap-3">
           <span
             aria-hidden
