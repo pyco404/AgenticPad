@@ -1,20 +1,23 @@
 import * as Phaser from "phaser";
 
+import { CARPET, SQUARE } from "./town";
+
 /**
- * The village's set dressing: what makes the map read as a place people live
- * rather than eight landmarks in a forest - a fountain on a green, cottages,
- * a farm with sheep, a ship at the dock, banners at the doors, a campfire.
+ * The village's set dressing: what makes the map read as a town built round
+ * the game rather than eight landmarks in a forest - the crest flying over it,
+ * each building's props (the leaderboard aside, which is a building), the
+ * agent grounds at the forest's edge, the town square.
  * Placed here rather than in the map, so an import of Agent Quest's map
  * (scripts/village-import.ts) never loses it.
  *
- * The houses, sheep and pumpkins are the Tiny Swords pack's own art (CC0,
- * public/fixtures/LICENSE.txt). The fountain, ship, banners, fences and field
- * are not in the pack: they are drawn for AgentClash in the pack's palette and
- * at its pixel size.
+ * The banners, flags, boards, statues, chests, tents and the rest are drawn
+ * for AgentClash (scripts/village-art.ts) in the Tiny Swords pack's palette
+ * and the crest's. The cottages, the fountain, the gold sacks and the ship
+ * are the pack's own or drawn for it before (public/fixtures/LICENSE.txt).
  *
  * Nothing here is clickable, and none of it is a building: it only decorates.
- * What is solid - a cottage, the fountain - is solid to walkers too, so an
- * agent goes round it rather than through it.
+ * What is solid - a cottage, the fountain, a tent - is solid to walkers too,
+ * so an agent goes round it rather than through it.
  */
 
 type Piece = {
@@ -38,37 +41,32 @@ type Piece = {
   depth?: number;
 };
 
-/**
- * Paving the map does not have, drawn like its own roads (map.ts): a round
- * square for the fountain, and the short paths that join it to the roads.
- */
-const PAVING = {
-  fill: 0x7a6548,
-  edge: 0x5c4e3a,
-  squares: [{ x: 1472, y: 1140, rx: 66, ry: 34 }],
-  paths: [
-    { width: 34, points: [[1472, 1110], [1472, 1036]] },
-    { width: 34, points: [[1536, 1140], [1592, 1140]] },
-  ] as { width: number; points: [number, number][] }[],
-};
+const ART = "/village/agentclash";
 
-/**
- * Patches of forest cleared to make room, in world pixels: no map decoration
- * whose foot is inside one is drawn. Each is kept off the roads beside it.
- */
-export const CLEARINGS: { x0: number; y0: number; x1: number; y1: number; treesOnly?: boolean }[] = [
-  { x0: 1405, y0: 1055, x1: 1545, y1: 1190 }, // the green, south of the halls
-  { x0: 2010, y0: 1040, x1: 2245, y1: 1370 }, // the farm, east of the dock road
-  { x0: 1785, y0: 1100, x1: 1935, y1: 1380 }, // cottages, west of the dock road
-  { x0: 830, y0: 890, x1: 962, y1: 1120 }, // cottages, west of the Hall of Fame
-  // The green below the High Keep, where the Game Hall's name and its waiting agents are: its trees
-  // hid both. Its bushes and stones stay.
-  { x0: 1150, y0: 760, x1: 1490, y1: 945, treesOnly: true },
-  // Between the Hiring Hall and the Game Hall, and where the Game Hall's queue stands.
-  { x0: 1195, y0: 925, x1: 1245, y1: 990, treesOnly: true },
-  { x0: 1270, y0: 1040, x1: 1320, y1: 1090, treesOnly: true },
-];
-
+/** A piece of the AgentClash art, drawn at its two world pixels to the art pixel unless told otherwise. */
+const art = (name: string, x: number, y: number, scale = 2, more: Partial<Piece> = {}): Piece => ({
+  key: `ac-${name}`,
+  image: `${ART}/${name}.png`,
+  x,
+  y,
+  scale,
+  ...more,
+});
+const banner = (x: number, y: number, kind: "banner" | "banner-fame" | "banner-gold" = "banner") => art(kind, x, y, 1.5);
+/** A flag on a tall pole, the crest on it, in two frames of a slow wave. */
+const flag = (x: number, y: number, start = 0) =>
+  art("flag", x, y, 1.6, { sheet: { frameWidth: 28, frameHeight: 58, frameRate: 1.6, start } });
+const tent = (x: number, y: number, flip = false) => art("tent", x, y, 1.6, { flip, solid: { width: 60, height: 40 } });
+const fire = (x: number, y: number): Piece => ({
+  key: "effects-fire-fire",
+  image: "",
+  x,
+  y,
+  scale: 0.34,
+  foot: 0.75,
+  mapped: true,
+  sheet: { frameWidth: 128, frameHeight: 128, frameRate: 12 },
+});
 const cottage = (colour: "Blue" | "Red" | "Purple" | "Yellow", x: number, y: number, flip = false): Piece => ({
   key: `dress-house-${colour.toLowerCase()}`,
   image: `/fixtures/House_${colour}.png`,
@@ -79,78 +77,108 @@ const cottage = (colour: "Blue" | "Red" | "Purple" | "Yellow", x: number, y: num
   flip,
   solid: { width: 56, height: 70 },
 });
-const banner = (colour: "blue" | "red" | "green" | "purple" | "gold", x: number, y: number): Piece => ({
-  key: `dress-banner-${colour}`,
-  image: `/fixtures/Banner_${colour}.png`,
-  x,
-  y,
-  scale: 0.45,
-});
-const fence = (x: number, y: number): Piece => ({ key: "dress-fence", image: "/fixtures/Fence.png", x, y, scale: 0.6 });
-const plot = (x: number, y: number): Piece => ({ key: "dress-plot", image: "/fixtures/Plot.png", x, y, scale: 0.6 });
-const sheep = (x: number, y: number, start: number, flip = false): Piece => ({
-  key: "dress-sheep",
-  image: "/fixtures/Sheep.png",
-  x,
-  y,
-  scale: 0.5,
-  foot: 86 / 128,
-  flip,
-  sheet: { frameWidth: 128, frameHeight: 128, frameRate: 8, start },
-});
+const bush = (key: string, x: number, y: number): Piece => ({ key, image: "", x, y, scale: 0.6, mapped: true });
+const gold = (x: number, y: number, scale: number): Piece => ({ key: "prop-gold", image: "/fixtures/Gold.png", x, y, scale });
 
 export const PIECES: Piece[] = [
-  // The Treasury is a chapel in the pack, so sacks of gold stand at its door.
-  { key: "prop-gold", image: "/fixtures/Gold.png", x: 1596, y: 852, scale: 0.42 },
-  { key: "prop-gold", image: "/fixtures/Gold.png", x: 1609, y: 858, scale: 0.34 },
-  { key: "prop-gold", image: "/fixtures/Gold.png", x: 1583, y: 860, scale: 0.36 },
+  // The town's flags: at the ring road's corners and either side of the avenue up to the arena.
+  flag(975, 468),
+  flag(1825, 468, 1),
+  flag(975, 1040, 1),
+  flag(1825, 1040),
+  flag(1372, 1075, 1),
+  flag(1450, 1075),
 
-  // The green: a fountain south of the halls, where the roads meet.
-  { key: "dress-fountain", image: "/fixtures/Fountain.png", x: 1472, y: 1150, scale: 0.6, solid: { width: 52, height: 26 } },
+  // The Hiring Hall: the agents for hire on a board, one picked out.
+  art("hiring-board", 738, 1128, 1.6),
+  banner(925, 1126),
+  banner(778, 1126),
 
-  // Banners at the doors, in each building's colour.
-  banner("gold", 1046, 862),
-  banner("blue", 1092, 708),
-  banner("gold", 1680, 847),
+  // The Strategy Lab: a decision tree on an easel and a planning table.
+  art("strategy-board", 662, 768, 1.6),
+  art("war-table", 935, 702, 1.5),
+  banner(712, 762),
 
-  // Cottages, so the village has people in it and not only landmarks.
-  cottage("Blue", 1880, 1200),
-  cottage("Yellow", 1880, 1330, true),
-  cottage("Purple", 892, 990),
-  cottage("Red", 892, 1110, true),
-  // A campfire between the east cottages.
-  { key: "effects-fire-fire", image: "", x: 1826, y: 1268, scale: 0.34, foot: 0.75, mapped: true, sheet: { frameWidth: 128, frameHeight: 128, frameRate: 12 } },
+  // The Game Hall: screens of the matches playing.
+  art("scoreboard", 2168, 772, 1.6, { sheet: { frameWidth: 66, frameHeight: 66, frameRate: 1.2 } }),
+  banner(1925, 770),
+  banner(2095, 770),
 
-  // The farm: fenced fields, a scarecrow, pumpkins, and sheep grazing below.
-  fence(2046, 1072),
-  fence(2104, 1072),
-  fence(2162, 1072),
-  fence(2220, 1072),
-  plot(2075, 1128),
-  plot(2165, 1128),
-  plot(2075, 1190),
-  plot(2165, 1190),
-  { key: "deco-18", image: "", x: 2122, y: 1250, scale: 0.42, mapped: true },
-  { key: "dress-pumpkin", image: "/fixtures/Pumpkin.png", x: 2058, y: 1256, scale: 0.55 },
-  { key: "rock-4", image: "", x: 2086, y: 1266, scale: 0.5, mapped: true },
-  { key: "dress-pumpkin", image: "/fixtures/Pumpkin.png", x: 2196, y: 1252, scale: 0.45, flip: true },
-  fence(2046, 1290),
-  fence(2104, 1290),
-  fence(2162, 1290),
-  fence(2220, 1290),
-  sheep(2060, 1332, 0),
-  sheep(2140, 1350, 3, true),
-  sheep(2206, 1328, 5),
+  // The Hall of Fame: champions in gold, cups, banners of navy and gold, a carpet to the door.
+  art("statue", 1300, 474, 1.6),
+  art("statue", 1500, 474, 1.6, { flip: true }),
+  art("trophy", 1335, 482, 1.4),
+  art("trophy", 1465, 482, 1.4),
+  banner(1262, 456, "banner-fame"),
+  banner(1538, 456, "banner-fame"),
+
+  // The Treasury: chests, coins and sacks of gold at its door.
+  art("chest", 1640, 476, 1.6),
+  art("chest-shut", 1775, 472, 1.5),
+  art("coins", 1664, 488, 1.6),
+  art("coins", 1752, 490, 1.4),
+  gold(1622, 470, 0.42),
+  gold(1792, 478, 0.36),
+  banner(1602, 456, "banner-gold"),
+  banner(1812, 456, "banner-gold"),
+
+  // The Lookout.
+  banner(1135, 452),
+
+  // Bushes in the corners the arena leaves inside the ring road, the pack's own.
+  bush("bush-1", 1046, 548),
+  bush("bush-2", 1070, 566),
+  bush("bush-4", 1752, 546),
+  bush("bush-1", 1730, 566),
+  bush("bush-2", 1046, 972),
+  bush("bush-4", 1066, 958),
+  bush("bush-1", 1754, 972),
+  bush("bush-2", 1734, 958),
+
+  // The town square: the fountain, benches round it.
+  { key: "dress-fountain", image: "/fixtures/Fountain.png", x: 1400, y: 1172, scale: 0.6, solid: { width: 52, height: 26 } },
+  art("bench", 1300, 1204, 1.6),
+  art("bench", 1500, 1204, 1.6),
+
+  // The agent grounds. North-west, a camp: tents round a fire.
+  tent(795, 560),
+  tent(918, 532, true),
+  fire(862, 600),
+  art("log", 826, 618, 1.6),
+  art("log", 900, 620, 1.6, { flip: true }),
+
+  // West, the training yard.
+  art("dummy", 592, 905, 1.6),
+  art("dummy", 646, 922, 1.6),
+  art("dummy", 700, 905, 1.6),
+  art("bench", 718, 970, 1.6),
+  flag(560, 960),
+
+  // North-east, a terrace off the ring: benches, a tent, a fire.
+  art("bench", 1925, 604, 1.6),
+  art("bench", 2018, 606, 1.6),
+  tent(2068, 568, true),
+  fire(1972, 660),
+
+  // South-west, a camp at the end of the high street.
+  tent(598, 1262),
+  fire(655, 1312),
+  art("log", 700, 1312, 1.6, { flip: true }),
+
+  // South-east, cottages off the dock road, a fire between them.
+  cottage("Blue", 2085, 1250),
+  cottage("Yellow", 2160, 1365, true),
+  cottage("Red", 1880, 1300),
+  fire(2100, 1318),
+  art("bench", 2036, 1345, 1.6),
+
+  // The lakeside, at the end of the trail south from the square.
+  art("bench", 1340, 1428, 1.6),
+  art("bench", 1460, 1428, 1.6),
 
   // A ship moored off the dock.
   { key: "dress-ship", image: "/fixtures/Ship.png", x: 1838, y: 1602, scale: 0.62, bob: true, depth: 2_000 },
 ];
-
-/** Whether a map decoration stands in one of the clearings, and so is not drawn. */
-export const cleared = (p: { k: string; x: number; y: number }) =>
-  CLEARINGS.some(
-    (c) => p.x >= c.x0 && p.x <= c.x1 && p.y >= c.y0 && p.y <= c.y1 && (!c.treesOnly || p.k.includes("tree")),
-  );
 
 /** The tree sheet's frame, in its own pixels: a tree is drawn from the middle of it. */
 const TREE_FRAME = 192;
@@ -195,28 +223,27 @@ export function loadDressing(scene: Phaser.Scene): void {
   }
 }
 
-/** Draw the dressing, each piece at the depth of its foot like the map's own, and return what is solid. */
-export function drawDressing(scene: Phaser.Scene, still: boolean): { x: number; y: number; width: number; height: number }[] {
-  // The paving first, just over the map's roads, so it joins them without a seam.
-  const g = scene.add.graphics().setDepth(-399);
-  for (const path of PAVING.paths) {
-    for (const [width, colour, alpha] of [
-      [path.width + 6, PAVING.edge, 0.3],
-      [path.width, PAVING.fill, 0.95],
-    ] as const) {
-      g.lineStyle(width, colour, alpha).beginPath();
-      path.points.forEach(([x, y], i) => (i === 0 ? g.moveTo(x, y) : g.lineTo(x, y)));
-      g.strokePath();
-    }
-  }
-  for (const sq of PAVING.squares) {
-    g.fillStyle(PAVING.edge, 0.35).fillEllipse(sq.x, sq.y, sq.rx * 2 + 8, sq.ry * 2 + 8);
-    g.fillStyle(PAVING.fill, 0.95).fillEllipse(sq.x, sq.y, sq.rx * 2, sq.ry * 2);
-    g.fillStyle(PAVING.fill + 0x0a0a0a, 1).fillEllipse(sq.x, sq.y, sq.rx * 2 - 18, sq.ry * 2 - 12);
-    g.lineStyle(1.5, PAVING.edge, 0.6).strokeEllipse(sq.x, sq.y, sq.rx * 2, sq.ry * 2);
-  }
+/** A piece's place on the ground, for the town's lots: the forest keeps clear of it. */
+export type Bounds = { x: number; y: number; width: number; height: number };
 
-  const solids: { x: number; y: number; width: number; height: number }[] = [];
+/** Draw the dressing, each piece at the depth of its foot like the map's own; return what is solid, and where everything is. */
+export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bounds[]; placed: Bounds[] } {
+  // The square and the carpet first, just over the map's roads, so they join them without a seam.
+  const g = scene.add.graphics().setDepth(-399);
+  const sq = SQUARE;
+  g.fillStyle(0x5c4e3a, 0.35).fillEllipse(sq.x, sq.y, sq.rx * 2 + 10, sq.ry * 2 + 10);
+  g.fillStyle(0x7a6548, 0.95).fillEllipse(sq.x, sq.y, sq.rx * 2, sq.ry * 2);
+  g.fillStyle(0x84704f, 1).fillEllipse(sq.x, sq.y, sq.rx * 2 - 22, sq.ry * 2 - 14);
+  // A ring of teal stone set in it, the crest's colour.
+  g.lineStyle(4, 0x189b68, 0.8).strokeEllipse(sq.x, sq.y, sq.rx * 2 - 44, sq.ry * 2 - 26);
+  g.lineStyle(1.5, 0x5c4e3a, 0.6).strokeEllipse(sq.x, sq.y, sq.rx * 2, sq.ry * 2);
+  const c = CARPET;
+  g.fillStyle(0xb07a2a, 1).fillRect(c.x - c.width / 2 - 3, c.y0, c.width + 6, c.y1 - c.y0);
+  g.fillStyle(0x015f68, 1).fillRect(c.x - c.width / 2, c.y0, c.width, c.y1 - c.y0);
+  g.fillStyle(0x189b68, 1).fillRect(c.x - c.width / 2 + 4, c.y0, c.width - 8, c.y1 - c.y0);
+
+  const solids: Bounds[] = [];
+  const placed: Bounds[] = [];
   for (const p of PIECES) {
     if (!scene.textures.exists(p.key)) continue;
     const obj = p.sheet ? scene.add.sprite(p.x, p.y, p.key, p.sheet.start ?? 0) : scene.add.image(p.x, p.y, p.key);
@@ -232,24 +259,28 @@ export function drawDressing(scene: Phaser.Scene, still: boolean): { x: number; 
       scene.tweens.add({ targets: obj, y: p.y + 3, angle: 1.5, duration: 2200, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     }
     if (p.solid) solids.push({ x: p.x, y: p.y, width: p.solid.width, height: p.solid.height });
+    placed.push({ x: p.x, y: p.y, width: obj.displayWidth, height: obj.displayHeight * (p.foot ?? 1) });
   }
-  return solids;
+  return { solids, placed };
 }
 
 /**
- * Solar lights along the farm's fields: little lamp posts with a panel on top,
+ * Solar lights round the town square and down to the lakeside: little lamp posts with a panel on top,
  * drawn here in the pack's palette since the pack has none. By day they are
  * dark, charging; at night they come on, a warm pool on the ground and a glow
  * drawn over the night's blue so it reads as light rather than as paint.
  */
 const SOLAR_LIGHTS: { x: number; y: number }[] = [
-  { x: 2034, y: 1112 },
-  { x: 2120, y: 1146 },
-  { x: 2208, y: 1112 },
-  { x: 2034, y: 1204 },
-  { x: 2208, y: 1204 },
-  { x: 2120, y: 1278 },
-];
+  { x: 1238, y: 1128 },
+  { x: 1562, y: 1186 },
+  { x: 1238, y: 1196 },
+  { x: 1100, y: 1192 },
+  { x: 1700, y: 1192 },
+  { x: 1372, y: 1300 },
+  { x: 1428, y: 1300 },
+  { x: 1372, y: 1036 },
+  { x: 1428, y: 1036 },
+]
 
 /** The lamp, a row to a string, in art pixels: panel, lamp, cap, post, foot. */
 const LAMP_ART = [

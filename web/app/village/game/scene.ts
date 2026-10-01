@@ -5,7 +5,9 @@ import { Building, type BuildingLabel } from "./building";
 import { Ground } from "./ground";
 import { Hero } from "./hero";
 import { CardTable } from "./table";
-import { cleared, drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
+import { drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
+import { drawArena, loadArena, type ArenaHandle } from "./arena";
+import { ARENA_LAYOUT, GROUNDS, HIDDEN_ROADS, lots, RESERVED, ROADS, SITES, stands, townBounds } from "./town";
 import { loadWeapons, weaponOf } from "./weapons";
 import { drawMap, loadMap, type VillageMap } from "./map";
 import { Roads, type Point } from "./roads";
@@ -22,12 +24,9 @@ const HERO_SCALE = 0.55;
 /** Space between heroes waiting at a hall. */
 const GRID_X = 50;
 const GRID_Y = 42;
-/** A match takes two spots facing each other; matches stand this far apart. */
+/** A match takes two spots facing each other; matches stand this far apart, in rows on the arena's sand (town.ts). */
 const PAIR_GAP = 72;
-const PAIR_X = 150;
-const PAIR_Y = 60;
-/** Matches stand in rows of this many before the arena, each in its own fixed spot. */
-const ARENA_COLS = 3;
+const { pairX: PAIR_X, pairY: PAIR_Y, cols: ARENA_COLS } = ARENA_LAYOUT;
 /** How long an agent called to a match takes to get there, from wherever it is. */
 const ARRIVE_MS = 2500;
 /** How far a drag goes before it is a drag and not a tap. */
@@ -40,10 +39,11 @@ const AT_HOME_MS: [number, number] = [2_000, 8_000];
 const AWAY_MS: [number, number] = [6_000, 14_000];
 /** The chance, each time it has stood a while, that it goes for a stroll rather than staying put. */
 const STROLL_CHANCE = 0.7;
-/** A stroll's end: the lake shore this often, anywhere else in the world otherwise. */
+/** A stroll's end: the agent grounds at the edge of town this often; of the rest, the lake shore this often, anywhere else in the world otherwise. */
+const GROUNDS_CHANCE = 0.4;
 const SHORE_CHANCE = 0.6;
 /** Of all strolls, this share go down the south road to the dock; of those, this share go in for a swim. */
-const DOCK_CHANCE = 0.4;
+const DOCK_CHANCE = 0.25;
 const SWIM_CHANCE = 0.6;
 /** Swimming is slower than walking; a swim is a few strokes out and about before climbing back out. */
 const SWIM_PACE = 0.35;
@@ -83,6 +83,7 @@ export class VillageScene extends Phaser.Scene {
   private night: Phaser.GameObjects.Rectangle | null = null;
   private isNight = false;
   private solarLights: { setNight: (on: boolean) => void } | null = null;
+  private arena: ArenaHandle | null = null;
   /** Whether someone has panned or zoomed since the village was last framed: a resize then keeps their view. */
   private moved = false;
   private heroes = new Map<string, Hero>();
@@ -118,38 +119,50 @@ export class VillageScene extends Phaser.Scene {
 
   preload(): void {
     this.load.setPath(`${this.opts.base}/`);
-    loadMap(this, this.map);
-    // The places the map does not have bring their own pictures, from the site's root.
+    // The map's own buildings are not loaded: the town's plan (town.ts) says how each is drawn.
+    loadMap(this, { ...this.map, textures: this.map.textures.filter((t) => !t.key.startsWith("building-")) });
     this.load.setPath("");
-    for (const b of this.opts.buildings) if (b.at && b.image) this.load.image(`building-${b.id}`, b.image);
+    for (const b of this.opts.buildings) {
+      const site = SITES[b.id];
+      if (!site) continue;
+      if (site.sheet) this.load.spritesheet(`building-${b.id}`, site.art, { frameWidth: site.sheet.width, frameHeight: site.sheet.height });
+      else this.load.image(`building-${b.id}`, site.art);
+    }
     loadDressing(this);
+    loadArena(this);
     loadWeapons(this);
   }
 
   create(): void {
     this.cameras.main.setBackgroundColor("#141a24");
-    // The map, less the trees in the clearings the dressing needs; then the dressing itself (dressing.ts).
-    // Nor the trees that stood on its roads.
-    drawMap(this, { ...this.map, decorations: this.map.decorations.filter((d) => !cleared(d) && !overRoad(d, this.map.paths)) });
-    const solids = drawDressing(this, this.opts.still);
+    // The dressing (dressing.ts), then the map with the town's roads (town.ts) in place of its own: its
+    // forest, less what stands where the town is - its buildings, their props, its roads.
+    const { solids, placed } = drawDressing(this, this.opts.still);
+    const taken = lots(placed);
+    drawMap(this, {
+      ...this.map,
+      paths: ROADS,
+      decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS)),
+    });
 
-    const labels = new Map(this.opts.buildings.map((b) => [b.id, b]));
-    const placed = this.opts.buildings.flatMap((b) => (b.at ? [{ id: b.id, ...b.at }] : []));
-    for (const at of [...this.map.buildings, ...placed]) {
-      const def = labels.get(at.id);
-      if (!def) continue;
+    for (const def of this.opts.buildings) {
+      const site = SITES[def.id];
+      if (!site) continue;
       const click = () => {
-        if (!this.dragged) this.opts.events.selectBuilding(at.id);
+        if (!this.dragged) this.opts.events.selectBuilding(def.id);
       };
-      const building = new Building(this, def, at, click, this.opts.nameFont);
-      this.doors.set(at.id, building.door);
-      this.buildings.set(at.id, building);
+      const building = new Building(this, def, site, click, this.opts.nameFont, this.opts.still);
+      this.doors.set(def.id, building.door);
+      this.buildings.set(def.id, building);
     }
     this.roads = new Roads(
-      this.map.paths.map((p) => p.points.map(([x, y]) => ({ x, y }))),
+      [...ROADS.map((p) => p.points.map(([x, y]) => ({ x, y }))), ...HIDDEN_ROADS],
       [...this.doors.values()],
     );
-    this.ground = new Ground(this.map, [...[...this.buildings.values()].map((b) => b.footprint), ...solids]);
+    // A building is solid as its picture's box, but the arena as its walls: agents fight inside it.
+    const footprints = [...this.buildings].filter(([id]) => !SITES[id]?.blocks).map(([, b]) => b.footprint);
+    const blocks = Object.values(SITES).flatMap((s) => s.blocks ?? []);
+    this.ground = new Ground(this.map, [...footprints, ...solids], blocks, RESERVED);
     this.gate = this.ground.nearestDry(this.map.spawn);
 
     // The dock: the map's one bridge, at the end of the south road. Swimmers make for open water near it,
@@ -173,6 +186,8 @@ export class VillageScene extends Phaser.Scene {
     this.night.setVisible(this.isNight);
     this.solarLights = drawSolarLights(this, this.opts.still);
     this.solarLights.setNight(this.isNight);
+    this.arena = drawArena(this, this.opts.still);
+    this.arena.setNight(this.isNight);
 
     this.setUpCamera();
     this.setNotes(this.notes);
@@ -184,13 +199,8 @@ export class VillageScene extends Phaser.Scene {
 
   /** The part of the world with the buildings and the people in front of them. */
   private villageBounds(): Phaser.Geom.Rectangle {
-    const xs = this.map.buildings.map((b) => b.x);
-    const ys = this.map.buildings.map((b) => b.y);
-    // Room at the sides for the outermost buildings' names, which hang past their roofs.
-    const left = Math.min(...xs) - 170;
-    // Room above the top row for the tallest roof and its name.
-    const top = Math.min(...ys) - 230;
-    return new Phaser.Geom.Rectangle(left, top, Math.max(...xs) + 170 - left, Math.max(...ys) + 150 - top);
+    const b = townBounds();
+    return new Phaser.Geom.Rectangle(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
   }
 
   /**
@@ -364,6 +374,7 @@ export class VillageScene extends Phaser.Scene {
     this.isNight = on;
     this.night?.setVisible(on);
     this.solarLights?.setNight(on);
+    this.arena?.setNight(on);
   }
 
   /** Marks the signed-in owner's agents; an empty set when nobody is signed in. */
@@ -523,11 +534,12 @@ export class VillageScene extends Phaser.Scene {
     });
   }
 
-  /** Out down the south road to the dock, to the lake shore, or anywhere in the world; a while there, then home. */
+  /** Out down the south road to the dock, to the agent grounds, the lake shore, or anywhere in the world; a while there, then home. */
   private stroll(id: string): void {
     if (this.dock && Math.random() < DOCK_CHANCE) return this.toTheDock(id);
     const hero = this.heroes.get(id);
-    const places = Math.random() < SHORE_CHANCE && this.ground.shore.length > 0 ? this.ground.shore : this.ground.anywhere;
+    const places =
+      Math.random() < GROUNDS_CHANCE ? GROUNDS : Math.random() < SHORE_CHANCE && this.ground.shore.length > 0 ? this.ground.shore : this.ground.anywhere;
     const to = places[Math.floor(Math.random() * places.length)];
     if (!hero || !to) return this.standAWhile(id);
     this.roam(id, true);
@@ -690,6 +702,8 @@ export class VillageScene extends Phaser.Scene {
       this.brawls.delete(id);
     }
     for (const [id, [a, b]] of fights) if (!this.brawls.has(id)) this.startBrawl(id, a, b);
+    // The crowd is on its feet while a match is on.
+    this.arena?.setCheering(this.brawls.size > 0);
   }
 
   private startBrawl(id: string, a: string, b: string): void {

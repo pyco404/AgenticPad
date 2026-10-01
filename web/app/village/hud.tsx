@@ -285,9 +285,9 @@ export function BuildingCard({ place, onClose, onEnter }: { place: PlaceInfo; on
         </div>
       ) : null}
       {place.id === "board" ? <Notices w={w} /> : null}
-      {place.id === "yard" ? (
+      {place.id === "forge" ? (
         <div className="rounded-panel mt-4 border border-line">
-          <p className="border-b border-line px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-accent">Being built</p>
+          <p className="border-b border-line px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-accent">Coming to the Game Hall</p>
           <ul className="divide-y divide-line px-3 text-[13px]">
             {IN_DESIGN.map((g) => (
               <li key={g.game} className="py-2">

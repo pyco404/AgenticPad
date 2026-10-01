@@ -1,5 +1,6 @@
 import type { VillageMap } from "./map";
 import type { Point } from "./roads";
+import type { Rect } from "./town";
 
 const TILE = 64;
 
@@ -33,7 +34,14 @@ export class Ground {
   readonly water: Point[] = [];
   private wet = new Set<number>();
 
-  constructor(map: VillageMap, buildings: { x: number; y: number; width: number; height: number }[]) {
+  constructor(
+    map: VillageMap,
+    buildings: { x: number; y: number; width: number; height: number }[],
+    /** Solid as they are drawn: walls a building's box would get wrong, like the arena's round its open sand. */
+    blocks: Rect[] = [],
+    /** Open ground nobody strolls to: the arena's sand is for matches. */
+    reserved: Rect[] = [],
+  ) {
     this.cols = Math.ceil(map.world.width / TILE);
     this.rows = Math.ceil(map.world.height / TILE);
     this.open = new Array(this.cols * this.rows).fill(true);
@@ -54,6 +62,15 @@ export class Ground {
       }
     }
 
+    for (const b of blocks) {
+      for (let x = b.x0; x <= b.x1; x += TILE / 2) {
+        for (let y = b.y0; y <= b.y1; y += TILE / 2) {
+          const i = this.index({ x, y });
+          if (i !== null) this.open[i] = false;
+        }
+      }
+    }
+
     this.shore = [];
     this.anywhere = [];
     for (let row = 1; row < this.rows - 1; row++) {
@@ -61,6 +78,7 @@ export class Ground {
         const i = row * this.cols + col;
         if (!this.open[i]) continue;
         const centre = this.centre(i);
+        if (reserved.some((r) => centre.x >= r.x0 && centre.x <= r.x1 && centre.y >= r.y0 && centre.y <= r.y1)) continue;
         this.anywhere.push(centre);
         if ([i - 1, i + 1, i - this.cols, i + this.cols].some((n) => water.has(n))) this.shore.push(centre);
       }

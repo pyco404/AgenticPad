@@ -1,12 +1,11 @@
 import { REWARDS_LINKED } from "@/app/site-header";
 
 /**
- * The village's eight buildings, each a way into a page of the site: the
- * village is the site's map. Four are also where agents stand - the arena
- * while a match plays, and three halls they wait at. Beside them,
- * placed here rather than by the map (their art, cropped from the same CC0
- * pack, is in public/fixtures; the yard's frame has had water painted in, in
- * the village's own water colour), the notice board and the Builders' Yard.
+ * The village's buildings, each a way into a page of the site: the village is
+ * the site's map, laid out as the game is played (game/town.ts). Four are also
+ * where agents stand - the arena while a match plays, and three halls they
+ * wait at: the Hiring Hall, the Strategy Lab and the Game Hall. Where each
+ * stands and how it is drawn is the town's plan; here is what it is.
  */
 export type PlaceInfo = {
   id: string;
@@ -18,17 +17,13 @@ export type PlaceInfo = {
   /** Who stands here: "arena" for matches, "hall" for agents waiting, null for a building that is only a way somewhere. */
   holds: "arena" | "hall" | null;
   href: string | null;
-  /** Its picture, from the site's root. */
+  /** Its picture on its card, from the site's root. */
   image: string;
-  /** Where it stands, bottom-centre, for a place the map itself does not have. */
-  at?: { x: number; y: number };
-  /** How big it is drawn against its picture, for a place the map does not have. */
-  scale?: number;
   /** Its card's button, when "Enter" and its name would not say where it goes. */
   enter?: string;
 };
 
-/** The games still in design, as the games page lists them: what the Builders' Yard is building. */
+/** The games still in design, as the games page lists them: what the Game Hall has coming. */
 export const IN_DESIGN: { game: string; about: string }[] = [
   { game: "Duel", about: "Two agents, head to head, one move at a time." },
   { game: "Auction", about: "Several agents bid on one item from private budgets." },
@@ -42,16 +37,16 @@ export const PLACES: PlaceInfo[] = [
     id: "arena",
     label: "Arena",
     note: "live matches",
-    about: "Both sides of a match stand here while it plays out. The result rises over them as they leave.",
+    about: "Where agents compete. Both sides of a match stand on the sand while it plays out, the crowd on its feet; the result rises over them as they leave.",
     holds: "arena",
     href: "/live",
-    image: "/village/buildings/Arena.png",
+    image: "/village/agentclash/arena-card.png",
   },
   {
     id: "tavern",
     label: "Hiring Hall",
     note: "rent an agent",
-    about: "Agents waiting for their next match. Rent one of your own here.",
+    about: "Where it starts: agents waiting for their next match, and yours to rent. Rent one here and give it a strategy.",
     holds: "hall",
     href: "/",
     image: "/village/buildings/Tavern.png",
@@ -60,25 +55,26 @@ export const PLACES: PlaceInfo[] = [
     id: "forge",
     label: "Game Hall",
     note: "the games",
-    about: "Agents waiting for their next match. Enter it for the games they play.",
+    about: "Agents waiting for their next match, under the screens of the matches playing next door. Enter it for the games they play.",
     holds: "hall",
     href: "/games",
-    image: "/village/buildings/Forge.png",
+    image: "/village/agentclash/game-hall.png",
   },
   {
     id: "castle",
-    label: "High Keep",
-    note: "waiting",
-    about: "Agents waiting for their next match.",
+    label: "Strategy Lab",
+    note: "plan the play",
+    about: "Agents waiting for their next match, going over how they play. A strategy is a preset, or a brief in your own words that becomes the table its agent plays by: when to fold, call or raise.",
     holds: "hall",
-    href: null,
-    image: "/village/buildings/Castle.png",
+    href: "/",
+    enter: "Choose a strategy",
+    image: "/village/agentclash/strategy-lab.png",
   },
   {
     id: "library",
     label: "Hall of Fame",
     note: "the ladder",
-    about: "Players' agents ranked by what they won against other players' agents, each with its record.",
+    about: "The legends: players' agents ranked by what they won against other players' agents, each with its record.",
     holds: null,
     href: "/ladder",
     image: "/village/buildings/Library.png",
@@ -90,7 +86,7 @@ export const PLACES: PlaceInfo[] = [
     about: "Every agent in play, as it happens: who is in a match, who is waiting, who just left.",
     holds: null,
     href: "/field",
-    image: "/village/buildings/Tower.png",
+    image: "/village/agentclash/lookout.png",
   },
   REWARDS_LINKED
     ? {
@@ -115,26 +111,12 @@ export const PLACES: PlaceInfo[] = [
   {
     id: "board",
     label: "Notice Board",
-    note: "worth seeing",
-    about: "The moments worth seeing from the latest matches: a bluff that worked, the biggest win, the newest headlines.",
+    note: "standings and moments",
+    about: "The town's leaderboard: who is winning, the moments worth seeing from the latest matches - a bluff that worked, the biggest win - and the newest headlines.",
     holds: null,
     href: "/live",
     enter: "Watch the matches",
-    image: "/fixtures/Board.png",
-    at: { x: 1590, y: 1150 },
-    scale: 0.75,
-  },
-  {
-    id: "yard",
-    label: "Builders' Yard",
-    note: `${IN_DESIGN.length} games coming`,
-    about: "The games still being built. Each is designed, not built: nothing plays them yet.",
-    holds: null,
-    href: "/games",
-    enter: "Read about the games",
-    image: "/fixtures/Yard.png",
-    at: { x: 1820, y: 870 },
-    scale: 0.5,
+    image: "/village/agentclash/leaderboard-card.png",
   },
 ];
 

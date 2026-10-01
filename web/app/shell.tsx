@@ -310,7 +310,7 @@ function Village({
       .then(([{ startVillage }]) =>
         startVillage(el, {
           base: "/village",
-          buildings: PLACES.map(({ id, label, note, at, image, scale }) => ({ id, label, note, at, image, scale })),
+          buildings: PLACES.map(({ id, label, note }) => ({ id, label, note })),
           still: prefersReducedMotion(),
           nameFont: face,
           events: {
