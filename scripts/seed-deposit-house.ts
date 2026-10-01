@@ -38,7 +38,7 @@ if (mode === "create") {
   const nextName = nameFactory(mulberry32(Date.now() % 1_000_000));
   const { created, roster } = await ensureDepositHouse(db, nextName);
   console.error(`created ${created.length}, roster ${roster.length}`);
-  for (const s of created) console.error(`  ${s.band} ${s.presetName.padEnd(7)} ${s.name}`);
+  for (const s of created) console.error(`  ${s.presetName.padEnd(7)} ${s.name}`);
   console.error(`true ratings: ${await refreshTrueRatings(db)} agents rated`);
   console.log(JSON.stringify(roster));
   await close();
@@ -56,7 +56,7 @@ if (mode === "create") {
   for (const seat of roster) {
     const held = await client.vaultBalance(seat.id);
     if (held === null) {
-      console.log(`  not open yet   ${seat.band} ${seat.name}`);
+      console.log(`  not open yet   ${seat.name}`);
       counts.notOpenYet++;
       continue;
     }
@@ -66,7 +66,7 @@ if (mode === "create") {
       continue;
     }
     await client.deposit({ agentId: seat.id, amount: short });
-    console.log(`  funded         ${seat.band} ${seat.name} +${short / rate} chips`);
+    console.log(`  funded         ${seat.name} +${short / rate} chips`);
     counts.funded++;
   }
   console.log(JSON.stringify(counts));

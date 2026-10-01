@@ -102,12 +102,9 @@ describe("house exhibitions", () => {
   // failed here for no reason but contention.
   it("pairs anyone with anyone, and does not stall on a freshly seeded one", async () => {
     const { db, close } = await fresh();
-    // Everyone plays at one scale now, so the whole house is one pool.
-    const band = new Map<string, string>();
-    for (let i = 0; i < 12; i++) {
-      const row = await createAgent(db, { name: `H${i}`, presetName: "Anchor" });
-      band.set(row.id, row.band);
-    }
+    // The whole house is one pool: any house agent can meet any other.
+    const house = new Set<string>();
+    for (let i = 0; i < 12; i++) house.add((await createAgent(db, { name: `H${i}`, presetName: "Anchor" })).id);
 
     // Run the real loop's own steps: pick, then play. Every pick must be
     // playable, so no exhibition is ever refused and every agent gets a turn.
@@ -116,12 +113,12 @@ describe("house exhibitions", () => {
       const pair = await pickHousePair(db);
       expect(pair).not.toBeNull();
       const [x, y] = pair!;
-      expect(band.get(x)).toBe(band.get(y));
+      expect(house.has(x) && house.has(y)).toBe(true);
       await runExhibition(db, x, y, { seed: k + 1 });
       played.add(x).add(y);
     }
     // Nobody is stuck on zero.
-    expect(played.size).toBe(band.size);
+    expect(played.size).toBe(house.size);
     await close();
   });
 
@@ -197,7 +194,6 @@ describe("the house on the deposit program", () => {
     expect(created).toHaveLength(36);
     expect(roster).toHaveLength(36);
     for (const preset of ["Anchor", "Hammer", "Mirage", "Bully"]) expect(roster.filter((r) => r.presetName === preset)).toHaveLength(9);
-    expect(new Set(roster.map((r) => r.band))).toEqual(new Set(["B"]));
     expect(new Set(roster.map((r) => r.chips))).toEqual(new Set([DEPOSIT_HOUSE.chips]));
     // Each on the deposit program, with no owner, and a pending open_vault op
     // carrying the salt - which is the only place that salt is kept.

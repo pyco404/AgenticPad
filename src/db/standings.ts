@@ -1,20 +1,6 @@
-import { and, desc, eq, gte, isNotNull, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { agents, matches, seasonStandings, seasons, STAKE_BANDS } from "./schema.js";
-
-/**
- * A match's net divided by its band's factor: onto band B's scale, so a band C
- * win of 30 and a band A win of 10 both count as 20. Everything the ladder
- * ranks goes through this; money never does.
- *
- * The factors are inlined rather than bound: a bare parameter in a CASE result
- * has no type Postgres can infer.
- */
-export const bandFactor = (band: SQL | typeof matches.band) =>
-  sql<number>`(case ${sql.join(
-    STAKE_BANDS.map((b) => sql`when ${band} = ${b.name} then ${sql.raw(b.factor.toFixed(4))}`),
-    sql` `,
-  )} else 1 end)::double precision`;
+import { agents, matches, seasonStandings, seasons } from "./schema.js";
 
 export type Standing = {
   agentId: string;
@@ -22,11 +8,14 @@ export type Standing = {
   presetName: string | null;
   mark: string | null;
   retired: boolean;
-  /** Player-versus-player only, normalised onto band B: what ranks. */
+  /** Player-versus-player only: what ranks. Every match plays at one scale, so nothing is normalised. */
   rankedMatches: number;
   rankedNet: number;
   rankedStaked: number;
-  /** The same ranked matches in the chips actually moved, un-normalised: what prizes divide. */
+  /**
+   * What prizes divide. The same as rankedNet now that every match plays at one
+   * scale; it differed while bands existed, when rankedNet was normalised.
+   */
   rankedNetReal: number;
   /** Every staked match, house included, in real money: shown, never ranked. */
   totalMatches: number;
@@ -37,8 +26,8 @@ export type StandingsWindow = { season: string } | { since: Date };
 
 /**
  * Every player agent that played a staked match in the window, with the same
- * figures the all-time ladder keeps in `ratings` - the same ranked flag, the
- * same normalisation - counted over that window only. Summed over every
+ * figures the all-time ladder keeps in `ratings` - the same ranked flag -
+ * counted over that window only. Summed over every
  * season, and the matches from before seasons, these are the all-time figures.
  *
  * Sorted by ranked net won. House agents are left out, as on every ladder:
@@ -52,7 +41,6 @@ export async function standings(db: Db, window: StandingsWindow): Promise<Standi
       .select({
         agentId: sql<string>`${agent}`.as("agent_id"),
         net: sql<number>`${net}`.as("net"),
-        normalised: sql<number>`${net}::double precision / ${bandFactor(matches.band)}`.as("normalised"),
         stake: sql<number>`${matches.stake}`.as("stake"),
         ranked: sql<boolean>`${matches.ranked}`.as("ranked"),
       })
@@ -60,7 +48,7 @@ export async function standings(db: Db, window: StandingsWindow): Promise<Standi
       .where(and(inWindow, eq(matches.exhibition, false)));
   const sides = side(matches.agentA, matches.netA).unionAll(side(matches.agentB, matches.netB)).as("sides");
 
-  const rankedNet = sql<number>`coalesce(sum(${sides.normalised}) filter (where ${sides.ranked}), 0)::int`;
+  const rankedNet = sql<number>`coalesce(sum(${sides.net}) filter (where ${sides.ranked}), 0)::int`;
   const rows = await db
     .select({
       agentId: agents.id,
@@ -127,12 +115,9 @@ export function perChip(s: Pick<Standing, "rankedNetReal" | "rankedStaked">): nu
 /**
  * The prize order: every agent by ranked net per chip staked, best first.
  *
- * Deliberately not `rankedNet`, which the ladder uses. `rankedNet` is
- * normalised onto band B so that totals from different bands can be compared;
- * dividing by chips staked does the same job, and doing both would apply the
- * correction twice and hand the cheapest band a standing advantage over the
- * dearest. So this divides the chips actually moved by the chips actually
- * risked, and the bands fall out of it on their own.
+ * Net won divided by chips staked, rather than the ladder's net won alone.
+ * Every match now plays at one scale, so the divisor is the same for every
+ * match; the no-loss score (docs/no-loss-rewards.md) replaces this ordering.
  *
  * Derived from the same rows the ladder is built from rather than queried
  * again. Two queries could disagree - a match landing between them is all it
@@ -171,7 +156,7 @@ export type PrizeRow = {
   perChip: number | null;
   rankedMatches: number;
   rankedStaked: number;
-  /** The chips those matches moved. Not the ladder's normalised figure. */
+  /** The chips those matches moved. */
   rankedNetReal: number;
   shortBy: number;
 };

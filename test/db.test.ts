@@ -326,7 +326,7 @@ describe("true rating", () => {
     const [row] = await fresh.select().from(agents).where(eq(agents.id, mine.id));
     const half = (a: "Anchor" | "Bully") => seatAveragedNet(policyAgent(snapshotPreset("Mirage")), PRESETS[a], AGENTCLASH_RULES);
     // Roster is 4 Anchors, 4 Bullys and Mirage itself; an agent is rated against everyone but itself.
-    const profile = await rosterProfile(fresh, "B");
+    const profile = await rosterProfile(fresh);
     const expected = (4 * half("Anchor") + 4 * half("Bully")) / 8;
     expect(row!.trueRating).toBeCloseTo(expected, 9);
     expect(trueRatingAgainst(policyAgent(snapshotPreset("Mirage")), rosterWithout(profile, snapshotPreset("Mirage")))).toBeCloseTo(expected, 9);
@@ -347,7 +347,7 @@ describe("true rating", () => {
     }
     // A Mirage already on the roster still counts as an opponent for a new Mirage.
     const table = snapshotPreset("Mirage");
-    const preview = previewPolicy(table, await rosterProfile(fresh, "B"));
+    const preview = previewPolicy(table, await rosterProfile(fresh));
 
     const mine = await createAgent(fresh, { name: "Mine", brief: "bluff", policyTable: table });
     await refreshTrueRatings(fresh);
@@ -371,7 +371,7 @@ describe("true rating", () => {
     expect(row!.trueRating).toBeCloseTo((vs("Anchor") + vs("Bully")) / 2, 9);
 
     // A preview rates against the same roster: all nine.
-    const preview = previewPolicy(snapshotPreset("Mirage"), await rosterProfile(fresh, "B"));
+    const preview = previewPolicy(snapshotPreset("Mirage"), await rosterProfile(fresh));
     expect(preview.roster).toBe(9);
     await closeFresh();
   });
@@ -402,7 +402,7 @@ describe("true rating", () => {
     // And one rented today, which has had no chance to play yet.
     const fresher = await createAgent(fresh, { name: "New", presetName: "Bully", ownerId: someWallet() });
 
-    const profile = await rosterProfile(fresh, "B");
+    const profile = await rosterProfile(fresh);
     expect(profile.agentCount).toBe(7); // 4 house, Busy, Sparring, New
     for (const id of dormant) expect(profile.members.has(id)).toBe(false);
     expect(profile.members.has(busy.id)).toBe(true);

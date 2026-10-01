@@ -4,7 +4,7 @@ import { seatAveragedNet } from "../exact.js";
 import { AGENTCLASH_RULES } from "../round.js";
 import type { Agent } from "../types.js";
 import type { Db } from "./client.js";
-import { agents, bandByName, matches, STAKE_BANDS, type BandName } from "./schema.js";
+import { agents, matches } from "./schema.js";
 import { rentalOpenSql } from "./rental.js";
 
 /**
@@ -14,8 +14,6 @@ import { rentalOpenSql } from "./rental.js";
  */
 
 export type RosterProfile = {
-  /** The band this roster is: matchmaking never pairs across bands, so neither does a rating. */
-  band: BandName;
   /** Distinct tables on the roster, with how many agents play each. */
   entries: { table: Policy; weight: number }[];
   /** Changes whenever the mix changes; recompute ratings when it does. */
@@ -41,10 +39,9 @@ const hash = (text: string) => {
 export const ROSTER_ACTIVE_DAYS = 7;
 
 /**
- * Groups one band's active roster by distinct table, so a rating costs one
- * evaluation per distinct opponent. One band only: an agent can only ever be
- * matched inside its own band, so agents in the others are not opponents and
- * rating against them describes a roster nobody plays.
+ * Groups the active roster by distinct table, so a rating costs one
+ * evaluation per distinct opponent. The whole roster: every agent can be
+ * matched against every other.
  *
  * "Active" also leaves out player agents that have sat idle for
  * ROSTER_ACTIVE_DAYS - rented, never switched on, never played - because a
@@ -52,7 +49,7 @@ export const ROSTER_ACTIVE_DAYS = 7;
  * on the rent screen. They stay matchable; this is only about what a rating
  * is measured against. House agents always count: they are always in play.
  */
-export async function rosterProfile(db: Db, band: BandName, now = new Date()): Promise<RosterProfile> {
+export async function rosterProfile(db: Db, now = new Date()): Promise<RosterProfile> {
   const since = new Date(now.getTime() - ROSTER_ACTIVE_DAYS * 24 * 60 * 60 * 1000);
   const active = or(
     isNull(agents.ownerId),
@@ -63,7 +60,7 @@ export async function rosterProfile(db: Db, band: BandName, now = new Date()): P
     .select({ id: agents.id, table: agents.policyTable })
     .from(agents)
     // Expired agents are left out too: they cannot be matched until renewed.
-    .where(and(isNull(agents.retiredAt), eq(agents.band, band), rentalOpenSql(now), active));
+    .where(and(isNull(agents.retiredAt), rentalOpenSql(now), active));
 
   const members = new Set<string>();
   const byTable = new Map<string, { table: Policy; weight: number }>();
@@ -78,12 +75,11 @@ export async function rosterProfile(db: Db, band: BandName, now = new Date()): P
   const entries = [...byTable.values()].sort((a, b) => JSON.stringify(a.table).localeCompare(JSON.stringify(b.table)));
   const agentCount = entries.reduce((s, e) => s + e.weight, 0);
   return {
-    band,
     entries,
     agentCount,
     members,
     // The prefix versions how ratings are computed: bump it and every stored rating goes stale.
-    fingerprint: hash(`v3-per-band|${band}|${entries.map((e) => `${e.weight}:${JSON.stringify(e.table)}`).join("|")}`),
+    fingerprint: hash(`v4-one-roster|${entries.map((e) => `${e.weight}:${JSON.stringify(e.table)}`).join("|")}`),
   };
 }
 
@@ -128,54 +124,39 @@ export function rosterWithout(profile: RosterProfile, table: Policy): RosterProf
  * future opponents, who will include agents written after this was computed.
  */
 /**
- * What a table is worth against one band's roster today, rated on band B's
- * scale and priced in that band's money.
- *
- * The opponents are the band's; the arithmetic is band-neutral. It is always
- * computed at AGENTCLASH_RULES, so two agents are comparable whichever band they
- * play, and `priced` scales the same figures by the band's factor - a band C
- * player wants to know what a match is worth to them. Both come from one
- * calculation, because a band is only a scale.
+ * What a table is worth against the roster today, in chips per match, computed
+ * at AGENTCLASH_RULES - the one scale every match is played at.
  */
 export function previewPolicy(table: Policy, profile: RosterProfile) {
   const agent = policyAgent(table);
-  const band = profile.band;
-  const factor = bandByName(band).factor;
   const rating = trueRatingAgainst(agent, profile);
   return {
-    /** Normalised onto band B, and so comparable with every other agent. */
     trueRating: rating,
-    basis: `against band ${band}'s roster as it stands today`,
-    band,
-    /** The same rating in the money this band actually moves. */
-    priced: { band, perMatch: rating * factor, worstMatch: bandByName(band).worstMatch },
+    basis: "against the roster as it stands today",
     roster: profile.agentCount,
     rosterFingerprint: profile.fingerprint,
     /** Per distinct opponent, so a brief can be aimed at what is actually out there. */
     breakdown: profile.entries.map((e) => {
       const net = seatAveragedNet(agent, policyAgent(e.table), AGENTCLASH_RULES);
-      return { weight: e.weight, expectedNet: net, pricedNet: net * factor };
+      return { weight: e.weight, expectedNet: net };
     }),
   };
 }
 
 /**
- * Recomputes true ratings for agents whose stored rating predates their band's
- * current roster. Each agent is rated against its own band, the only opponents
- * it can meet. Cheap: one exact evaluation per distinct table on the roster.
+ * Recomputes true ratings for agents whose stored rating predates the current
+ * roster. Cheap: one exact evaluation per distinct table on the roster.
  */
 export async function refreshTrueRatings(db: Db, options: { force?: boolean } = {}): Promise<number> {
-  const profiles = new Map<BandName, RosterProfile>();
-  for (const b of STAKE_BANDS) profiles.set(b.name, await rosterProfile(db, b.name));
+  const profile = await rosterProfile(db);
   const rows = await db
-    .select({ id: agents.id, band: agents.band, table: agents.policyTable, roster: agents.trueRatingRoster })
+    .select({ id: agents.id, table: agents.policyTable, roster: agents.trueRatingRoster })
     .from(agents)
     .where(isNull(agents.retiredAt));
 
   let updated = 0;
   for (const row of rows) {
     if (row.table === null) continue;
-    const profile = profiles.get(row.band)!;
     if (!options.force && row.roster === profile.fingerprint) continue;
     // Everyone but itself - unless it was left out as idle, in which case it is not there to remove.
     const opponents = profile.members.has(row.id) ? rosterWithout(profile, row.table) : profile;

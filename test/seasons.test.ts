@@ -158,7 +158,7 @@ describe("the season boundary", () => {
     await close();
   });
 
-  it("expires whoever was not renewed, and stops autoplay for everyone, keeping band and floor", async () => {
+  it("expires whoever was not renewed, and stops autoplay for everyone, keeping the floor", async () => {
     const { db, close } = await fresh();
     const { a, b, current } = await season(db);
     // B's owner renewed; A's did not. Both were on autoplay.
@@ -173,7 +173,6 @@ describe("the season boundary", () => {
       expect(row!.autoplay).toBe(false);
       expect(row!.autoplayStoppedReason).toBe("season");
       expect(row!.autoplayFloor).toBe(300);
-      expect(row!.band).toBe("B");
       expect(row!.retiredAt).toBeNull();
     }
     await close();
@@ -249,7 +248,7 @@ describe("renewal", () => {
     await runMatch(db, row.id, h!.id, { seed: 5 });
     const [record] = await db.select().from(ratings).where(eq(ratings.agentId, row.id));
     // It expired at the start of this season: the boundary passed without a renewal.
-    await db.update(agents).set({ rentalEndsAt: current.start, autoplayFloor: 250, band: "A" }).where(eq(agents.id, row.id));
+    await db.update(agents).set({ rentalEndsAt: current.start, autoplayFloor: 250 }).where(eq(agents.id, row.id));
     const inGrace = new Date(current.start.getTime() + GRACE_MS - 60_000);
     const [expiredRow] = await db.select().from(agents).where(eq(agents.id, row.id));
     expect(rentalStatus(expiredRow!, inGrace)).toMatchObject({ state: "expired", canRenew: true });
@@ -260,7 +259,7 @@ describe("renewal", () => {
     expect(after).toMatchObject({ state: "active" });
     expect(after.endsAt?.getTime()).toBe(current.end.getTime());
     const [restored] = await db.select().from(agents).where(eq(agents.id, row.id));
-    expect(restored!).toMatchObject({ autoplay: false, autoplayFloor: 250, band: "A", retiredAt: null });
+    expect(restored!).toMatchObject({ autoplay: false, autoplayFloor: 250, retiredAt: null });
     expect((await db.select().from(ratings).where(eq(ratings.agentId, row.id)))[0]).toEqual(record);
     await close();
   });

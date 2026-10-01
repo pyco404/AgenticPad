@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
-import { agentEvents, agents, chainOps, matches, withdrawals, bandByName, MIN_FUNDING_CHIPS, outflowBudget, STARTING_BALANCE } from "../src/db/schema.js";
+import { agentEvents, agents, chainOps, matches, withdrawals, MIN_FUNDING_CHIPS, WORST_MATCH, outflowBudget, STARTING_BALANCE } from "../src/db/schema.js";
 import { record } from "../src/db/ledger.js";
 import { createAgent, hasBudgetRoom, hasOutflowRoom, lossBudgetOn, lostToday } from "../src/db/runner.js";
 import { utcDay } from "../src/chain/common.js";
@@ -84,7 +84,7 @@ describe("autoplay: safety", () => {
   it("pauses before a match that could breach the floor, not after one that did", async () => {
     const { db, close } = await fresh();
     const row = await playerOn(db);
-    const worst = bandByName("B").worstMatch;
+    const worst = WORST_MATCH;
     const balance = STARTING_BALANCE;
     // A floor one chip above (balance - worst) must stop it, even though the
     // balance is still comfortably above the floor itself.
@@ -245,7 +245,7 @@ describe("autoplay: the tick", () => {
 
   it("waits rather than taking a house opponent when no player is free", async () => {
     const { db, close } = await fresh();
-    // Four house agents, all free, all in band. None of them will do.
+    // Four house agents, all free. None of them will do.
     await house(db, 4);
     const row = await playerOn(db);
 
@@ -274,7 +274,7 @@ describe("autoplay: the popular-opponent budget", () => {
   it("counts what a vault has already committed, and refuses a loss that would not fit", async () => {
     const { db, close } = await fresh();
     const row = await createAgent(db, { name: "Popular", presetName: "Anchor", ownerId: someWallet() });
-    const worst = bandByName("B").worstMatch;
+    const worst = WORST_MATCH;
     expect(await hasOutflowRoom(db, row.id, worst)).toBe(true);
 
     // Fill the window to one chip short of what a full loss needs.
@@ -287,7 +287,7 @@ describe("autoplay: the popular-opponent budget", () => {
   it("a settlement the chain refused still counts against the window", async () => {
     const { db, close } = await fresh();
     const row = await createAgent(db, { name: "Refused", presetName: "Anchor", ownerId: someWallet() });
-    const worst = bandByName("B").worstMatch;
+    const worst = WORST_MATCH;
     // 'failed' is the one status that does not count: the chain never took it.
     await db.insert(chainOps).values({ kind: "settle", fromAgent: row.id, amount: outflowBudget(900, SEED_CHIP_RATE), status: "failed" });
     expect(await hasOutflowRoom(db, row.id, worst)).toBe(true);
@@ -467,7 +467,7 @@ describe("agent events", () => {
 describe("autoplay: the owner's daily loss budget", () => {
   // Mirrors the program's LossBudget: the ledger declines a pairing the chain
   // would refuse, so a match it records is always one the chain will take.
-  const worst = bandByName("B").worstMatch;
+  const worst = WORST_MATCH;
   const budgeted = async (db: Awaited<ReturnType<typeof fresh>>["db"], name: string, perDay: number) => {
     const row = await createAgent(db, { name, presetName: "Anchor", ownerId: someWallet() });
     await db.update(agents).set({ lossBudget: perDay, lossBudgetNext: perDay }).where(eq(agents.id, row.id));

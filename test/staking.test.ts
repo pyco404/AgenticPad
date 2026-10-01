@@ -5,15 +5,11 @@ import { connect, migrate, type Db } from "../src/db/client.js";
 import {
   agents,
   chainOps,
-  bandByName,
-  canAffordBand,
-  affordableBands,
   ledger,
-  matches,
   MIN_FUNDING_CHIPS,
-  normaliseNet,
   ratings,
   STARTING_BALANCE,
+  WORST_MATCH,
 } from "../src/db/schema.js";
 import {
   balanceOf,
@@ -24,7 +20,7 @@ import {
   recordElicitation,
   elicitationCount,
 } from "../src/db/ledger.js";
-import { assertSameFlow, createAgent, pickOpponent, roster, runMatch, updateRating } from "../src/db/runner.js";
+import { assertSameFlow, createAgent, holdsEnoughToPlay, MATCH_RULES, pickOpponent, roster, runMatch, updateRating } from "../src/db/runner.js";
 import { refreshTrueRatings } from "../src/db/rating.js";
 import { someWallet } from "./helpers.js";
 
@@ -62,50 +58,23 @@ describe("balances", () => {
 });
 
 describe("stakes", () => {
-  it("know which bands a balance can still afford", () => {
-    expect(affordableBands(900, SEED_CHIP_RATE)).toEqual(["A", "B", "C"]);
-    expect(affordableBands(59, SEED_CHIP_RATE)).toEqual(["A", "B"]);
-    expect(affordableBands(39, SEED_CHIP_RATE)).toEqual(["A"]);
-    expect(affordableBands(19, SEED_CHIP_RATE)).toEqual([]);
-    expect(canAffordBand(20, "A", SEED_CHIP_RATE)).toBe(true);
-    expect(canAffordBand(19, "A", SEED_CHIP_RATE)).toBe(false);
+  it("are one scale for every match: ante 4, bet 10, raised 20, and at most 40 a match", () => {
+    expect(MATCH_RULES.stakes).toEqual({ ante: 4, baseBet: 10, raisedBet: 20 });
+    // The worst a match can move is two rounds at the raised bet: a match is
+    // first to two, so the winner can never take a third.
+    expect(WORST_MATCH).toBe(MATCH_RULES.stakes.raisedBet * 2);
   });
 
-  it("ask the same question of a deposit-funded balance, in its own units", () => {
-    // The same chip figures, six decimals down. What changes is the unit the
-    // balance is counted in, never what a band costs.
+  it("ask whether a balance holds the minimum to play, in its own units", () => {
+    expect(holdsEnoughToPlay(MIN_FUNDING_CHIPS, SEED_CHIP_RATE)).toBe(true);
+    expect(holdsEnoughToPlay(MIN_FUNDING_CHIPS - 1, SEED_CHIP_RATE)).toBe(false);
+    // The same chip figure, six decimals down on the deposit flow.
     const rate = DEVNET_CHIP_RATE;
-    expect(affordableBands(baseUnits(900, rate), rate)).toEqual(["A", "B", "C"]);
-    expect(affordableBands(baseUnits(59, rate), rate)).toEqual(["A", "B"]);
-    expect(affordableBands(baseUnits(19, rate), rate)).toEqual([]);
-    expect(canAffordBand(baseUnits(20, rate), "A", rate)).toBe(true);
-    expect(canAffordBand(baseUnits(20, rate) - 1, "A", rate)).toBe(false);
-
+    expect(holdsEnoughToPlay(baseUnits(MIN_FUNDING_CHIPS, rate), rate)).toBe(true);
+    expect(holdsEnoughToPlay(baseUnits(MIN_FUNDING_CHIPS, rate) - 1, rate)).toBe(false);
     // And a seed balance read at the deposit rate would be a millionth of what
     // it is - which is why the rate is required rather than defaulted.
-    expect(canAffordBand(900, "A", rate)).toBe(false);
-    expect(canAffordBand(900, "A", SEED_CHIP_RATE)).toBe(true);
-  });
-
-  it("normalise a net onto band B's scale so bands compare", () => {
-    // A band C win of 30 is the same achievement as a band B win of 20.
-    expect(normaliseNet(30, "C")).toBe(20);
-    expect(normaliseNet(10, "A")).toBe(20);
-    expect(normaliseNet(60, "C")).toBe(40);
-    expect(normaliseNet(20, "B")).toBe(20);
-    expect(bandByName("C").worstMatch).toBe(60);
-  });
-
-  it("scale every amount by one factor, so each band is the same game", () => {
-    for (const band of ["A", "B", "C"] as const) {
-      const b = bandByName(band);
-      // The shape is fixed: ante : bet : raised stays 2 : 5 : 10 everywhere.
-      expect(b.baseBet / b.ante).toBe(2.5);
-      expect(b.raisedBet / b.baseBet).toBe(2);
-      // The worst a match can move is two rounds at the raised bet: a match is
-      // first to two, so the winner can never take a third.
-      expect(b.worstMatch).toBe(b.raisedBet * 2);
-    }
+    expect(holdsEnoughToPlay(MIN_FUNDING_CHIPS, rate)).toBe(false);
   });
 
   it("record a net as it stands: nothing is clamped any more", () => {
@@ -125,7 +94,7 @@ describe("settlement", () => {
     for (let seed = 1; seed <= 20; seed++) {
       const { match, log, stake, settled } = await runMatch(d, a.id, b.id, { seed });
       // The match is still played in chips, and the row still says what it was played at.
-      expect(stake).toBe(bandByName("B").worstMatch);
+      expect(stake).toBe(WORST_MATCH);
       expect(settled.A).toBe(settle(log.nets.A));
       if (settled.A !== 0) decided++;
       // But nothing moves: no ledger row, and nothing for the chain.
@@ -145,30 +114,27 @@ describe("settlement", () => {
     for (let i = 0; i < 6; i++) {
       others.push(await createAgent(d, { name: `Other ${i}`, presetName: (["Bully", "Hammer", "Mirage"] as const)[i % 3]!, ownerId: someWallet() }));
     }
-    // Even an agent left in another band by an older page is on the one scale now.
-    await d.update(agents).set({ band: "C" }).where(eq(agents.id, others[0]!.id));
     await refreshTrueRatings(d);
-    // All six are candidates, the one left in band C among them.
     const pick = await pickOpponent(d, me.id, { spread: true });
-    expect(pick.band).toBe("B");
     expect(pick.candidates).toBe(6);
-    // And the match is played at the one scale whatever the row says.
-    const { stake } = await runMatch(d, me.id, others[0]!.id, { seed: 1 });
-    expect(stake).toBe(bandByName("B").worstMatch);
+    // And every match is played at the one scale.
+    const { stake, match } = await runMatch(d, me.id, others[0]!.id, { seed: 1 });
+    expect(stake).toBe(WORST_MATCH);
+    expect(match.rulesConfig.stakes).toEqual(MATCH_RULES.stakes);
     await c();
   });
 
-  it("never pairs a wallet's own agents, even when the band is too thin to pick on rating", async () => {
+  it("never pairs a wallet's own agents, even when the roster is too thin to pick on rating", async () => {
     const { db: d, close: c } = await fresh();
     const owner = someWallet();
-    // Two agents, one wallet, one band, and nobody else at all. The rating path
+    // Two agents, one wallet, and nobody else at all. The rating path
     // needs four candidates, so this always falls through to the preset one.
     const mine = await createAgent(d, { name: "Mine", presetName: "Anchor", ownerId: owner });
     await createAgent(d, { name: "Also mine", presetName: "Bully", ownerId: owner });
     await refreshTrueRatings(d);
     await expect(pickOpponent(d, mine.id)).rejects.toThrow(/no opponent right now/);
 
-    // A stranger in the band is picked by that same fallback.
+    // A stranger is picked by that same fallback.
     const stranger = await createAgent(d, { name: "Stranger", presetName: "Hammer", ownerId: someWallet() });
     await refreshTrueRatings(d);
     const pick = await pickOpponent(d, mine.id);
@@ -179,22 +145,17 @@ describe("settlement", () => {
 
 });
 
-describe("rating across bands", () => {
-  it("still normalises an old match recorded in another band onto band B's scale", async () => {
+describe("ratings", () => {
+  it("rank on the chips a match was won by: nothing is normalised", async () => {
     const { db: d, close: c } = await fresh();
-    // Matches played before everyone moved to one scale keep the band they were
-    // played at, and the ranked record still reads them on band B's scale.
-    const a = await createAgent(d, { name: "Old-A", presetName: "Bully", ownerId: someWallet() });
-    const b = await createAgent(d, { name: "Old-B", presetName: "Mirage", ownerId: someWallet() });
-    let played = await runMatch(d, a.id, b.id, { seed: 7 });
-    for (let seed = 8; played.settled.A === 0; seed++) played = await runMatch(d, a.id, b.id, { seed });
-    const raw = played.settled.A;
-    await d.update(matches).set({ band: "A" }).where(eq(matches.id, played.match.id));
+    const a = await createAgent(d, { name: "Pa", presetName: "Bully", ownerId: someWallet() });
+    const b = await createAgent(d, { name: "Pb", presetName: "Mirage", ownerId: someWallet() });
+    let won = 0;
+    for (let seed = 1; seed <= 6; seed++) won += (await runMatch(d, a.id, b.id, { seed })).settled.A;
     await updateRating(d, a.id);
     const [rating] = await d.select().from(ratings).where(eq(ratings.agentId, a.id));
-    // A band A net of n reads as 2n; net won stays the chips it was won by.
-    expect(rating!.rankedNet).toBe(Math.trunc(raw * 2));
-    expect(rating!.cumulativeNet).toBe(raw);
+    expect(rating!.rankedNet).toBe(won);
+    expect(rating!.cumulativeNet).toBe(won);
     await c();
   });
 
@@ -231,11 +192,11 @@ describe("running out", () => {
     await c();
   });
 
-  it("is never offered as an opponent once it cannot cover a stake", async () => {
+  it("is never offered as an opponent once it holds less than the minimum", async () => {
     const { db: d, close: c } = await fresh();
     // Players' agents: a house agent is never asked for a balance, since it never stakes.
     const seeker = await createAgent(d, { name: "Seeker", presetName: "Anchor", ownerId: someWallet() });
-    const broke = await createAgent(d, { name: "Broke", presetName: "Bully", ownerId: someWallet(), startingBalance: bandByName("B").worstMatch - 1 });
+    const broke = await createAgent(d, { name: "Broke", presetName: "Bully", ownerId: someWallet(), startingBalance: MIN_FUNDING_CHIPS - 1 });
     const solvent = [];
     for (let i = 0; i < 5; i++) solvent.push(await createAgent(d, { name: `Solvent ${i}`, presetName: "Hammer", ownerId: someWallet() }));
     await refreshTrueRatings(d);

@@ -49,13 +49,6 @@ export const agents = pgTable(
     /** The agent's emoji: its identity at a glance, unique across all agents. See src/marks.ts. */
     mark: text("mark").unique(),
     /**
-     * The money scale the agent plays at: every amount in its matches is the
-     * band's. It decides who the agent meets and what a match is worth. Every
-     * agent that existed before bands is a "B", which is the scale they were
-     * all already playing at.
-     */
-    band: text("band").$type<BandName>().notNull().default("B"),
-    /**
      * Which funding flow this agent was rented under. It decides which stake
      * token its vault holds, which program settles it, and so how many base
      * units one of its chips is worth (src/chips.ts).
@@ -68,8 +61,8 @@ export const agents = pgTable(
      */
     funding: text("funding").$type<Funding>().notNull().default("seed"),
     /**
-     * Superseded by `band`, kept so old matches and their transcripts still
-     * explain themselves. Nothing reads it to decide a match any more.
+     * From before every match played at one scale, kept so old rows still
+     * explain themselves. Nothing reads it to decide a match.
      */
     maxStake: integer("max_stake").notNull().default(60),
     /**
@@ -93,9 +86,8 @@ export const agents = pgTable(
     /**
      * The balance the owner will not play below. Autoplay stops before any
      * match that *could* breach it, so it is a floor and not a line the agent
-     * is allowed to fall through: a band C loss is 60, so an agent at 310 with
-     * a floor of 300 does not play. Null means no floor - it plays until it
-     * cannot cover its band.
+     * is allowed to fall through. Null means no floor - it plays until it holds
+     * less than the minimum to play.
      */
     autoplayFloor: integer("autoplay_floor"),
     /**
@@ -204,6 +196,7 @@ export type AgentEventKind =
   | "autoplay-on"
   | "autoplay-off"
   | "floor"
+  /** From when an owner could move an agent between bands; none are written now. */
   | "band"
   | "renewed"
   /** Not renewed by the boundary: cannot play, can still be renewed for the grace period. */
@@ -354,7 +347,7 @@ export const seasonStandings = pgTable(
      */
     prizeRank: integer("prize_rank"),
     rankedMatches: integer("ranked_matches").notNull(),
-    /** Normalised onto band B's scale, as the ladder ranks. */
+    /** Ranked net won, as the ladder ranks. Seasons closed while bands existed hold it normalised onto band B's scale. */
     rankedNet: bigint("ranked_net", { mode: "number" }).notNull(),
     rankedStaked: bigint("ranked_staked", { mode: "number" }).notNull(),
     /** The chips those ranked matches actually moved: the per-chip numerator. */
@@ -410,15 +403,8 @@ export const matches = pgTable(
     winner: text("winner").$type<Seat>(),
     netA: integer("net_a").notNull(),
     netB: integer("net_b").notNull(),
-    /** What each side risked: the band's worst match, which neither can exceed. */
+    /** The widest net the match could produce, in chips (WORST_MATCH). It moves no money. */
     stake: integer("stake").notNull().default(0),
-    /**
-     * The money scale this match was played at. Recorded per match, not looked
-     * up from the agent, because an owner may change band later and a result
-     * must stay readable as the match it was. Matches from before bands are
-     * "B", the scale they were played at.
-     */
-    band: text("band").$type<BandName>().notNull().default("B"),
     /**
      * Whether this match counts toward the ladder: true only when both agents
      * were player-rented. A match against a house agent settles for money and
@@ -733,14 +719,12 @@ export const ratings = pgTable("ratings", {
   matchesPlayed: integer("matches_played").notNull().default(0),
   /**
    * All-time net won across every staked match, in real money: the chips the
-   * agent actually won or lost, so it reconciles with the ledger. Never
-   * normalised across bands - the ranked figures below are.
+   * agent actually won or lost in its matches.
    */
   cumulativeNet: bigint("cumulative_net", { mode: "number" }).notNull().default(0),
   /**
-   * The same two figures over player-versus-player matches only, with the
-   * net normalised onto band B's scale. **These are what the ladder ranks
-   * on**, and what a minimum match count counts. House
+   * The same two figures over player-versus-player matches only. **These are
+   * what the ladder ranks on**, and what a minimum match count counts. House
    * matches are excluded because a fixed preset's weaknesses are exactly
    * computable, so beating them is not evidence of anything a prize should pay
    * for.
@@ -780,8 +764,8 @@ export const STARTING_BALANCE = MIN_FUNDING_CHIPS + 900;
 /**
  * The least a vault may hold and still be worth keeping open. The chain
  * enforces the same floor on withdrawals, so this must not drop below the
- * program's MIN_STAKE. Whether an agent can play is a question about its band,
- * not this: see `canAffordBand`.
+ * program's MIN_STAKE. Whether an agent can play is a question of the minimum
+ * to play, not this: see MIN_FUNDING_CHIPS.
  */
 export const MIN_STAKE = 10;
 /**
@@ -860,78 +844,18 @@ export const FAUCET_GRANT_CHIPS = 4_000;
 export const FAUCET_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Stake bands: money scales, not ceilings. Every amount in a match is multiplied
- * by the band's factor, so the decision each agent faces is identical in all
- * three - a fold costs the same fraction of the pot everywhere - and the
- * presets stay exactly as balanced as they were measured to be. What differs is
- * what a match is worth, which is the whole point: the old ceilings could not
- * differ, because a match could never move more than 60, so 40-60 played
- * identically to 20-40.
+ * The widest net a match can produce, in chips: two rounds at the raised bet.
+ * A match is first to two rounds, so the winner can never take a third, and a
+ * round is never worth more than the raised bet - enumerating every draw and
+ * flip for the four presets confirms it, and no decision table can beat it.
  *
- * `worstMatch` is the most a single match can move: two rounds at the raised
- * bet, not three. A match is first to two rounds, so the winner can take at
- * most two, and a 2-1 match nets only one round. Enumerating every draw and
- * flip for all four presets confirms it - band B's widest net is exactly 40,
- * and no decision table can beat that, because a round is never worth more
- * than the raised bet. There is no settlement clamp any more, so an agent must
- * be able to pay this outright to play in the band at all.
+ * Every match plays at one scale, the engine's own stakes (AGENTCLASH_RULES:
+ * ante 4, bet 10, raised 20). Bands, which multiplied every amount to set what
+ * a match could move, are gone (drizzle/0028_no_bands.sql): with nothing
+ * staked they had no job, and a chip is a chip everywhere. This moves no
+ * money; it is what a match row records the match was played at.
  */
-export const STAKE_BANDS = [
-  { name: "A", factor: 0.5, ante: 2, baseBet: 5, raisedBet: 10, worstMatch: 20 },
-  { name: "B", factor: 1, ante: 4, baseBet: 10, raisedBet: 20, worstMatch: 40 },
-  { name: "C", factor: 1.5, ante: 6, baseBet: 15, raisedBet: 30, worstMatch: 60 },
-] as const;
-
-export type BandName = (typeof STAKE_BANDS)[number]["name"];
-export type StakeBand = (typeof STAKE_BANDS)[number];
-
-/** The band a rental starts in when its owner says nothing. */
-export const DEFAULT_BAND: BandName = "B";
-
-export function bandByName(name: BandName): StakeBand {
-  const band = STAKE_BANDS.find((b) => b.name === name);
-  if (!band) throw new Error(`no stake band ${name}`);
-  return band;
-}
-
-/** The stakes a match in this band is played at. */
-export function bandStakes(name: BandName): Stakes {
-  const b = bandByName(name);
-  return { ante: b.ante, baseBet: b.baseBet, raisedBet: b.raisedBet };
-}
-
-/**
- * Whether a balance in base units can cover this band's worst match. With no
- * clamp, a match that cannot be paid cannot be played, so this is what decides
- * both matchmaking and retirement.
- *
- * The band's figures are chips, the balance is base units, and `rate` is what
- * joins them - the agent's, from the flow it was rented under (src/chips.ts).
- * It is required rather than defaulted, so that a caller reaching a
- * deposit-funded agent cannot quietly get the seed flow's answer.
- */
-export function canAffordBand(balance: number, name: BandName, rate: number): boolean {
-  return balance >= baseUnits(bandByName(name).worstMatch, rate);
-}
-
-/**
- * The bands a balance in base units could play, richest first. Used to tell an
- * owner what is still open to them once they are down, never to move an agent
- * on its own.
- */
-export function affordableBands(balance: number, rate: number): BandName[] {
-  return STAKE_BANDS.filter((b) => balance >= baseUnits(b.worstMatch, rate)).map((b) => b.name);
-}
-
-/**
- * A net expressed on band B's scale, so results from different bands can be
- * compared. A band C win of 30 is the same achievement as a band B win of 20.
- * The ladder and every net-per-match figure are normalised this way; the money
- * an agent actually holds never is.
- */
-export function normaliseNet(net: number, name: BandName): number {
-  return net / bandByName(name).factor;
-}
+export const WORST_MATCH = 40;
 
 export type AgentRow = typeof agents.$inferSelect;
 export type MatchRow = typeof matches.$inferSelect;

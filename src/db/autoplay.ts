@@ -12,7 +12,7 @@ import {
   agents,
   matches,
   withdrawals,
-  bandByName,
+  WORST_MATCH,
   MIN_FUNDING_CHIPS,
   AUTOPLAY_INTERVAL_MS,
   AUTOPLAY_SELF_CLEARING,
@@ -59,12 +59,12 @@ export async function checkAgent(db: Db, row: AgentRow): Promise<AutoplayCheck> 
     return { play: false, reason: "withdrawal", detail: "a withdrawal is settling" };
   }
 
-  // In chips from here down: the floor is the owner's figure and the band's
-  // worst match is a chip figure, so the balance meets them in their own unit.
+  // In chips from here down: the floor is the owner's figure and the widest
+  // net a match can produce is a chip figure, so the balance meets them in their own unit.
   // Rounding down is the conservative direction - a balance a fraction of a
   // chip short of covering a match is treated as short, which it is.
   const balance = chips(await balanceOf(db, row.id), rateOf(row));
-  const worst = bandByName(row.band).worstMatch;
+  const worst = WORST_MATCH;
   if (balance < MIN_FUNDING_CHIPS) {
     return {
       play: false,
@@ -73,7 +73,7 @@ export async function checkAgent(db: Db, row: AgentRow): Promise<AutoplayCheck> 
     };
   }
   // A floor is a floor: stop before a match that *could* go through it, not
-  // after one that did. The worst this band can take is `worst`, so anything
+  // after one that did. The worst a match can take is `worst`, so anything
   // below floor + worst is already too close.
   if (row.autoplayFloor !== null && balance - worst < row.autoplayFloor) {
     return {
@@ -313,7 +313,7 @@ export type AutoplayStatus = {
   lastMatchAt: Date | null;
   /** When the next match is due; null when it is not going to play on a timer. */
   nextMatchAt: Date | null;
-  /** Set while there is nobody in the band to play. */
+  /** Set while there is nobody to play. */
   waitingSince: Date | null;
   /** Staked matches since midnight UTC, and their net. Money, not normalised. */
   today: { matches: number; net: number };
@@ -326,7 +326,7 @@ function describeStop(
   row: AgentRow,
   balance: number,
 ): { message: string; action: string } {
-  const worst = bandByName(row.band).worstMatch;
+  const worst = WORST_MATCH;
   switch (reason) {
     case "withdrawal":
       return {
@@ -342,7 +342,7 @@ function describeStop(
           balance <= (row.autoplayFloor ?? 0)
             ? `Paused: balance is below your floor (${row.autoplayFloor ?? 0}).`
             : `Paused: one match from your floor (${row.autoplayFloor ?? 0}).`,
-        action: `Balance is ${balance}, and a band ${row.band} match can move ${worst}, so the next match could take it below your floor. You need to switch it back on - lower the floor first if you want it to keep playing.`,
+        action: `Balance is ${balance}, and a match can move ${worst}, so the next match could take it below your floor. You need to switch it back on - lower the floor first if you want it to keep playing.`,
       };
     case "insolvent":
       return {
@@ -358,7 +358,7 @@ function describeStop(
       return rentalOpen(row)
         ? {
             message: "Paused: a new season started.",
-            action: "Autoplay stops at every season boundary. Switch it back on to play this season - band and floor are as you left them.",
+            action: "Autoplay stops at every season boundary. Switch it back on to play this season - the floor is as you left it.",
           }
         : {
             message: "Paused: the season ended and this rental wasn't renewed.",
@@ -391,7 +391,7 @@ export async function autoplayStatus(
   const intervalMs = options.intervalMs ?? AUTOPLAY_INTERVAL_MS;
   const now = options.now ?? new Date();
   // Chips: this is what the owner's panel says, and it is read against the
-  // floor and the band's worst match, both of which are chips.
+  // floor and the widest net a match can produce, both of which are chips.
   const balance = chips(await balanceOf(db, row.id), rateOf(row));
 
   const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));

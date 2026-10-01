@@ -9,7 +9,7 @@ import { createAgent, snapshotPreset } from "../src/db/runner.js";
 import { refreshTrueRatings } from "../src/db/rating.js";
 import { seasonAt } from "../src/season.js";
 import { PRESET_NAMES } from "../src/index.js";
-import { agents, bandByName, MIN_STAKE, STARTING_BALANCE } from "../src/db/schema.js";
+import { agents, MIN_STAKE, STARTING_BALANCE, WORST_MATCH } from "../src/db/schema.js";
 import { balanceOf } from "../src/db/ledger.js";
 import { someWallet } from "./helpers.js";
 
@@ -135,7 +135,7 @@ describe("POST /agents", () => {
     expect(created.agent.presetName).toBe("Bully");
     expect(created.agent.ownerId).toBe(walletOf("preset-renter"));
     expect(typeof created.agent.trueRating).toBe("number");
-    expect(created.agent.trueRatingBasis).toBe("against band B's roster as it stands today");
+    expect(created.agent.trueRatingBasis).toBe("against the roster as it stands today");
   });
 
   it("elicits and snapshots a table for a brief", async () => {
@@ -290,7 +290,7 @@ describe("POST /preview", () => {
     const previewed = await readBody(res);
     expect(elicitCalls).toBe(before);
     expect(typeof previewed.preview.trueRating).toBe("number");
-    expect(previewed.preview.basis).toBe("against band B's roster as it stands today");
+    expect(previewed.preview.basis).toBe("against the roster as it stands today");
     expect(previewed.preview.roster).toBeGreaterThan(0);
   });
 
@@ -379,19 +379,19 @@ describe("CORS", () => {
 });
 
 describe("staking over HTTP", () => {
-  it("seeds a balance on renting, at the one scale whatever band a page asks for", async () => {
+  it("seeds a balance on renting and reports it, with no band anywhere", async () => {
     const owner = someWallet();
     const created = await readBody(
-      await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Banked", presetName: "Anchor", band: "A" }) }),
+      await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Banked", presetName: "Anchor" }) }),
     );
     expect(created.agent.balance).toBe(STARTING_BALANCE);
-    // A page from before sends a band; it is ignored.
-    expect(created.agent.band).toBe("B");
     expect(created.agent.retired).toBe(false);
+    expect(created.agent.canPlay).toBe(true);
+    expect("band" in created.agent).toBe(false);
 
     const seen = await readBody(await api(`/agents/${created.agent.id}`, { owner: OTHER }));
     expect(seen.agent.balance).toBe(STARTING_BALANCE);
-    expect(seen.agent.band).toBe("B");
+    expect("band" in seen.agent).toBe(false);
   });
 
   it("plays a match, moves no money, and reports the balance as it stands", async () => {
@@ -401,7 +401,7 @@ describe("staking over HTTP", () => {
     );
     const played = await readBody(await api(`/agents/${created.agent.id}/play`, { method: "POST", owner }));
     expect(played.stake).toBeGreaterThanOrEqual(MIN_STAKE);
-    expect(played.stake).toBeLessThanOrEqual(bandByName("C").worstMatch);
+    expect(played.stake).toBe(WORST_MATCH);
     expect(Math.abs(played.result.net)).toBeLessThanOrEqual(played.stake);
     // Won or lost, nothing moved: a lost match costs nothing.
     expect(played.balance).toBe(STARTING_BALANCE);
@@ -410,18 +410,6 @@ describe("staking over HTTP", () => {
     const ledgerView = await readBody(await api(`/agents/${created.agent.id}/ledger`, { owner: null }));
     expect(ledgerView.movements[ledgerView.movements.length - 1].reason).toBe("rental-seed");
     expect(ledgerView.balance).toBe(played.balance);
-  });
-
-  it("tells a page that still changes bands that they are gone", async () => {
-    const owner = someWallet();
-    const created = await readBody(
-      await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Banded", presetName: "Hammer" }) }),
-    );
-    const res = await api(`/agents/${created.agent.id}/band`, { method: "POST", owner, body: JSON.stringify({ band: "C" }) });
-    expect(res.status).toBe(410);
-    expect((await readBody(res)).error).toMatch(/bands are gone/);
-    const seen = await readBody(await api(`/agents/${created.agent.id}`, { owner }));
-    expect(seen.agent.band).toBe("B");
   });
 
   it("refuses to play an agent that holds too little to be in play", async () => {
@@ -479,31 +467,19 @@ describe("sharing and the roster", () => {
     expect(JSON.stringify(match)).not.toContain("policyTable");
   });
 
-  it("GET /roster lists who is available, by band", async () => {
+  it("GET /roster lists who is available, and keeps their ratings private", async () => {
     const all = await readBody(await api("/roster", { owner: null }));
-    expect(all.bands.map((b: { name: string }) => b.name)).toEqual(["A", "B", "C"]);
     expect(all.agents.length).toBeGreaterThan(0);
-    const counts = all.counts as Record<string, number>;
-    expect(Object.keys(counts)).toEqual(["A", "B", "C"]);
-    expect(counts["A"]! + counts["B"]! + counts["C"]!).toBeGreaterThanOrEqual(all.agents.length);
-
-    const high = await readBody(await api("/roster?band=C", { owner: null }));
-    expect(high.agents.every((a: { band: string }) => a.band === "C")).toBe(true);
-    const low = await readBody(await api("/roster?band=A", { owner: null }));
-    expect(low.agents.every((a: { band: string }) => a.band === "A")).toBe(true);
-    const nonsense = await api("/roster?band=40-60", { owner: null });
-    expect(nonsense.status).toBe(400);
     for (const a of all.agents) expect(a.trueRating).toBeUndefined();
-
-    expect((await api("/roster?band=5-500", { owner: null })).status).toBe(400);
+    expect(JSON.stringify(all)).not.toContain('"band"');
   });
 
-  it("GET /field lists everyone in play by band, and keeps the just-retired a moment", async () => {
+  it("GET /field lists everyone in play, and keeps the just-retired a moment", async () => {
     const before = await readBody(await api("/field", { owner: null }));
     expect(typeof before.at).toBe("string");
     const [first] = before.agents as Json[];
     expect(first).toBeDefined();
-    expect(["A", "B", "C"]).toContain(first!.band);
+    expect(first!.band).toBeUndefined();
     expect(first!.retiredAt).toBeNull();
     expect(typeof first!.house).toBe("boolean");
     expect(JSON.stringify(before)).not.toContain("ownerId");

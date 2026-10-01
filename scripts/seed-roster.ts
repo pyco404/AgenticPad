@@ -37,13 +37,7 @@ for (let i = 0; i < AGENTS; i++) {
 console.log(`true ratings: ${await refreshTrueRatings(db)} agents rated against the roster`);
 console.log(`${rows.length} agents created (${PRESET_NAMES.join(", ")} in equal numbers)`);
 
-// Random pairing within a band: matchmaking needs ratings that do not exist yet,
-// but the bands are part of the shape being measured.
-const byBand = new Map<string, typeof rows>();
-for (const row of rows) {
-  const band = row.band;
-  byBand.set(band, [...(byBand.get(band) ?? []), row]);
-}
+// Random pairing: matchmaking needs ratings that do not exist yet.
 const live = new Set(rows.map((r) => r.id));
 const playedWhenRetired = new Map<string, number>();
 const playedBy = new Map<string, number>();
@@ -51,12 +45,11 @@ let retirements = 0;
 let played = 0;
 
 for (let k = 0; k < MATCHES; k++) {
-  const pool = [...byBand.values()].filter((band) => band.filter((r) => live.has(r.id)).length >= 2);
-  if (pool.length === 0) break;
-  const band = pool[Math.floor(rng() * pool.length)]!.filter((r) => live.has(r.id));
-  const a = band[Math.floor(rng() * band.length)]!;
-  let b = band[Math.floor(rng() * band.length)]!;
-  while (b.id === a.id) b = band[Math.floor(rng() * band.length)]!;
+  const pool = rows.filter((r) => live.has(r.id));
+  if (pool.length < 2) break;
+  const a = pool[Math.floor(rng() * pool.length)]!;
+  let b = pool[Math.floor(rng() * pool.length)]!;
+  while (b.id === a.id) b = pool[Math.floor(rng() * pool.length)]!;
 
   const { retired } = await runMatch(db, a.id, b.id, { seed: nextUint32(rng) });
   played++;
@@ -94,9 +87,8 @@ for (const row of await leaderboard(db, AGENTS)) {
   e.matches += row.matchesPlayed;
   byPreset.set(k, e);
 }
-// Rated against band B's roster: a rating is per band, and B is the reference scale.
-const profile = await rosterProfile(db, "B");
-console.log(`\nBy preset: what they won, next to what they are worth against band B (exact):`);
+const profile = await rosterProfile(db);
+console.log(`\nBy preset: what they won, next to what they are worth against the roster (exact):`);
 for (const [preset, { n, sum, matches }] of byPreset) {
   const table = rows.find((r) => r.presetName === preset)!.policyTable!;
   const exact = trueRatingAgainst(policyAgent(table), profile);

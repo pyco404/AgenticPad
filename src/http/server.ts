@@ -19,7 +19,6 @@ import {
   roster,
   runMatch,
   type LadderTab,
-  bandCounts,
   field,
   lossBudgetOn,
   lostToday,
@@ -44,8 +43,7 @@ import {
   WithdrawalError,
   type WithdrawalChain,
 } from "../db/withdrawals.js";
-import { DEFAULT_BAND, MIN_FUNDING_CHIPS, STAKE_BANDS, affordableBands, bandByName, canAffordBand, type BandName } from "../db/schema.js";
-import { SURVIVAL, SURVIVAL_HOURS, SURVIVAL_PACE_MINUTES, SURVIVAL_SEED_BALANCE, survivalFor } from "../survival.js";
+import { MIN_FUNDING_CHIPS } from "../db/schema.js";
 
 import { RateLimiter, type RateLimitRule } from "./rate-limit.js";
 import { LiveStream, resumeFrom, type LiveOptions } from "./live.js";
@@ -269,7 +267,6 @@ export function createApp(options: AppOptions): Server {
     ["POST", /^\/agents$/, postAgent],
     ["GET", /^\/agents\/([^/]+)$/, getAgent],
     ["POST", /^\/agents\/([^/]+)\/play$/, postPlay],
-    ["POST", /^\/agents\/([^/]+)\/band$/, postBand],
     ["POST", /^\/agents\/([^/]+)\/autoplay$/, postAutoplay],
     ["POST", /^\/agents\/([^/]+)\/seen$/, postSeen],
     ["POST", /^\/agents\/([^/]+)\/renew$/, postRenew],
@@ -430,8 +427,6 @@ export function createApp(options: AppOptions): Server {
       table = validatePolicy(result.table);
     }
 
-    // A band in the body is ignored: everyone plays at one scale now, and a
-    // page from before that still sends one.
     // Which flow this rental takes. A deposit rental is paid for by its owner
     // and cannot be created here and now: it needs a transaction signed in
     // their wallet, so the answer is the agent plus that transaction.
@@ -510,8 +505,8 @@ export function createApp(options: AppOptions): Server {
         ownerId: fresh!.ownerId,
         createdAt: fresh!.createdAt,
         trueRating: fresh!.trueRating,
-        trueRatingBasis: `against band ${fresh!.band}'s roster as it stands today`,
-        ...bandStatus(view!),
+        trueRatingBasis: "against the roster as it stands today",
+        ...playStatus(view!),
       },
       elicitation: presetName ? null : { free: freeCall, reusedRatedTable: reused },
       /**
@@ -542,16 +537,11 @@ export function createApp(options: AppOptions): Server {
   }
 
   /**
-   * What the agent panel needs to explain the cover rule: the bands this
-   * balance can still play, what each would risk, and - when the agent can no
-   * longer cover its own band - which cheaper band is still open to it.
-   */
-  /**
    * An agent view with its money in chips.
    *
    * The ledger holds base units, because it has to reconcile with a vault
-   * (src/chips.ts). Everything a player reads is chips: the bands, the stakes,
-   * the floor they set, the figure on the card. That conversion has to happen
+   * (src/chips.ts). Everything a player reads is chips: the stakes, the floor
+   * they set, the figure on the card. That conversion has to happen
    * somewhere, and the api boundary is the only place it can happen once - a
    * deposit-funded balance of 900 chips is 900,000,000 base units, so a view
    * that forgets is not slightly wrong, it is wrong by a factor of a million.
@@ -560,35 +550,13 @@ export function createApp(options: AppOptions): Server {
     return { ...row, balance: toChips(row.balance, rateOf(row)), balanceBaseUnits: row.balance };
   }
 
-  function bandStatus(row: { band: BandName; balance: number; presetName: string | null; funding: Funding; house?: boolean }) {
-    const rate = rateOf(row);
-    // A house agent never stakes, so no balance is asked of it: every band is
-    // open to it, whatever it holds - usually nothing.
-    const covers = (band: BandName) => row.house === true || canAffordBand(row.balance, band, rate);
-    const open = row.house === true ? STAKE_BANDS.map((b) => b.name) : affordableBands(row.balance, rate);
+  /** Whether an agent holds enough to play, and what that is, for the agent panel. */
+  function playStatus(row: { balance: number; funding: Funding; house?: boolean }) {
     return {
-      band: row.band,
-      worstMatch: bandByName(row.band).worstMatch,
       /** The least it must hold to play, in chips. */
       minToPlay: MIN_FUNDING_CHIPS,
-      canPlay: row.house === true || holdsEnoughToPlay(row.balance, rate),
-      /** Bands this balance covers, cheapest upward. Empty means nothing is left but withdrawing. */
-      affordable: open,
-      /** The best band still open, when the current one is not. Null when none is. */
-      fallback: covers(row.band) ? null : (open.at(-1) ?? null),
-      bands: STAKE_BANDS.map((b) => ({
-        name: b.name,
-        stakes: { ante: b.ante, baseBet: b.baseBet, raisedBet: b.raisedBet },
-        worstMatch: b.worstMatch,
-        affordable: covers(b.name),
-        survival: survivalFor(b.name, (row.presetName as PresetName | null) ?? null),
-        medianHours: SURVIVAL[b.name].medianHours,
-      })),
-      survivalBasis: {
-        hours: SURVIVAL_HOURS,
-        paceMinutes: SURVIVAL_PACE_MINUTES,
-        seedBalance: SURVIVAL_SEED_BALANCE,
-      },
+      // A house agent never stakes, so nothing is asked of its balance - usually nothing.
+      canPlay: row.house === true || holdsEnoughToPlay(row.balance, rateOf(row)),
     };
   }
 
@@ -632,8 +600,8 @@ export function createApp(options: AppOptions): Server {
           brief: own!.brief,
           policyTable: own!.policyTable,
           trueRating: own!.trueRating,
-          trueRatingBasis: `against band ${own!.band}'s roster as it stands today`,
-          ...bandStatus(row),
+          trueRatingBasis: "against the roster as it stands today",
+          ...playStatus(row),
           character: ownCharacter,
           traits,
           // On the agent, because that is the object the page holds and reads
@@ -652,7 +620,7 @@ export function createApp(options: AppOptions): Server {
         view: "owner",
       };
     }
-    return { agent: { ...inChips(row), ...bandStatus(row), character, traits }, view: "public" };
+    return { agent: { ...inChips(row), ...playStatus(row), character, traits }, view: "public" };
   }
 
   async function postPlay(ctx: Ctx) {
@@ -707,11 +675,6 @@ export function createApp(options: AppOptions): Server {
        */
       ranked: match.ranked,
     };
-  }
-
-  /** Bands are gone: everyone plays everyone. Said plainly to a page from before. */
-  async function postBand(): Promise<never> {
-    throw new HttpError(410, "bands are gone: every agent plays every other at one scale");
   }
 
   /**
@@ -904,7 +867,7 @@ export function createApp(options: AppOptions): Server {
     // the ledger's own rows, which are base units.
     const rate = rateOf(row);
     const movements = (await statement(db, id)).map((m) => ({ ...m, amount: toChips(m.amount, rate) }));
-    return { balance: toChips(row.balance, rate), band: row.band, retired: row.retired, movements };
+    return { balance: toChips(row.balance, rate), retired: row.retired, movements };
   }
 
   async function getMatch(ctx: Ctx) {
@@ -1385,22 +1348,9 @@ export function createApp(options: AppOptions): Server {
     };
   }
 
-  /** Who is out there to play, in a band. Public: the ladder shows this anyway. */
-  async function getRoster(ctx: Ctx) {
-    const band = ctx.query.get("band");
-    if (band !== null && !STAKE_BANDS.some((b) => b.name === band)) {
-      throw new HttpError(400, `band must be one of ${STAKE_BANDS.map((b) => b.name).join(", ")}`);
-    }
-    const rows = await roster(db, band === null ? {} : { band: band as BandName });
-    // Survival rides along so the rent screen can quote it without a second
-    // request, and without the client keeping its own copy of the numbers.
-    return {
-      band,
-      bands: STAKE_BANDS.map((b) => ({ ...b, survival: SURVIVAL[b.name] })),
-      survivalBasis: { hours: SURVIVAL_HOURS, paceMinutes: SURVIVAL_PACE_MINUTES, seedBalance: SURVIVAL_SEED_BALANCE },
-      counts: await bandCounts(db),
-      agents: rows,
-    };
+  /** Who is out there to play. Public: the ladder shows this anyway. */
+  async function getRoster() {
+    return { agents: await roster(db) };
   }
 
   async function postPreview(ctx: Ctx) {
@@ -1421,8 +1371,7 @@ export function createApp(options: AppOptions): Server {
       table = validatePolicy(result.table);
       remember(ownerId, brief, table);
     }
-    // Against the whole roster: everyone plays at one scale. A band in the body is ignored.
-    const preview = previewPolicy(table, await rosterProfile(db, DEFAULT_BAND));
+    const preview = previewPolicy(table, await rosterProfile(db));
     return { preview, policyTable: table, elicitation: supplied ? null : { free: freeCall } };
   }
 

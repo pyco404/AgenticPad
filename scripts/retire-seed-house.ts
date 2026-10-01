@@ -13,6 +13,5 @@ import { retireSeedHouse } from "../src/db/house.js";
 const apply = process.argv.includes("--apply");
 const { db, close } = await connect();
 const rows = await retireSeedHouse(db, { apply });
-const byBand = rows.reduce<Record<string, number>>((n, r) => ({ ...n, [r.band]: (n[r.band] ?? 0) + 1 }), {});
-console.log(`${apply ? "retired" : "would retire"} ${rows.length} seed house agents: ${JSON.stringify(byBand)}`);
+console.log(`${apply ? "retired" : "would retire"} ${rows.length} seed house agents`);
 await close();

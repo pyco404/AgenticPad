@@ -2,7 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { randomInt } from "node:crypto";
 import type { Db } from "./client.js";
 import { createAgent, runExhibition } from "./runner.js";
-import { agents, chainOps, matches, type BandName } from "./schema.js";
+import { agents, chainOps, matches } from "./schema.js";
 import { PRESET_NAMES, type PresetName } from "../presets.js";
 
 /**
@@ -16,32 +16,32 @@ import { PRESET_NAMES, type PresetName } from "../presets.js";
  * one matchup. Both agents are always under the same program, because
  * runExhibition refuses anything else.
  *
- * That constraint is not decoration. Picking across the whole roster once bands
- * existed meant the least-played agent - a freshly seeded one, on zero plays -
- * was paired with someone in another band, refused, and left on zero plays, so
- * it was picked again next time. Exhibitions did not fail sometimes; they
- * stopped.
+ * That constraint is not decoration. Picking across a roster where some pairs
+ * cannot play (agents in different bands, once) meant the least-played agent -
+ * a freshly seeded one, on zero plays - was paired with one it could not meet,
+ * refused, and left on zero plays, so it was picked again next time.
+ * Exhibitions did not fail sometimes; they stopped.
  */
 export async function pickHousePair(
   db: Db,
   random: (n: number) => number = (n) => randomInt(n),
 ): Promise<[string, string] | null> {
   const rows = await db
-    .select({ id: agents.id, band: agents.band, funding: agents.funding })
+    .select({ id: agents.id, funding: agents.funding })
     .from(agents)
     .where(and(isNull(agents.ownerId), isNull(agents.retiredAt)));
 
   // Only groups with at least two agents - a lone agent has nobody to meet.
   // No balance is asked of anyone: an exhibition moves nothing, and house
-  // agents need no money. Grouped by program (the band is the same for
-  // everyone now): runExhibition refuses a pair under different programs, and
+  // agents need no money. Grouped by program: runExhibition refuses a pair
+  // under different programs, and
   // the least-played agent is picked first, so a fresh deposit-program agent
   // offered seed-program opponents would be refused, stay least-played, and be
   // picked again - every time.
   const groupOf = new Map<string, string>();
   const byGroup = new Map<string, string[]>();
   for (const r of rows) {
-    const group = `${r.band}:${r.funding}`;
+    const group = r.funding;
     groupOf.set(r.id, group);
     byGroup.set(group, [...(byGroup.get(group) ?? []), r.id]);
   }
@@ -113,9 +113,8 @@ export function startHouseExhibitions(
 }
 
 /**
- * The house roster on the deposit program: nine of each preset, all at the one
- * scale everyone plays at. Thirty-six, as it was when it was three of each
- * preset in each of three bands.
+ * The house roster on the deposit program: nine of each preset, thirty-six in
+ * all.
  *
  * House agents never stake, so they need no balance (docs/mainnet.md, decision
  * 5): matchmaking, exhibitions and retirement ask nothing of it. `chips` is
@@ -128,7 +127,7 @@ export const DEPOSIT_HOUSE = {
   chips: 1_350,
 };
 
-export type HouseSeat = { id: string; name: string; band: BandName; presetName: PresetName; chips: number };
+export type HouseSeat = { id: string; name: string; presetName: PresetName; chips: number };
 
 /**
  * Creates whatever the deposit-program house roster is missing, and returns
@@ -148,7 +147,7 @@ export async function ensureDepositHouse(
   nextName: () => string,
 ): Promise<{ created: HouseSeat[]; roster: HouseSeat[] }> {
   const existing = await db
-    .select({ id: agents.id, name: agents.name, band: agents.band, presetName: agents.presetName })
+    .select({ id: agents.id, name: agents.name, presetName: agents.presetName })
     .from(agents)
     .where(
       and(
@@ -158,10 +157,9 @@ export async function ensureDepositHouse(
         sql`exists (select 1 from ${chainOps} where ${chainOps.agentId} = ${agents.id} and ${chainOps.kind} = 'open_vault')`,
       ),
     );
-  const seat = (r: { id: string; name: string; band: BandName; presetName: string | null }): HouseSeat => ({
+  const seat = (r: { id: string; name: string; presetName: string | null }): HouseSeat => ({
     id: r.id,
     name: r.name,
-    band: r.band,
     presetName: r.presetName as PresetName,
     chips: DEPOSIT_HOUSE.chips,
   });
@@ -177,7 +175,7 @@ export async function ensureDepositHouse(
         await tx.insert(chainOps).values({ kind: "open_vault", agentId: agent.id, owner: null, salt: agent.salt, amount: 0 });
         return agent;
       });
-      const made = seat({ id: row.id, name: row.name, band: row.band, presetName });
+      const made = seat({ id: row.id, name: row.name, presetName });
       created.push(made);
       roster.push(made);
     }
@@ -202,14 +200,14 @@ export async function ensureDepositHouse(
 export async function retireSeedHouse(
   db: Db,
   options: { apply: boolean; now?: Date },
-): Promise<{ id: string; name: string; band: BandName }[]> {
+): Promise<{ id: string; name: string }[]> {
   const seedHouse = and(isNull(agents.ownerId), isNull(agents.retiredAt), eq(agents.funding, "seed"));
   if (!options.apply) {
-    return db.select({ id: agents.id, name: agents.name, band: agents.band }).from(agents).where(seedHouse);
+    return db.select({ id: agents.id, name: agents.name }).from(agents).where(seedHouse);
   }
   return db
     .update(agents)
     .set({ retiredAt: options.now ?? new Date(), retiredReason: "closed" })
     .where(seedHouse)
-    .returning({ id: agents.id, name: agents.name, band: agents.band });
+    .returning({ id: agents.id, name: agents.name });
 }

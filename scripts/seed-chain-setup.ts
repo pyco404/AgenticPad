@@ -1,6 +1,6 @@
 import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { loadKeypair, SEED_PROGRAM_ID, SeedChainClient, seedPdas } from "../src/chain/seed-settlement.js";
-import { bandByName } from "../src/db/schema.js";
+import { WORST_MATCH } from "../src/db/schema.js";
 
 // The **seed-funded** program's setup: the one frozen at EKJHJ8js... It is
 // already deployed and initialised on devnet, so nothing here needs running
@@ -49,7 +49,7 @@ if (await connection.getAccountInfo(seedPdas.config(), "confirmed")) {
   }
   console.log(`config   ${seedPdas.config().toBase58()}  already initialised, limit ${config.maxSettlement.toString()}`);
 } else {
-  const signature = await new SeedChainClient(connection, admin).initialize(settler.publicKey, bandByName("C").worstMatch);
+  const signature = await new SeedChainClient(connection, admin).initialize(settler.publicKey, WORST_MATCH);
   console.log(`config   ${seedPdas.config().toBase58()}  initialised (${signature})`);
 }
 console.log(`mint     ${seedPdas.mint().toBase58()}`);

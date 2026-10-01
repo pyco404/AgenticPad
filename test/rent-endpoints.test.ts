@@ -7,6 +7,7 @@ import { connect, migrate, type Db } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
 import { balanceOf } from "../src/db/ledger.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
+import { MIN_FUNDING_CHIPS } from "../src/db/schema.js";
 import type { RentalChain } from "../src/db/rentals.js";
 import type { DepositChain } from "../src/db/deposits.js";
 import type { WithdrawalChain } from "../src/db/withdrawals.js";
@@ -519,7 +520,7 @@ describe("renting over HTTP", () => {
       expect(view.body.agent.balance).toBe(5_600);
       expect(view.body.agent.balanceBaseUnits).toBe(baseUnits(5_600, RATE));
       expect(view.body.agent.canPlay).toBe(true);
-      expect(view.body.agent.affordable).toEqual(["A", "B", "C"]);
+      expect(view.body.agent.minToPlay).toBe(MIN_FUNDING_CHIPS);
 
       // And the movements, which are ledger rows and so the easiest to miss.
       const ledger = await api(`/agents/${agentId}/ledger`, { as: who });

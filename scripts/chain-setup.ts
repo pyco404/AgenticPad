@@ -4,7 +4,7 @@ import { getMint } from "@solana/spl-token";
 import { existsSync } from "node:fs";
 import { loadKeypair, v2SettlerKeyPath } from "../src/chain/common.js";
 import { ChainClient, DEVNET_CHIP_RATE, PROGRAM_ID, pdas, STAKE_DECIMALS, tokenProgramOf } from "../src/chain/settlement.js";
-import { bandByName } from "../src/db/schema.js";
+import { WORST_MATCH } from "../src/db/schema.js";
 
 // Initialises the deposit-funded settlement program on a cluster, idempotently,
 // and tops up the settler so it can pay rent for the accounts it opens.
@@ -22,8 +22,10 @@ import { bandByName } from "../src/db/schema.js";
 //   chip_rate       base units to one chip. Fixed at one chip to one whole
 //                   token on devnet, so nothing else moves while the deposit
 //                   flow is tested. On mainnet the season boundary sets it.
-//   max_settlement  band C's worst match, converted at that rate. It is what a
-//                   single settlement can never exceed.
+//   max_settlement  the widest net a match can produce, converted at that rate.
+//                   It is what a single settlement can never exceed. Nothing
+//                   settles per match since matches stopped moving money; the
+//                   program still asks for the figure.
 //   rent            what renting costs, burned. $2 at a chip of about a cent
 //                   is 200 chips, which is the default here.
 //
@@ -51,7 +53,7 @@ const SETTLER_FLOOR = Number(process.env["SETTLER_MIN_SOL"] ?? 0.5);
 
 const CHIP_RATE = Number(process.env["CHAIN_CHIP_RATE"] ?? DEVNET_CHIP_RATE);
 const RENT_CHIPS = Number(process.env["CHAIN_RENT_CHIPS"] ?? 200);
-const MAX_SETTLEMENT = bandByName("C").worstMatch * CHIP_RATE;
+const MAX_SETTLEMENT = WORST_MATCH * CHIP_RATE;
 const RENT = RENT_CHIPS * CHIP_RATE;
 
 function stakeMint(): PublicKey {
@@ -133,7 +135,7 @@ if (await connection.getAccountInfo(pdas.config(), "confirmed")) {
     upgradeAuthority,
   );
   console.log(`config   ${pdas.config().toBase58()}  initialised (${signature})`);
-  console.log(`         chip rate ${CHIP_RATE} base units, limit ${bandByName("C").worstMatch} chips, rent ${RENT_CHIPS} chips`);
+  console.log(`         chip rate ${CHIP_RATE} base units, limit ${WORST_MATCH} chips, rent ${RENT_CHIPS} chips`);
 }
 
 // Exits the server does not co-sign, and the window they wait. Its own account

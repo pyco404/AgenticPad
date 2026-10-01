@@ -3,7 +3,8 @@ import { connect, migrate } from "../src/db/client.js";
 import { balanceOf, record } from "../src/db/ledger.js";
 import { createAgent } from "../src/db/runner.js";
 import { baseUnits, chipRate, chips, DEVNET_CHIP_RATE, SEED_CHIP_RATE } from "../src/chips.js";
-import { STAKE_BANDS, STARTING_BALANCE } from "../src/db/schema.js";
+import { STARTING_BALANCE, WORST_MATCH } from "../src/db/schema.js";
+import { AGENTCLASH_RULES } from "../src/round.js";
 
 // Chips against base units: the conversion, and that the ledger is wide enough
 // to hold the second of them.
@@ -11,12 +12,10 @@ import { STAKE_BANDS, STARTING_BALANCE } from "../src/db/schema.js";
 describe("chips and base units", () => {
   it("converts a chip figure exactly, in both directions", () => {
     const rate = DEVNET_CHIP_RATE;
-    for (const band of STAKE_BANDS) {
-      // A stake begins as chips, so it survives the round trip untouched. This
-      // is what keeps a settlement zero-sum in base units as well as in chips.
-      expect(chips(baseUnits(band.worstMatch, rate), rate)).toBe(band.worstMatch);
-      expect(baseUnits(band.ante, rate)).toBe(band.ante * 1_000_000);
-    }
+    // A stake begins as chips, so it survives the round trip untouched. This
+    // is what keeps a settlement zero-sum in base units as well as in chips.
+    expect(chips(baseUnits(WORST_MATCH, rate), rate)).toBe(WORST_MATCH);
+    expect(baseUnits(AGENTCLASH_RULES.stakes.ante, rate)).toBe(AGENTCLASH_RULES.stakes.ante * 1_000_000);
     expect(baseUnits(900, rate)).toBe(900_000_000);
   });
 

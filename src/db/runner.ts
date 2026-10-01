@@ -20,20 +20,13 @@ import {
   ratings,
   seasons,
   seasonStandings,
-  STAKE_BANDS,
-  DEFAULT_BAND,
-  affordableBands,
-  bandByName,
-  bandStakes,
-  canAffordBand,
-  normaliseNet,
   outflowBudget,
   OUTFLOW_WINDOW_MS,
   MIN_FUNDING_CHIPS,
   MIN_STAKE,
   RATING_WINDOW,
   STARTING_BALANCE,
-  type BandName,
+  WORST_MATCH,
   type AgentRow,
   type MatchRow,
   type RulesConfig,
@@ -45,7 +38,7 @@ import { utcDay } from "../chain/common.js";
 import { rentalEndFor, rentalOpen, rentalOpenSql } from "./rental.js";
 import { periodOf, periodStart } from "./netting.js";
 import { seasonAt } from "../season.js";
-import { bandFactor, standings, type Standing } from "./standings.js";
+import { standings, type Standing } from "./standings.js";
 
 export const DEFAULT_RULES: RulesConfig = {
   turnOrder: AGENTCLASH_RULES.turnOrder,
@@ -75,9 +68,10 @@ const sameStakes = (a: Stakes, b: Stakes) =>
  * Whether one set of stakes is the other at a different scale: every amount
  * multiplied by the same factor. A table prices decisions in ratios - what a
  * fold costs against what the pot pays - and those ratios are untouched by a
- * uniform scale, so the same table is correct at every band. That is precisely
- * why bands are money scales and not arbitrary price lists: change one amount
- * without the others and the table really would be mispriced.
+ * uniform scale, so the same table is correct at any scale - which is why a
+ * table snapshotted while its agent played in another band, before every match
+ * moved to one scale, still plays correctly. Change one amount without the
+ * others and the table really would be mispriced.
  */
 export function sameShape(a: Stakes, b: Stakes): boolean {
   if (a.ante <= 0 || b.ante <= 0) return sameStakes(a, b);
@@ -88,8 +82,7 @@ export function sameShape(a: Stakes, b: Stakes): boolean {
 /**
  * A stored table encodes decisions taken at particular prices. Playing it at
  * stakes of a different shape would silently misprice every fold, so refuse
- * instead. A different band is not a different shape: it is the same prices,
- * scaled, so an agent may change band without re-eliciting its table.
+ * instead. A different scale is not a different shape: it is the same prices.
  */
 export function assertStakesMatch(row: Pick<AgentRow, "name" | "policyStakes">, stakes: Stakes): void {
   const built = row.policyStakes ?? DEFAULT_RULES.stakes;
@@ -154,7 +147,7 @@ export function holdsEnoughToPlay(balance: number, rate: number): boolean {
  * Refuses a match whose result is larger than the engine says it can produce.
  *
  * Every piece of money safety downstream rests on this bound: both vaults were
- * checked against the band's worst match before the match was played, the
+ * checked against the widest net a match can produce before it was played, the
  * settlement program refuses anything above `max_settlement`, and the outflow
  * cap is sized from it. All of that was written against a comment saying the
  * engine cannot produce more. This asks the engine instead, every time.
@@ -175,10 +168,8 @@ export function assertNetWithinBound(net: number, stakes: Stakes, what: string):
   }
 }
 
-/** The rules a band is played under: the shipped rules at that band's scale. */
-export function bandRules(band: BandName): RulesConfig {
-  return { ...DEFAULT_RULES, stakes: bandStakes(band) };
-}
+/** The rules every match is played under: the shipped rules, at the one scale there is. */
+export const MATCH_RULES: RulesConfig = DEFAULT_RULES;
 
 /** Writes an agent with its table snapshotted, a ratings row, and a seeded balance. */
 export async function createAgent(db: Db, input: CreateAgentInput) {
@@ -201,8 +192,6 @@ export async function createAgent(db: Db, input: CreateAgentInput) {
       ownerId: input.ownerId ?? null,
       policyTable: table,
       policyStakes: input.policyStakes ?? DEFAULT_RULES.stakes,
-      // Everyone plays at one scale (drizzle/0027_one_band.sql).
-      band: DEFAULT_BAND,
       funding,
       // A player's rental ends at the season boundary, however far into the
       // season it starts. House agents are not rented and never end.
@@ -294,9 +283,7 @@ export type RunMatchOptions = { seed?: number; rules?: RulesConfig };
 /** Plays one match and records it, updating both ratings in the same transaction. */
 export async function runMatch(db: Db, agentAId: string, agentBId: string, options: RunMatchOptions = {}) {
   const [rowA, rowB] = await Promise.all([loadAgent(db, agentAId), loadAgent(db, agentBId)]);
-  // One scale for everyone: agents are no longer kept apart by band.
-  const band = DEFAULT_BAND;
-  const rules = options.rules ?? bandRules(band);
+  const rules = options.rules ?? MATCH_RULES;
   assertStakesMatch(rowA, rules.stakes);
   assertStakesMatch(rowB, rules.stakes);
   for (const row of [rowA, rowB]) {
@@ -333,9 +320,9 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
       );
     }
   }
-  // The chips the match was played at: the band's worst match, what the match
-  // row shows so it reads like any other. Nobody's balance is asked to cover it.
-  const stake = bandByName(band).worstMatch;
+  // The widest net the match could produce, which the row records it was
+  // played at. Nobody's balance is asked to cover it: nothing is staked.
+  const stake = WORST_MATCH;
   const seed = options.seed ?? newSeed();
   // No display names in the log: the match row references both agents, and a
   // name-free log is exactly what a replay reproduces.
@@ -379,7 +366,6 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
         netA: settledA,
         netB: -settledA,
         stake,
-        band,
         // Both sides player-rented, decided here and stored, so a later sale
         // cannot change what this match counted for.
         ranked,
@@ -412,12 +398,11 @@ export async function runExhibition(db: Db, agentAId: string, agentBId: string, 
     if (row.retiredAt !== null) throw new StakeError(`${row.name} is retired`);
   }
   if (rowA.id === rowB.id) throw new StakeError("an agent cannot play itself");
-  const band = DEFAULT_BAND;
-  const rules = bandRules(band);
+  const rules = MATCH_RULES;
   // Nothing moves in an exhibition, so nothing is asked of either balance:
-  // house agents need none. The stake is the band's worst match, which is what
-  // the match row shows so it reads like any other.
-  const stake = bandByName(band).worstMatch;
+  // house agents need none. The stake is the widest net a match can produce,
+  // which is what the match row shows so it reads like any other.
+  const stake = WORST_MATCH;
   assertSameFlow(rowA, rowB);
   const seed = options.seed ?? newSeed();
   const log = playMatch(resolveAgent(rowA), resolveAgent(rowB), { seed, ...rules });
@@ -436,7 +421,6 @@ export async function runExhibition(db: Db, agentAId: string, agentBId: string, 
       netA: settledA,
       netB: -settledA,
       stake,
-      band,
       log,
       exhibition: true,
       season: seasonAt(new Date()).key,
@@ -463,36 +447,29 @@ export function listedInChips<T extends { balance: number; funding: Funding }>(r
 
 export async function updateRating(db: Db | PgTransaction<PgQueryResultHKT, Record<string, never>, TablesRelationalConfig>, agentId: string): Promise<void> {
   const raw = sql<number>`case when ${matches.agentA} = ${agentId} then ${matches.netA} else ${matches.netB} end`;
-  // Normalised onto band B's scale by dividing out the band's factor, so an
-  // agent's record means the same thing whichever band it earned it in: a band
-  // C win of 30 is a band B win of 20, and a band A win of 10 is too. Only what
-  // the ladder compares is normalised (the ranked figures and recent form);
-  // cumulativeNet is the money the agent actually won, so it sums `raw`.
-  // The same factor every ranked view divides by (src/db/standings.ts), so they cannot drift.
-  const factor = bandFactor(matches.band);
-  const mine = sql<number>`((${raw})::double precision / ${factor})`;
+  // Every match is played at one scale, so a chip is a chip and nothing is
+  // normalised: the ranked figures and recent form sum the same nets as the total.
   // Exhibitions stake nothing, so they say nothing about how an agent does for money.
   const played = and(or(eq(matches.agentA, agentId), eq(matches.agentB, agentId)), eq(matches.exhibition, false));
 
   // seq is monotonic, so "the last RATING_WINDOW" is unambiguous even when many
   // matches share a timestamp.
-  const recent = await db.select({ net: mine }).from(matches).where(played).orderBy(desc(matches.seq)).limit(RATING_WINDOW);
+  const recent = await db.select({ net: raw }).from(matches).where(played).orderBy(desc(matches.seq)).limit(RATING_WINDOW);
   const totals = await db
     .select({ n: sql<number>`count(*)::int`, total: sql<number>`coalesce(sum(${raw}), 0)::int` })
     .from(matches)
     .where(played);
 
-  // The ladder's figures: player-versus-player matches only, normalised so
-  // agents in different bands rank against each other. Kept apart rather than replacing the totals above, because
+  // The ladder's figures: player-versus-player matches only. Kept apart rather than replacing the totals above, because
   // an owner who beat the house still earned that money and should be able to
   // see it - what they did not earn is a place on the ladder for it.
   const rankedOnly = and(played, eq(matches.ranked, true));
   const ranked = await db
     .select({
       n: sql<number>`count(*)::int`,
-      total: sql<number>`coalesce(sum(${mine}), 0)::int`,
-      // Stake is the money at risk, not normalised: it is what the ladder's
-      // net-per-chip-staked figure divides by, and both sides risked the same.
+      total: sql<number>`coalesce(sum(${raw}), 0)::int`,
+      // What the ladder's net-per-chip-staked figure divides by, until the
+      // no-loss score replaces it.
       staked: sql<number>`coalesce(sum(${matches.stake}), 0)::int`,
     })
     .from(matches)
@@ -514,8 +491,6 @@ export async function updateRating(db: Db | PgTransaction<PgQueryResultHKT, Reco
 
 export type OpponentPick = {
   opponentId: string;
-  /** The stake band both agents are in. */
-  band?: BandName;
   /** Which path matchmaking took, for the log. */
   path: "closest-rating" | "preset-fallback";
   candidates: number;
@@ -725,8 +700,6 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
     .having(sql`sum(${ledger.amount}) >= ${baseUnits(MIN_FUNDING_CHIPS, myRate)}`)
     .as("solvent");
 
-  // Everyone on their own: no band keeps anyone apart.
-  const band = DEFAULT_BAND;
   // A player looking for a match that counts needs another player. A house
   // opponent counts for nothing, so it is only ever offered when the caller asked for one.
   const houseAllowed = options.allowHouse === true || me.ownerId === null;
@@ -780,7 +753,6 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
     const best = candidates.reduce((closest, c) => (distance(c) < distance(closest) ? c : closest));
     const pick: OpponentPick = {
       opponentId: best.id,
-      band,
       path: "closest-rating",
       candidates: candidates.length,
       ratingGap: Math.abs((best.rating ?? 0) - mine),
@@ -789,7 +761,7 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
     return pick;
   }
 
-  // Fall back to a preset agent in the same band, so a thin queue does not
+  // Fall back to a preset agent, so a thin queue does not
   // silently put a cautious agent in with the boldest on the roster.
   //
   // Drawn from `candidates`, not from a query of its own. An earlier version
@@ -810,7 +782,6 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   }
   const pick: OpponentPick = {
     opponentId: preset.id,
-    band,
     path: "preset-fallback",
     candidates: candidates.length,
     ratingGap: null,
@@ -828,7 +799,7 @@ export type LadderTab = "winnings" | "per-match";
 
 /**
  * Which matches a ladder counts. All three rank the same thing - player-versus-
- * player matches, normalised onto band B - and differ only in the window:
+ * player matches - and differ only in the window:
  * everything (the figures `ratings` keeps), one season, or today in UTC.
  */
 export type LadderPeriod = { period: "all" } | { period: "season"; season: string } | { period: "day"; since: Date };
@@ -980,7 +951,6 @@ const publicAgentColumns = {
   rankedMatches: ratings.rankedMatches,
   rankedNet: ratings.rankedNet,
   recentForm: ratings.rollingNet50,
-  band: agents.band,
   /** Base units. The unit is `funding`'s to say, so it travels beside it. */
   balance: sql<number>`coalesce((select sum(${ledger.amount})::bigint from ${ledger} where ${ledger.agentId} = ${agents.id}), 0)`,
   funding: agents.funding,
@@ -1029,9 +999,8 @@ export async function ownerAgent(db: Db, agentId: string, ownerId: string | null
   return row;
 }
 
-/** Who is available to play, optionally inside one stake band. */
-export async function roster(db: Db, options: { band?: BandName; limit?: number } = {}) {
-  const inBand = options.band === undefined ? sql`true` : eq(agents.band, options.band);
+/** Who is available to play. */
+export async function roster(db: Db, options: { limit?: number } = {}) {
 
   const balance = sql<number>`coalesce((select sum(${ledger.amount})::bigint from ${ledger} where ${ledger.agentId} = ${agents.id}), 0)`;
   const rows = await db
@@ -1040,7 +1009,6 @@ export async function roster(db: Db, options: { band?: BandName; limit?: number 
       name: agents.name,
       presetName: agents.presetName,
       mark: agents.mark,
-      band: agents.band,
       matchesPlayed: ratings.matchesPlayed,
       cumulativeNet: ratings.cumulativeNet,
       recentForm: ratings.rollingNet50,
@@ -1049,7 +1017,7 @@ export async function roster(db: Db, options: { band?: BandName; limit?: number 
     })
     .from(agents)
     .innerJoin(ratings, eq(ratings.agentId, agents.id))
-    .where(and(isNull(agents.retiredAt), rentalOpenSql(), inBand))
+    .where(and(isNull(agents.retiredAt), rentalOpenSql()))
     .orderBy(desc(ratings.matchesPlayed))
     .limit(options.limit ?? 24);
   return rows.map(listedInChips);
@@ -1059,7 +1027,7 @@ export async function roster(db: Db, options: { band?: BandName; limit?: number 
 export const FIELD_RETIRED_MS = 60_000;
 
 /**
- * Everyone on the field: every agent in play, house included, by band, and the
+ * Everyone on the field: every agent in play, house included, and the
  * ones that retired in the last minute so a watcher sees them go rather than
  * vanish. Public, and only what the feed already shows of an agent. No limit
  * and no balance: this is who is here, not how they are doing, so it stays one
@@ -1073,7 +1041,6 @@ export async function field(db: Db, now: Date = new Date()) {
       name: agents.name,
       mark: agents.mark,
       presetName: agents.presetName,
-      band: agents.band,
       house: sql<boolean>`${agents.ownerId} is null`,
       retiredAt: agents.retiredAt,
     })
@@ -1083,34 +1050,4 @@ export async function field(db: Db, now: Date = new Date()) {
   return rows.map((r) => ({ ...r, retiredAt: r.retiredAt?.toISOString() ?? null }));
 }
 
-/** Active agents in each stake band, so a newcomer can be pointed at the busiest. */
-export async function bandCounts(db: Db): Promise<Record<BandName, number>> {
-  const rows = await db
-    .select({ band: agents.band, n: sql<number>`count(*)::int` })
-    .from(agents)
-    .where(isNull(agents.retiredAt))
-    .groupBy(agents.band);
-  const counts = Object.fromEntries(STAKE_BANDS.map((b) => [b.name, 0])) as Record<BandName, number>;
-  for (const r of rows) if (r.band in counts) counts[r.band] = Number(r.n);
-  return counts;
-}
-
-/**
- * The owner's band, changed after renting. Refused when the balance cannot
- * cover that band's worst match: the agent would be unable to play the moment
- * it moved. The table itself needs no re-elicitation - a band is the same
- * prices at a different scale.
- */
-export {
-  affordableBands,
-  balanceOf,
-  bandByName,
-  bandStakes,
-  canAffordBand,
-  connect,
-  normaliseNet,
-  MIN_STAKE,
-  RATING_WINDOW,
-  STAKE_BANDS,
-  StakeError,
-};
+export { balanceOf, connect, MIN_STAKE, RATING_WINDOW, StakeError, WORST_MATCH };
