@@ -20,6 +20,8 @@ export type PreviewBreakdown = { weight: number; expectedNet: number };
 export type Preview = {
   trueRating: number;
   basis: string;
+  /** True when rated against other players' agents: then it is exactly what rewards score, per match. */
+  scoring?: boolean;
   roster: number;
   breakdown: PreviewBreakdown[];
 };

@@ -7,7 +7,8 @@ export type VillageMap = {
   base: string;
   /** [column, row, tileset, frame] */
   terrain: [number, number, string, number][];
-  paths: { style: keyof typeof PATH_STYLES; width: number; points: [number, number][] }[];
+  /** Its style is kept as the map names it; every road is drawn alike (ROAD). */
+  paths: { style: string; width: number; points: [number, number][] }[];
   /** k: texture, f: frame, s: scale, d: fixed depth, a: animation to play. */
   decorations: { k: string; f?: number; x: number; y: number; s: number; d?: number; a?: string }[];
   buildings: { id: string; x: number; y: number }[];
@@ -19,12 +20,11 @@ export type VillageMap = {
 
 const TILE = 64;
 
-const PATH_STYLES = {
-  main: { fill: 0x7a6548, stroke: 0x4a3a24, strokeAlpha: 0.55, fillAlpha: 0.92 },
-  secondary: { fill: 0x8a7858, stroke: 0x5a4a2c, strokeAlpha: 0.5, fillAlpha: 0.88 },
-  trail: { fill: 0x5c4a30, stroke: 0x3a2a18, strokeAlpha: 0.55, fillAlpha: 0.9 },
-  plaza: { fill: 0x7a6548, stroke: 0x5c4e3a, strokeAlpha: 0.6, fillAlpha: 0.95 },
-} as const;
+/**
+ * Every road's colours, the same on all of them: a dark outer band, a lighter
+ * middle, a thin line down the centre, over a soft shadow on the grass.
+ */
+const ROAD = { shadow: 0x3a2f1e, shadowAlpha: 0.3, outer: 0x584c31, inner: 0x5e4e38, line: 0x483a27 };
 
 /** Queue every texture the map, the heroes and the buildings use. Paths are relative to the loader's path. */
 export function loadMap(scene: Phaser.Scene, map: VillageMap): void {
@@ -61,23 +61,27 @@ export function drawMap(scene: Phaser.Scene, map: VillageMap): void {
     if (scene.textures.exists(set)) ground.add(scene.add.sprite(col * TILE + TILE / 2, row * TILE + TILE / 2, set, frame));
   }
 
+  // Layer by layer across every road at once, not road by road: where two meet, neither's edge or
+  // shadow is drawn over the other, and they join as one. A disc at every vertex rounds each corner
+  // and fills each junction.
   const roads = scene.add.container(0, 0).setDepth(-400);
-  for (const path of map.paths) {
-    if (path.points.length < 2) continue;
-    const style = PATH_STYLES[path.style];
+  const paths = map.paths.filter((p) => p.points.length >= 2);
+  const layer = (width: (w: number) => number, colour: number, alpha: number) => {
     const g = scene.add.graphics();
-    const stroke = (width: number, colour: number, alpha: number) => {
-      g.lineStyle(width, colour, alpha);
-      g.beginPath();
+    for (const path of paths) {
+      const w = width(path.width);
+      g.lineStyle(w, colour, alpha).beginPath();
       path.points.forEach(([x, y], i) => (i === 0 ? g.moveTo(x, y) : g.lineTo(x, y)));
       g.strokePath();
-    };
-    stroke(path.width + 6, style.stroke, style.strokeAlpha * 0.5); // shadow
-    stroke(path.width, style.fill, style.fillAlpha);
-    stroke(Math.max(2, path.width - 14), style.fill + 0x0a0a0a, Math.min(1, style.fillAlpha + 0.05)); // highlight
-    stroke(1.5, style.stroke, style.strokeAlpha); // edge
+      // The shadow is translucent: discs over its own line would show darker, so it keeps square corners under the road.
+      if (alpha >= 1) for (const [x, y] of path.points) g.fillStyle(colour, 1).fillCircle(x, y, w / 2);
+    }
     roads.add(g);
-  }
+  };
+  layer((w) => w + 6, ROAD.shadow, ROAD.shadowAlpha);
+  layer((w) => w, ROAD.outer, 1);
+  layer((w) => Math.max(4, Math.round(w * 0.5)), ROAD.inner, 1);
+  layer(() => 1.5, ROAD.line, 1);
 
   for (const d of map.decorations) {
     if (!scene.textures.exists(d.k)) continue;

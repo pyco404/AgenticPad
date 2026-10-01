@@ -34,7 +34,7 @@ import { characterOf, createCharacter, isDefaultName, NO_MODEL, ownerCharacter, 
 import { moderate, type Verdict } from "../character/moderation.js";
 import { traitsOf } from "../character/trait-store.js";
 import { dayStart, seasonAt, seasonByKey, GRACE_MS, RENEWAL_REMINDER_MS } from "../season.js";
-import { previewPolicy, refreshTrueRatings, rosterProfile } from "../db/rating.js";
+import { previewPolicy, refreshTrueRatings, scoringProfile } from "../db/rating.js";
 import { agentRecord, latestBluff, matchActivity, recentMatches } from "../db/feed.js";
 import {
   prepareWithdrawal,
@@ -1371,7 +1371,7 @@ export function createApp(options: AppOptions): Server {
       table = validatePolicy(result.table);
       remember(ownerId, brief, table);
     }
-    const preview = previewPolicy(table, await rosterProfile(db));
+    const preview = previewPolicy(table, await scoringProfile(db));
     return { preview, policyTable: table, elicitation: supplied ? null : { free: freeCall } };
   }
 

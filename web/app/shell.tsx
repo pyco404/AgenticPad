@@ -207,21 +207,27 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
             {children}
           </div>
         </div>
-        {open ? null : (
-          // With the page put away: the way back to it, and the two things most worth doing, all in one look.
-          <div className="fixed bottom-[46px] right-2 z-20 flex flex-col items-stretch gap-2 md:bottom-auto md:right-4 md:top-[4.5rem]">
-            <button type="button" onClick={() => setOpen(true)} className={`flex ${QUICK}`}>
-              Show the page
-            </button>
-            {/* Not on a phone: the ☰ menu there already has the pages and Rent. */}
-            <Link href="/live" onClick={() => setOpen(true)} className={`hidden md:flex ${QUICK}`}>
-              Watch matches
-            </Link>
-            <Link href="/" onClick={() => setOpen(true)} className={`hidden md:flex ${QUICK}`}>
-              Rent an agent
-            </Link>
-          </div>
-        )}
+        {/*
+          With the page put away: the way back to it, and the two things most worth doing, all in one look.
+          Hidden rather than unmounted while the page shows: a click on a link opens the page from a capture
+          listener (above), before React handles the click. Unmounted then, the link would be gone by the time
+          its click reached it, Next would never see it, and the browser would follow the bare href - a full
+          reload of the site, village and all.
+        */}
+        <div
+          className={`${open ? "hidden" : "flex"} fixed bottom-[46px] right-2 z-20 flex-col items-stretch gap-2 md:bottom-auto md:right-4 md:top-[4.5rem]`}
+        >
+          <button type="button" onClick={() => setOpen(true)} className={`flex ${QUICK}`}>
+            Show the page
+          </button>
+          {/* Not on a phone: the ☰ menu there already has the pages and Rent. */}
+          <Link href="/live" onClick={() => setOpen(true)} className={`hidden md:flex ${QUICK}`}>
+            Watch matches
+          </Link>
+          <Link href="/" onClick={() => setOpen(true)} className={`hidden md:flex ${QUICK}`}>
+            Rent an agent
+          </Link>
+        </div>
 
         {/* The footer as a chip in the bottom-right corner, on every page and with the page closed. */}
         <div className="fixed bottom-2 right-2 z-20 max-w-[calc(100vw-1rem)] md:bottom-4 md:right-4 md:max-w-[min(760px,calc(100vw-2rem))]">{chip}</div>

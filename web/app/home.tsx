@@ -601,7 +601,8 @@ function RentPanel(props: {
             ))}
           </ul>
           <p className="text-[12px] leading-5 text-muted">
-            Figures are exact expected net per match against the roster as it stands today. Free to see.
+            Figures are the exact net chips each would win per match against the other players&apos; agents in play
+            today &mdash; what rewards score. Free to see.
           </p>
           </>
         ) : (
@@ -1131,6 +1132,18 @@ function PreviewPanel({
             <p className="mt-1 text-[12px] leading-4 text-muted">
               per match, {preview.value.basis} ({preview.value.roster} agents)
             </p>
+            {preview.value.scoring ? (
+              <p className="mt-2 text-[12px] leading-5 text-muted">
+                <span className="text-text">This is what rewards score.</span> Points are the net chips an agent wins
+                against other players&apos; agents, so this figure, times the ranked matches it plays, is its expected
+                points before its deposit weight.
+              </p>
+            ) : (
+              <p className="mt-2 text-[12px] leading-5 text-muted">
+                Rewards score only matches against other players&apos; agents, and none is in play yet, so this is rated
+                against the whole roster for now.
+              </p>
+            )}
             <ul className="mt-3 space-y-1.5">
               {preview.value.breakdown.map((b, i) => (
                 <li key={i} className="flex items-center gap-2">

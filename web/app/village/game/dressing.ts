@@ -231,12 +231,12 @@ export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bou
   // The square and the carpet first, just over the map's roads, so they join them without a seam.
   const g = scene.add.graphics().setDepth(-399);
   const sq = SQUARE;
-  g.fillStyle(0x5c4e3a, 0.35).fillEllipse(sq.x, sq.y, sq.rx * 2 + 10, sq.ry * 2 + 10);
-  g.fillStyle(0x7a6548, 0.95).fillEllipse(sq.x, sq.y, sq.rx * 2, sq.ry * 2);
-  g.fillStyle(0x84704f, 1).fillEllipse(sq.x, sq.y, sq.rx * 2 - 22, sq.ry * 2 - 14);
+  // In the roads' own colours (map.ts), so they run into it without a seam.
+  g.fillStyle(0x3a2f1e, 0.3).fillEllipse(sq.x, sq.y, sq.rx * 2 + 6, sq.ry * 2 + 6);
+  g.fillStyle(0x584c31, 1).fillEllipse(sq.x, sq.y, sq.rx * 2, sq.ry * 2);
+  g.fillStyle(0x5e4e38, 1).fillEllipse(sq.x, sq.y, sq.rx * 2 - 26, sq.ry * 2 - 16);
   // A ring of teal stone set in it, the crest's colour.
   g.lineStyle(4, 0x189b68, 0.8).strokeEllipse(sq.x, sq.y, sq.rx * 2 - 44, sq.ry * 2 - 26);
-  g.lineStyle(1.5, 0x5c4e3a, 0.6).strokeEllipse(sq.x, sq.y, sq.rx * 2, sq.ry * 2);
   const c = CARPET;
   g.fillStyle(0xb07a2a, 1).fillRect(c.x - c.width / 2 - 3, c.y0, c.width + 6, c.y1 - c.y0);
   g.fillStyle(0x015f68, 1).fillRect(c.x - c.width / 2, c.y0, c.width, c.y1 - c.y0);

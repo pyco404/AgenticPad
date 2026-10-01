@@ -88,7 +88,8 @@ export const SITES: Record<string, Site> = {
 /** The arena's sand: open to walkers, but nowhere anyone strolls to. */
 export const RESERVED: Rect[] = [{ x0: 1150, y0: 712, x1: 1650, y1: 930 }];
 
-type Path = { style: "main" | "secondary" | "trail" | "plaza"; width: number; points: [number, number][] };
+/** Every road is drawn alike (map.ts); the style only says what kind of road it is. */
+type Path = { style: "main" | "secondary" | "trail"; width: number; points: [number, number][] };
 
 /**
  * The roads. A road joins another only at a point both name (roads.ts stitches
@@ -116,8 +117,8 @@ export const ROADS: Path[] = [
       [1000, 488],
     ],
   },
-  // The avenue, from the square up to the arena's gate.
-  { style: "main", width: 58, points: [[1400, 1010], [1400, 1150]] },
+  // The avenue, from the square across the ring road and up to the arena's gate.
+  { style: "main", width: 58, points: [[1400, 962], [1400, 1010], [1400, 1150]] },
   // The high street, west to east past the square, and on to the dock.
   {
     style: "main",
@@ -143,12 +144,12 @@ export const ROADS: Path[] = [
   { style: "secondary", width: 36, points: [[1090, 488], [1090, 455]] },
   { style: "secondary", width: 36, points: [[1705, 488], [1705, 457]] },
   // Trails out to the agent grounds.
-  { style: "trail", width: 30, points: [[1000, 560], [870, 560], [860, 600]] },
-  { style: "trail", width: 30, points: [[665, 790], [655, 860], [650, 930]] },
-  { style: "trail", width: 30, points: [[1800, 560], [1960, 560], [1975, 610]] },
-  { style: "trail", width: 30, points: [[700, 1150], [660, 1210], [650, 1270]] },
-  { style: "trail", width: 30, points: [[1400, 1150], [1400, 1370]] },
-  { style: "trail", width: 30, points: [[1966, 1290], [2060, 1290]] },
+  { style: "trail", width: 34, points: [[1000, 560], [870, 560], [860, 600]] },
+  { style: "trail", width: 34, points: [[665, 790], [655, 860], [650, 930]] },
+  { style: "trail", width: 34, points: [[1800, 560], [1960, 560], [1975, 610]] },
+  { style: "trail", width: 34, points: [[700, 1150], [660, 1210], [650, 1270]] },
+  { style: "trail", width: 34, points: [[1400, 1150], [1400, 1370]] },
+  { style: "trail", width: 34, points: [[1966, 1290], [2060, 1290]] },
 ];
 
 /**

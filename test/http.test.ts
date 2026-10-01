@@ -290,7 +290,12 @@ describe("POST /preview", () => {
     const previewed = await readBody(res);
     expect(elicitCalls).toBe(before);
     expect(typeof previewed.preview.trueRating).toBe("number");
-    expect(previewed.preview.basis).toBe("against the roster as it stands today");
+    // Against the opponents rewards score against: other players' agents, or the whole roster while there are none.
+    expect(previewed.preview.basis).toBe(
+      previewed.preview.scoring
+        ? "against the other players' agents in play today"
+        : "against the whole roster, as no other player's agent is in play yet",
+    );
     expect(previewed.preview.roster).toBeGreaterThan(0);
   });
 

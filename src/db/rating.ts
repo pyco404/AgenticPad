@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { policyAgent, type Policy } from "../agents/policy.js";
 import { seatAveragedNet } from "../exact.js";
 import { AGENTCLASH_RULES } from "../round.js";
@@ -14,6 +14,8 @@ import { rentalOpenSql } from "./rental.js";
  */
 
 export type RosterProfile = {
+  /** Who was counted: other players' agents only, or the whole roster, house included. */
+  scope: "players" | "everyone";
   /** Distinct tables on the roster, with how many agents play each. */
   entries: { table: Policy; weight: number }[];
   /** Changes whenever the mix changes; recompute ratings when it does. */
@@ -49,7 +51,7 @@ export const ROSTER_ACTIVE_DAYS = 7;
  * on the rent screen. They stay matchable; this is only about what a rating
  * is measured against. House agents always count: they are always in play.
  */
-export async function rosterProfile(db: Db, now = new Date()): Promise<RosterProfile> {
+export async function rosterProfile(db: Db, now = new Date(), options: { playersOnly?: boolean } = {}): Promise<RosterProfile> {
   const since = new Date(now.getTime() - ROSTER_ACTIVE_DAYS * 24 * 60 * 60 * 1000);
   const active = or(
     isNull(agents.ownerId),
@@ -60,7 +62,7 @@ export async function rosterProfile(db: Db, now = new Date()): Promise<RosterPro
     .select({ id: agents.id, table: agents.policyTable })
     .from(agents)
     // Expired agents are left out too: they cannot be matched until renewed.
-    .where(and(isNull(agents.retiredAt), rentalOpenSql(now), active));
+    .where(and(isNull(agents.retiredAt), rentalOpenSql(now), active, options.playersOnly ? isNotNull(agents.ownerId) : undefined));
 
   const members = new Set<string>();
   const byTable = new Map<string, { table: Policy; weight: number }>();
@@ -74,12 +76,14 @@ export async function rosterProfile(db: Db, now = new Date()): Promise<RosterPro
   }
   const entries = [...byTable.values()].sort((a, b) => JSON.stringify(a.table).localeCompare(JSON.stringify(b.table)));
   const agentCount = entries.reduce((s, e) => s + e.weight, 0);
+  const scope = options.playersOnly ? "players" : "everyone";
   return {
+    scope,
     entries,
     agentCount,
     members,
     // The prefix versions how ratings are computed: bump it and every stored rating goes stale.
-    fingerprint: hash(`v4-one-roster|${entries.map((e) => `${e.weight}:${JSON.stringify(e.table)}`).join("|")}`),
+    fingerprint: hash(`v4-one-roster|${scope}|${entries.map((e) => `${e.weight}:${JSON.stringify(e.table)}`).join("|")}`),
   };
 }
 
@@ -124,15 +128,33 @@ export function rosterWithout(profile: RosterProfile, table: Policy): RosterProf
  * future opponents, who will include agents written after this was computed.
  */
 /**
- * What a table is worth against the roster today, in chips per match, computed
- * at AGENTCLASH_RULES - the one scale every match is played at.
+ * The roster rewards score against: other players' agents, since a match
+ * against a house agent never scores (docs/no-loss-rewards.md). While no
+ * player's agent is in play there is nothing to score against yet, so it falls
+ * back to the whole roster, and says so.
+ */
+export async function scoringProfile(db: Db, now = new Date()): Promise<RosterProfile> {
+  const players = await rosterProfile(db, now, { playersOnly: true });
+  return players.agentCount > 0 ? players : rosterProfile(db, now);
+}
+
+/**
+ * What a table is worth against a roster today, in chips per match, computed
+ * at AGENTCLASH_RULES - the one scale every match is played at. Against the
+ * scoring roster this is the score's own unit: rewards pay on net chips won
+ * against other players' agents, and this is that, expected per match.
  */
 export function previewPolicy(table: Policy, profile: RosterProfile) {
   const agent = policyAgent(table);
   const rating = trueRatingAgainst(agent, profile);
   return {
     trueRating: rating,
-    basis: "against the roster as it stands today",
+    basis:
+      profile.scope === "players"
+        ? "against the other players' agents in play today"
+        : "against the whole roster, as no other player's agent is in play yet",
+    /** Whether this is the figure rewards score: net per match against other players' agents. */
+    scoring: profile.scope === "players",
     roster: profile.agentCount,
     rosterFingerprint: profile.fingerprint,
     /** Per distinct opponent, so a brief can be aimed at what is actually out there. */

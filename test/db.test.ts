@@ -18,7 +18,7 @@ import {
   updateRating,
   type OpponentPick,
 } from "../src/db/runner.js";
-import { previewPolicy, refreshTrueRatings, rosterProfile, rosterWithout, trueRatingAgainst } from "../src/db/rating.js";
+import { previewPolicy, refreshTrueRatings, rosterProfile, rosterWithout, scoringProfile, trueRatingAgainst } from "../src/db/rating.js";
 import { agentRecord } from "../src/db/feed.js";
 import {
   policyAgent,
@@ -373,6 +373,26 @@ describe("true rating", () => {
     // A preview rates against the same roster: all nine.
     const preview = previewPolicy(snapshotPreset("Mirage"), await rosterProfile(fresh));
     expect(preview.roster).toBe(9);
+    await closeFresh();
+  });
+
+  it("previews against the opponents rewards score against: other players' agents, else the whole roster", async () => {
+    const { db: fresh, close: closeFresh } = await connect();
+    await migrate(fresh);
+    for (let i = 0; i < 3; i++) await createAgent(fresh, { name: `House${i}`, presetName: "Anchor" });
+    // Only house agents: nothing scores yet, so the preview rates against everyone and says so.
+    const houseOnly = previewPolicy(snapshotPreset("Mirage"), await scoringProfile(fresh));
+    expect(houseOnly.scoring).toBe(false);
+    expect(houseOnly.roster).toBe(3);
+    expect(houseOnly.basis).toMatch(/whole roster, as no other player's agent is in play yet/);
+
+    // A player's agent arrives: the preview rates against players' agents only, which is what scores.
+    await createAgent(fresh, { name: "Player", presetName: "Bully", ownerId: someWallet() });
+    const players = previewPolicy(snapshotPreset("Mirage"), await scoringProfile(fresh));
+    expect(players.scoring).toBe(true);
+    expect(players.roster).toBe(1);
+    const mirage = policyAgent(snapshotPreset("Mirage"));
+    expect(players.trueRating).toBeCloseTo(seatAveragedNet(mirage, PRESETS.Bully, AGENTCLASH_RULES), 9);
     await closeFresh();
   });
 
