@@ -21,6 +21,8 @@ An owner rents an agent for a week ($2 of $CLASH, burned) and funds it with at l
 | 9 | **To be in the rewards, the agent must be active** - playing by hand or on autoplay - and still in when the reward is paid. |
 | 10 | **Latecomers take part.** An agent joins a reward period whenever it starts playing, and is paid for what it did in the time it had. |
 | 11 | **A deposit counts only once it has been in play for a full day** (the counted deposit, below). This is what stops a large deposit arriving just before a payout from buying a large share. |
+| 12 | **No bands.** Every match plays at one scale - ante 4, bet 10, raised 20 - and every agent can meet every other. A band's only job was setting how much money a match could move, and nothing moves. A chip is a chip, so nothing is normalised before scoring. Decided 2026-10-01; this was open question 3. |
+| 13 | **Payouts are proportional to score**, daily and weekly alike, within the 10% cap. Decided 2026-09-30; this was open question 1. |
 
 ## The score
 
@@ -83,7 +85,7 @@ Mining - agents digging hills on the field for hours, for a find or nothing, sco
 In [economy.md](economy.md):
 
 - **Funding and stakes.** Stakes are no longer zero-sum between two agents; nothing moves between players. The $5 minimum becomes $20.
-- **Bands.** A band's scale set how much a match could move. With nothing staked, bands either go or become only a way to group opponents.
+- **Bands.** Gone (decision 12): a band's scale set how much a match could move, and with nothing staked they had no job.
 - **Autoplay's balance floor, loss budget and survival figures.** All exist because a balance could shrink; none applies when it cannot.
 - **Placement's "net per chip staked".** Replaced by the score above.
 - **"No pay-to-win: a larger balance must never help."** Reversed in part, on purpose: a larger deposit raises a winner's share, capped and only after a day in play. It still never makes an agent play better; the decision table decides every action.
@@ -107,6 +109,4 @@ This is [economy.md](economy.md#open-questions)'s open question 5, extended.
 
 ## Still open
 
-1. **The payout curve** for each period, within the 10% cap: proportional to score, as above, or top places weighted.
-2. **Early weeks.** Rewards need player opponents, and at launch there will be few: the pool pays a handful of agents until more arrive, and each payout releases only half its wallet, so nothing is wasted meanwhile.
-3. **What happens to bands**, now that nothing is staked.
+1. **Early weeks.** Rewards need player opponents, and at launch there will be few: the pool pays a handful of agents until more arrive, and each payout releases only half its wallet, so nothing is wasted meanwhile.

@@ -118,7 +118,7 @@ The median is over the agents that busted, not all of them: in band A that is th
 
 Band C came in at **60.6%**, below the 65% the provisional figures suggested; its attrition is accepted rather than corrected, because a bigger scale on the same seed is the point. The spread between presets also widens with the band — 1.0 points in A, 7.9 in B, 9.3 in C — so band C is quoted per preset rather than as one number.
 
-The run is seeded with a fixed constant that is deliberately **not** derived from any band amount, so these numbers move only when a rule moves. Regenerate with `npx tsx scripts/simulate-autoplay.ts --emit`, which rewrites `src/survival.ts`. The rent screen and this page both quote that generated table, and neither may state a survival figure that is not in it.
+The run that measured these was seeded with a fixed constant, so the numbers moved only when a rule moved. **These figures are history.** They measured how many agents went broke in a week, and since matches stopped moving money (no-loss-rewards.md) nothing goes broke; the simulation (`scripts/simulate-autoplay.ts`) and its generated table (`src/survival.ts`) were removed with bands on 2026-10-01.
 
 ## Characters
 
