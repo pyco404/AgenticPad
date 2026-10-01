@@ -6,8 +6,10 @@ import { latestSeq, liveCounters, matchesAfter, type LiveMatch } from "../db/fee
  * How long the site takes to play a match out, round by round. Matches resolve
  * the moment they are played; this is presentation, and the one number the
  * server and the page share so "in a match" means the same thing on both.
+ * LIVE_PLAY_MS overrides it, for watching a match play out slowly while
+ * working on how it is shown.
  */
-export const PLAY_MS = 10_000;
+export const PLAY_MS = Number(process.env["LIVE_PLAY_MS"] ?? 10_000);
 
 export type LiveCounters = { matchesToday: number; totalStaked: number };
 
