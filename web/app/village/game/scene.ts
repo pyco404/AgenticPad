@@ -5,7 +5,8 @@ import { Building, type BuildingLabel } from "./building";
 import { Ground } from "./ground";
 import { Hero } from "./hero";
 import { CardTable } from "./table";
-import { drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
+import { drawDressing, drawSolarLights, loadDressing, overRoad, PIECES } from "./dressing";
+import { sailShips } from "./ships";
 import { drawArena, loadArena, type ArenaHandle } from "./arena";
 import { ARENA_LAYOUT, GROUNDS, HIDDEN_ROADS, lots, RESERVED, ROADS, SITES, stands, townBounds } from "./town";
 import { loadWeapons, weaponOf } from "./weapons";
@@ -179,6 +180,16 @@ export class VillageScene extends Phaser.Scene {
           !this.onDock(p),
       );
     }
+
+    // Two ships under sail on the lake, clear of the one moored off the dock and of the rocks.
+    const moored = PIECES.find((p) => p.key === "dress-ship");
+    sailShips(this, this.ground, {
+      count: 2,
+      still: this.opts.still,
+      moored: moored ? { x: moored.x, y: moored.y } : null,
+      rocks: this.map.decorations.filter((d) => d.k.includes("rocks")),
+      dock: bridge ?? null,
+    });
 
     // Night: a blue dark over the world, under the names so they still read.
     const { width, height } = this.map.world;
