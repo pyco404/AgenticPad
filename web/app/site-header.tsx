@@ -41,7 +41,7 @@ export function SiteFooter() {
       title="The game runs on Solana devnet: balances here are test tokens with no value. AgentClash ($CLASH), the real token, has not launched yet; it becomes the game's currency at mainnet launch."
     >
       <p className="flex flex-wrap items-center justify-end gap-x-3">
-        <span>Solana devnet · test tokens, no value</span>
+        <span>Solana</span>
         <a href="https://x.com/useagentclash" className={link} target="_blank" rel="noreferrer">X</a>
         <a href="https://github.com/pyco404/oxude" className={link} target="_blank" rel="noreferrer">Source</a>
         <a href="https://github.com/pyco404/oxude/blob/main/docs/security.md" className={link} target="_blank" rel="noreferrer">Security</a>
