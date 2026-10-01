@@ -152,7 +152,7 @@ These are real, and would each need fixing before anything of value were at stak
 
     A reserve would close it: hold `max_settlement` back on every unilateral claim. That was considered and rejected when the exposure was one match — it strands 60 chips on every honest exit to insure against a compound failure that needs the server to die inside a one-pass window and stay dead for half an hour. The exposure is smaller than the cure. It is listed here so that it is a known number rather than a surprise, and it is the figure to revisit if the window is ever shortened.
 
-13. **Renting doesn't prove consent.** An agent's id binds it to its owner, so nobody can record a different one, but the server still creates the agent without the owner signing anything. It could create an agent "owned" by a wallet that never asked for one, which gives that wallet tokens and takes nothing. A transaction signed by the owner at rent time would prove consent; it would cost a signing step and make the agent wait to play.
+13. **Closed: renting now proves consent.** This said the server created an agent without its owner signing anything, so it could make one "owned" by a wallet that never asked for it. On the deposit flow a rental is one transaction the owner signs: the rent is burned and the deposit moves from their own wallet, and the agent cannot play until that transaction lands ([economy.md](economy.md), step 5). The seed flow, which never had this, takes no new rentals or renewals since the cutover (`SEED_CUTOVER=closed`, [cutover.md](cutover.md)); its last renewed agent lapses on 2026-10-06.
 
 ## Before mainnet
 
@@ -161,7 +161,9 @@ must be true before any of it holds real money.
 
 **Rotate every production credential.** All four were exposed in a terminal
 session on 2026-09-20, and `DATABASE_URL` and `CHAIN_SETTLER_SECRET` again on
-2026-09-25. They must be replaced, not merely re-scoped.
+2026-09-25. They must be replaced, not merely re-scoped. Three have been; the
+seed program's settler is the one still outstanding, and only because that
+program cannot rotate it (below).
 
 `DATABASE_URL` was rotated on 2026-09-25: the role password was changed and the
 old one now fails authentication over the network path, which is the only path
@@ -174,9 +176,12 @@ and never check it; the test has to go over `postgres.railway.internal`. And
 `railway variables --set-from-stdin KEY` keeps the value out of the command
 line, which `--set "KEY=$(cat file)"` does not.
 
-- [ ] `ANTHROPIC_API_KEY` — revoke and reissue in the Anthropic console.
-- [ ] `CHAIN_RPC_URL` — roll the Helius API key.
-- [ ] `DATABASE_URL` — change the Postgres password in Railway.
+- [x] `ANTHROPIC_API_KEY` — revoked and reissued in the Anthropic console.
+      Rotated on the operator's word; the date was not recorded here.
+- [x] `CHAIN_RPC_URL` — Helius API key rolled. Rotated on the operator's word;
+      the date was not recorded here.
+- [x] `DATABASE_URL` — Postgres password changed in Railway on 2026-09-25, as
+      above.
 - [ ] `CHAIN_SETTLER_SECRET` — **not rotatable on the deployed program.**
       `set_settler` exists in this repo but was committed on 2026-09-20 at
       22:14, about fifteen hours after the last deploy at 07:05, so the live

@@ -1,13 +1,20 @@
 # Non-custodial exit
 
-**Status: plan, not built.** Decided 2026-09-26: option B, with today's
-co-signed withdrawal kept as the fast path, and a 30-minute window.
+**Status: built, deployed to devnet, and proven there.** Decided 2026-09-26:
+option B, with the co-signed withdrawal kept as the fast path, and a 30-minute
+window. Built and deployed to devnet on 2026-09-26. On 2026-09-27 a real
+wallet took money out end to end from the hosted `/exit` page: it requested an
+exit, waited out the window, claimed, the money arrived, and reconciliation was
+clean afterwards. The second run [exit-test.md](exit-test.md) asks for - a
+partial exit driven from a copy of the page saved to disk - has not been
+reported yet ([Proving it](#proving-it)).
 
 A player must be able to get their money out without this server co-signing.
-Today they cannot: `withdraw` requires the settler's signature, so a server
-that is down, unwilling, or gone is a server that holds the money.
+Before this was built they could not: `withdraw` requires the settler's
+signature, so a server that is down, unwilling, or gone was a server that held
+the money.
 
-This describes what to build. Nothing here is implemented.
+What follows is the design as decided, and the order it was built in.
 
 ## Why a signature is there at all
 
@@ -288,8 +295,15 @@ catch what it does.
 
 [exit-test.md](exit-test.md) is the procedure: a real wallet takes money out
 twice, once partially and once for the lot, with the second run driven from a
-copy of the page saved to disk. Until that has been done the mechanism is
-built, not proven.
+copy of the page saved to disk.
+
+**Done once, on 2026-09-27:** a real wallet requested an exit, waited out the
+window, claimed from the hosted `/exit`, and the money arrived, with
+reconciliation clean afterwards (security.md, limitation 3). Before that run
+the page failed in Phantom with "Reached end of buffer", because it sent a bare
+message instead of a whole transaction; that was fixed first. **Still to do:**
+the run from a copy saved to disk, which is what shows the page owes nothing
+to our hosting.
 
 ## Open questions
 
