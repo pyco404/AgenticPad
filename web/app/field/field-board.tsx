@@ -37,7 +37,7 @@ export function FieldBoard({ initial }: { initial: FieldAgent[] | null }) {
         paired.set(b.id, match.id);
       }
     }
-    // One column: everyone plays everyone, so nobody is kept apart by band.
+    // One column: everyone plays everyone.
     return [agents ?? []].map((here) => {
       const pairs: Slot[] = [];
       const solos: Slot[] = [];

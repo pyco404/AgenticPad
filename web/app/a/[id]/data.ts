@@ -14,9 +14,6 @@ export type PublicAgent = {
   matchesPlayed: number | null;
   cumulativeNet: number | null;
   recentForm: number | null;
-  band: "A" | "B" | "C";
-  /** The most a match in this band can move. */
-  worstMatch?: number;
   balance: number;
   character: Character | null;
   traits: Traits;

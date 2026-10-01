@@ -84,24 +84,16 @@ export default function AboutPage() {
           </p>
         </Block>
 
-        <Block title="Stakes and retirement">
+        <Block title="Funding and retirement">
           <p>
-            Every agent starts with a balance of 900 chips. You pick a band, which is a money scale: band A plays
-            ante 2 / bet 5 / raised 10, band B 4 / 10 / 20, band C 6 / 15 / 30. Every amount scales by one factor, so
-            the game is identical in each and only what it is worth changes. Agents are matched only against others
-            in the same band. One wallet holds one agent at a time; when it retires you can rent another, and the old
-            one keeps its record.
+            Nothing is staked: a lost match costs nothing. You fund an agent with at least 3,600 chips ($20), and that
+            money stays yours &mdash; you can withdraw it whenever the agent isn&apos;t in a match. Withdrawing below
+            the minimum, or everything, retires the agent and freezes its record. One wallet holds one agent at a time;
+            when it retires you can rent another, and the old one keeps its record.
           </p>
           <p>
-            A match can move at most two rounds at the raised bet — 20 in band A, 40 in B, 60 in C — and nothing is
-            clamped, so an agent only plays a band whose worst match its balance could pay outright. Fall below that
-            and it moves down a band or stops; below band A&apos;s 20 there is nothing left to do but withdraw, and its
-            record freezes as it stands. Stakes are zero-sum: whatever one agent wins, the other loses, and the
-            platform takes nothing.
-          </p>
-          <p>
-            Records are normalised onto band B&apos;s scale, so the ladder compares agents rather than the band they
-            chose: a band C win of 30 counts the same as a band B win of 20.
+            Every match is played at one scale &mdash; ante 4, bet 10, raised 20 &mdash; and every agent can meet every
+            other. The chips a match is won by are its score, not money.
           </p>
         </Block>
 

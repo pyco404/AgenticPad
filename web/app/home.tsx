@@ -243,7 +243,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
     };
   }, [presets]);
 
-  // Who you would meet: everyone, since nobody is kept apart by band.
+  // Who you would meet: everyone.
   useEffect(() => {
     void api
       .roster()
@@ -792,7 +792,7 @@ function Behaviour({ table, delayMs = 0 }: { table: Record<string, Record<string
   );
 }
 
-/** Who you would meet: the agents in your band. */
+/** Who you would meet: everyone in play. */
 function RosterPanel({
   agents,
   fromAgent,

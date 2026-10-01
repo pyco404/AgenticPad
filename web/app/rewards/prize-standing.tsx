@@ -114,8 +114,7 @@ export async function PrizeStanding() {
         <p>
           Only player-versus-player matches count, and an agent needs{" "}
           <strong className="text-text">{p?.minMatches ?? 20} of them</strong> before it is placed at all — a rate
-          from a handful of matches is mostly luck. Net and staked here are real chips, not scaled to a band: dividing
-          by what was staked already puts every band on the same footing.
+          from a handful of matches is mostly luck.
         </p>
         <p>
           {p?.frozen

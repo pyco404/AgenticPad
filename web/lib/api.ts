@@ -8,23 +8,18 @@ export type RosterAgent = {
   presetName: string | null;
   /** The agent's own emoji. */
   mark?: string | null;
-  band: BandName;
   matchesPlayed: number;
   cumulativeNet: number;
   recentForm: number;
   balance: number;
 };
-export type BandName = "A" | "B" | "C";
-
 /** The least an agent must hold to play, in chips: $20. Mirrors MIN_FUNDING_CHIPS on the server. */
 export const MIN_FUNDING_CHIPS = 3_600;
 
-export type PreviewBreakdown = { weight: number; expectedNet: number; pricedNet?: number };
+export type PreviewBreakdown = { weight: number; expectedNet: number };
 export type Preview = {
   trueRating: number;
   basis: string;
-  band?: BandName;
-  priced?: { band: BandName; perMatch: number; worstMatch: number };
   roster: number;
   breakdown: PreviewBreakdown[];
 };
@@ -94,9 +89,6 @@ export type AgentView = {
   rankedNet?: number;
   recentForm?: number;
   balance?: number;
-  band?: BandName;
-  /** The chips a match is played at. */
-  worstMatch?: number;
   /** The least an agent must hold to play, in chips. */
   minToPlay?: number;
   /** False when the balance is below that minimum. */
@@ -163,7 +155,6 @@ export type FieldAgent = {
   name: string;
   mark: string | null;
   presetName: string | null;
-  band: BandName;
   /** Unowned: plays exhibitions, never for money. */
   house: boolean;
   /** Set for the minute after it retires, while it is shown leaving. */
@@ -427,7 +418,7 @@ export const api = {
   faucet: (token: string | null) => request<{ faucet: FaucetStatus }>("/faucet", { token }),
   claimFaucet: (token: string | null) =>
     request<{ grant: { amount: number; chips: number; signature: string } }>("/faucet", { method: "POST", token }),
-  /** Everyone in play, by band, and whoever retired in the last minute. */
+  /** Everyone in play, and whoever retired in the last minute. */
   field: () => request<{ agents: FieldAgent[]; at: string }>("/field"),
   season: () => request<{ season: SeasonInfo; graceHours: number; reminderHours: number }>("/season"),
   ladder: (sort: "winnings" | "per-match", limit = 25, period: LadderPeriod = "season") =>
@@ -455,7 +446,7 @@ export type PrizeRow = {
   perChip: number | null;
   rankedMatches: number;
   rankedStaked: number;
-  /** The chips those matches moved. Not the ladder's band-scaled figure. */
+  /** The chips those matches were won by. */
   rankedNetReal: number;
   /** How many more ranked matches before this agent can be placed. */
   shortBy: number;

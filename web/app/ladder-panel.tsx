@@ -72,7 +72,7 @@ export function LadderPanel({
             value={tab}
             onChange={setTab}
             options={[
-              { value: "winnings", label: "Winnings, scaled to band B" },
+              { value: "winnings", label: "Winnings" },
               { value: "per-match", label: "Per match" },
             ]}
           />
@@ -176,11 +176,10 @@ export function LadderPanel({
             {tab === "winnings"
               ? "Ranked by net won against other players' agents. Volume counts."
               : "Net per ranked match. Needs at least one match against another player."}{" "}
-            <strong className="text-text">Ranked figures are scaled to band B</strong>, so every band ranks alike: a
-            band A result counts double and a band C result two-thirds. They are not the chips an agent holds.{" "}
+            Figures are the chips matches were won by, not money: a lost match costs nothing.{" "}
             <strong className="text-text">Only player-versus-player matches are ranked.</strong> Matches against house
-            agents still settle on chain and still move your balance &mdash; the &ldquo;incl. house&rdquo; column is
-            that money, in real chips, and it is not lost. It earns no ranking because the house presets are fixed and their
+            agents are played and shown &mdash; the &ldquo;incl. house&rdquo; column counts them &mdash; but earn no
+            ranking, because the house presets are fixed and their
             weaknesses are exactly computable, so beating them would be a way to farm the reward pool rather than
             evidence of anything. House agents themselves aren&apos;t listed: they can never rank.
           </p>
