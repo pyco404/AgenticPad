@@ -103,7 +103,24 @@ Most of the program's surface goes with them. This is a large change to [mainnet
 
 A reward weighted by how long and how much someone holds a token may read as a return on holding it, which is a different question from whether Bluff & Fold is a game of skill. Both go to the lawyer before any real $CLASH is paid. This extends [economy.md](economy.md#open-questions)'s open question 5.
 
+## Known properties
+
+### Splitting pays, and the model cannot prevent it
+
+A holder who splits a holding across K wallets, each above the minimum, gets K agents. The same tokens then earn more than one wallet holding them would. This is a property of the model, recorded so it is not mistaken for a bug still to be fixed. It was open question 2 until 2026-10-02.
+
+**Why it pays.** A fix would need one wallet holding N tokens to score more than K wallets holding N/K each, and the model fails that in three places:
+
+- **Position uses a square root**, so splitting raises total position: K wallets of N/K hold √K times the position of one wallet of N (ten wallets, about 3.2 times).
+- **Conviction accrues per wallet.** Each wallet's clock runs on its own, so ten wallets at the minimum each reach ×3.55 after six months.
+- **Each wallet earns its own points.** Ten wallets play ten sets of matches, so the base the weight multiplies is itself multiplied by K.
+
+The third is why no fix exists inside the model. A different position curve could make concentration pay, and a conviction floor that rises the longer a wallet holds - in tokens, not dollars, as the conviction amount does, so a price move never costs anyone their days - could make splitting cost more tokens. But neither touches the points: whatever the weight does, K wallets that qualify earn K scores. And the floor alone would not have met the condition anyway, since a holder with enough tokens keeps every wallet above it.
+
+**Why it cannot be capped.** A collective cap - agents split from one source sharing one 10% ceiling - needs to know which wallets are related, which is the detection this design cannot do. **The 10% share cap limits one agent, not a fleet.**
+
+**What bounds it.** The pool is fixed. Each payout releases half its wallet, whoever is in it, so splitting creates no new payout: it redistributes the pool toward whoever splits, away from everyone else. The other bounds are per wallet, so they apply K times over without being defeated: every wallet must meet the qualifying minimum of ranked matches, and every wallet's points are capped at 40 chips against any one opponent a day.
+
 ## Open
 
 1. **How conviction is read off chain.** It needs each wallet's balance history against its conviction amount, which means indexing transfer history. And a transfer between a holder's own wallets looks identical to a sell and a rebuy: moving tokens to a new wallet would cost the clock unless something links the two.
-2. **Whether the 10% share cap is enough against wallet splitting.** Only position divides when a holding is split; conviction, 85% of power, accrues per agent. A holder who splits a large holding into many wallets each just above the minimum gets many agents at nearly full power. The 40-chip per-opponent cap limits what those wallets can feed each other, not how many of them score.
