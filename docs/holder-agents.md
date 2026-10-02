@@ -21,6 +21,8 @@ Hold $CLASH in your own wallet above a dollar-pegged minimum and you have an age
 | 9 | **The no-loss model's guards all carry over**: the 40-chip cap per opponent per day, the floor at zero, house matches not scoring, and the qualifying minimums ([Guards](#guards)). |
 | 10 | **Rewards are unchanged** ([Rewards](#rewards)). |
 | 11 | **The village grows with the holder count.** Presentation only, no mechanics ([The village](#the-village)). |
+| 12 | **No on-chain program.** Nothing is left for one to do. Payouts are plain token transfers from the reward wallets, the minimum's peg lives in the ledger, and strategy commitments are published as hashes in the season statement. Decided 2026-10-02; the build order is in [economy.md](economy.md#roadmap). |
+| 13 | **Conviction runs on balance snapshots**, with the gap stated: a sell and rebuy between two snapshots is not seen. Indexing transfer history waits until someone has actually exploited that. Decided 2026-10-02. |
 
 ## Power
 
@@ -123,4 +125,4 @@ The third is why no fix exists inside the model. A different position curve coul
 
 ## Open
 
-1. **How conviction is read off chain.** It needs each wallet's balance history against its conviction amount, which means indexing transfer history. And a transfer between a holder's own wallets looks identical to a sell and a rebuy: moving tokens to a new wallet would cost the clock unless something links the two.
+1. **Moving between one's own wallets.** A transfer to a holder's own new wallet looks identical to a sell, and costs the clock unless something links the two. Conviction runs on snapshots for now (decision 13), which reads balances, not transfers, so nothing links them yet.

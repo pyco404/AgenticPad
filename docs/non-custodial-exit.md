@@ -1,5 +1,7 @@
 # Non-custodial exit
 
+**Replaced 2026-10-02 by [holder-agents.md](holder-agents.md).** Holder agents keep their tokens in the owner's own wallet, so there is nothing to exit from. Kept as the record of how the exit was designed and proven on devnet.
+
 **Status: built, deployed to devnet, and proven there.** Decided 2026-09-26:
 option B, with the co-signed withdrawal kept as the fast path, and a 30-minute
 window. Built and deployed to devnet on 2026-09-26. On 2026-09-27 a real

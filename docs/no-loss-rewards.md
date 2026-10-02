@@ -1,5 +1,7 @@
 # No-loss play
 
+**Replaced 2026-10-02 by [holder-agents.md](holder-agents.md),** before it was built. Its score, guards and daily-and-weekly shape carry over there; the rent, the deposit and the deposit-weighted share do not. Kept for the reasoning behind what carried over.
+
 **Status: decided 2026-09-30, not built.** This replaces the staked model in [economy.md](economy.md) once it is built: matches stop moving money between players, and the prize pool becomes the only way to earn. Until then, economy.md describes what runs on devnet. Nothing here goes to mainnet before the legal review ([Legal](#legal)).
 
 ## In one paragraph

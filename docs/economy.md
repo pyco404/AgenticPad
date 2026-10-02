@@ -1,12 +1,26 @@
 # Economy (post-hackathon design)
 
-**Status: design, with two parts now real.** Bands are live as money scales (see [Bands](#bands)); **$CLASH, the game's token, has not been minted yet** (see [Token](#token)). Everything that connects them — rentals, funding, auctions, prizes, the chip rate — remains design only. The game still runs on devnet with a fake game token, and $CLASH is not yet its currency; this is the plan for making it one. The security model in [security.md](security.md) describes the system as it is, and several of its known limitations must be closed before any of this ships (see [Open questions](#open-questions)).
-
-**Being replaced: [no-loss-rewards.md](no-loss-rewards.md)** (decided 2026-09-30, not built). Matches stop staking anything, the minimum deposit becomes $20, and winners share the reward wallets by wins weighted by a deposit kept in play. Until it is built, this page describes what runs; where the two disagree, that page is the decision.
+**Replaced 2026-10-02 by [holder-agents.md](holder-agents.md).** Holding $CLASH above a dollar-pegged minimum is the agent: no rent, no deposit, no vault, no stakes, and no on-chain program. This page is kept, not deleted, for the decisions and measurements in it that still hold - the chip rate's shape (now the minimum's), seasons, characters, the creator-fee split, anti-farming - and for the history of the ones that don't. Where it disagrees with holder-agents.md, holder-agents.md is the decision. The roadmap below is current; everything after it describes the earlier models.
 
 ## Roadmap
 
-In order. Each step ships to devnet before the next begins, until the last, which is mainnet itself; nothing here holds real money until [Open questions](#open-questions) are closed.
+The build order for [holder agents](holder-agents.md), decided 2026-10-02. **There is no on-chain program:** with deposits, vaults, settlement, the exit, rent and the loss budget gone, nothing is left for one to do. Payouts are plain token transfers from the reward wallets, the minimum's dollar peg lives in the ledger, and strategy commitments are published as hashes in the season statement rather than on chain - a weaker guarantee than `commit_strategy`, accepted for not running a program. Each step ships to devnet before the next begins; on devnet the faucet's test mint stands in for $CLASH.
+
+1. **Holding check.** Read a signed-in wallet's $CLASH balance, under SPL Token or Token-2022. At or above the minimum, the wallet has an agent - one per wallet. The minimum is pegged in dollars and converted to tokens at the season boundary, reusing the chip rate's machinery off chain.
+2. **Scoring.** Points with the 40-chip cap per opponent per day and the floor at zero; the qualifying minimums; weight = 1 + 3 × power; daily scores summed into the season. This replaces placement's "net per chip staked", and the statement gains the power inputs so a payout can be checked.
+3. **Conviction on snapshots.** Balances are polled on a schedule and the clock runs from the snapshots. **The gap, stated plainly:** a sell and a rebuy between two snapshots is not seen, so a wallet can sell below its conviction amount and keep its clock if it buys back before the next snapshot. Indexing transfer history would close it, and is not worth building until someone has actually exploited it.
+4. **Web.** Onboarding becomes: connect a wallet, see its balance against the minimum, and it has an agent. A power and conviction display. The money panels come off.
+5. **The village grows with the holder count.** Presentation only, so it can ship whenever.
+6. **Payouts.** Claim creator fees, buy $CLASH, release half of each reward wallet, pay in proportion to score under the 10% cap. Still gated on the legal review ([holder-agents.md](holder-agents.md#legal)).
+7. **Deletions, last.** Once the new path works: rentals, deposits, withdrawals, the exit and its watcher, the loss budget, netting, most of the chain worker and settlement client, agent balances in the match runner, and the rental, deposit, exit, withdraw and loss-budget panels. The devnet faucet stays as long as devnet needs a token to hold.
+
+**What stays as built:** the game (engine, rounds, presets, the exact solver, policies and briefs), autoplay, seasons, characters, the village art, wallet sign-in, matches, transcripts, the feed, the live view, the ladder and rating, and house exhibitions.
+
+**What still needs securing:** the reward wallets' keys, which now hold all the money, and whatever key signs payouts. The vault and settler-key limitations in [security.md](security.md) go with the program.
+
+### The earlier roadmap (history)
+
+In order, as it stood until 2026-10-02. Each step shipped to devnet before the next begins, until the last, which is mainnet itself; nothing here holds real money until [Open questions](#open-questions) are closed.
 
 1. **Bands** — done. Money scales, the cover rule, seeded house agents in every band.
 2. **Autoplay** — built. Server-side play on a timer, the floor, and the ranked/unranked split on the ladder; the scheduler and ladder are deployed, and the owner's panel ships with the web release.

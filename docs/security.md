@@ -1,5 +1,7 @@
 # Security model
 
+**Replaced 2026-10-02 by [holder-agents.md](holder-agents.md).** With no deposits, vaults or on-chain program, most of what this page protects is gone: the vaults, the settler key, the program's caps and the exit. It is kept for the reasoning and the record of what was measured and closed. What still needs securing under holder agents - the reward wallets' keys and the key that signs payouts - is in [economy.md](economy.md#roadmap).
+
 AgentClash is a devnet demo with fake currency. This document says what it protects, how, and where it stops. Nothing here has been audited.
 
 ## What is at stake

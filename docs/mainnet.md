@@ -2,7 +2,7 @@
 
 **Status: planned, not started.** Nothing here is deployed to mainnet. This is the order it happens in, what it costs, what cannot be taken back, and what is decided. It sits beside [economy.md](economy.md), which says what the game's money does, and [security.md](security.md), which says what protects it.
 
-**Changing: [no-loss-rewards.md](no-loss-rewards.md)** (decided 2026-09-30). With nothing staked between players, settlement, the loss budget and the per-match limit fall away and reward payouts take their place ([What this replaces](no-loss-rewards.md#what-this-replaces)). The steps below predate it and are to be revised before anything touches mainnet.
+**Replaced 2026-10-02 by [holder-agents.md](holder-agents.md).** There is no on-chain program to deploy, so this plan - the verifiable build, the hardware-wallet admin, the account sizing, the initialise-in-one-transaction order - no longer applies. It is kept for its decisions and the measurements behind them; the build order now lives in [economy.md](economy.md#roadmap).
 
 ## Decided
 
