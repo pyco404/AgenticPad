@@ -78,9 +78,17 @@ All four carry over from [no-loss-rewards.md](no-loss-rewards.md#guards):
 - **At most 40 chips against any one opponent a day.** Losing is free again, so feeding wins from a second wallet is back; this holds a puppet opponent to what one match against it could ever earn. Losses against it still count in full.
 - **Points are floored at zero** each day. An agent can have a bad day, never a negative one.
 - **Only matches against other holders' agents score.** House agents are fixed presets whose weaknesses are exactly computable (`src/exact.ts`); beating one measures nothing.
-- **A minimum to qualify, in ranked matches:** 10 a day and 50 a season, set low at launch and raised as the roster grows, each value and each change recorded. This is the only place activity counts: it decides whether an agent scores, not how much.
+- **A minimum to qualify, in ranked matches:** 3 a day and 15 a season at launch, raised toward 10 and 50 as the roster grows, each change recorded in the [parameter log](#parameter-log). This is the only place activity counts: it decides whether an agent scores, not how much.
 
 **Anomaly detection stays**, flagging rather than pre-blocking ([economy.md](economy.md#anti-farming)).
+
+### Parameter log
+
+The qualifying minimums and the per-opponent cap are parameters, raised as the roster grows. Every change is recorded here, and every frozen day also stores the values it was scored with.
+
+| From | Daily minimum | Season minimum | Per-opponent cap | Why |
+|---|---|---|---|---|
+| launch (decided 2026-10-02) | 3 ranked matches | 15 ranked matches | 40 chips | Ten a day assumes opponents are available; on a thin roster autoplay waits, nobody would qualify and the daily pool would pay nobody. The target figures are 10 and 50. |
 
 ## Rewards
 

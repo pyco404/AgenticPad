@@ -29,6 +29,7 @@ import type { LossBudgetState } from "../chain/settlement.js";
 import { autoplayStatus, markSeen, setAutoplay, sinceYouLeft } from "../db/autoplay.js";
 import { renewAgent, rentalStatus, RenewError } from "../db/seasons.js";
 import { prizeTable } from "../db/standings.js";
+import { dayFromDate, dayOf, dayScores, seasonScores } from "../db/scores.js";
 import { seasonStatement } from "../db/statement.js";
 import { characterOf, createCharacter, isDefaultName, NO_MODEL, ownerCharacter, portraitSvg, publicCharacter, type CharacterDeps } from "../character/store.js";
 import { moderate, type Verdict } from "../character/moderation.js";
@@ -298,6 +299,7 @@ export function createApp(options: AppOptions): Server {
     ["GET", /^\/field$/, getField],
     ["GET", /^\/season$/, getSeason],
     ["GET", /^\/prizes$/, getPrizes],
+    ["GET", /^\/scores$/, getScores],
     ["GET", /^\/statement$/, getStatement],
     ["GET", /^\/admin$/, getAdmin],
     ["POST", /^\/agents\/([^/]+)\/deposits$/, postDeposit],
@@ -793,6 +795,36 @@ export function createApp(options: AppOptions): Server {
    * answers, and serving them from one route invites a client to relabel one
    * as the other.
    */
+  /**
+   * Holder scores (docs/holder-agents.md, Scoring). `?day=YYYY-MM-DD` for one
+   * UTC day, `?season=` a Monday for a season; with neither, today and this
+   * season. Each table says whether it is frozen or still moving.
+   */
+  async function getScores(ctx: Ctx) {
+    const now = new Date();
+    const day = ctx.query.get("day");
+    const key = ctx.query.get("season");
+    if (day) {
+      let d: number;
+      try {
+        d = dayFromDate(day);
+      } catch {
+        throw new HttpError(400, "day must be a date, as YYYY-MM-DD");
+      }
+      if (d > dayOf(now)) throw new HttpError(400, "that day hasn't started yet");
+      return { day: await dayScores(db, d) };
+    }
+    if (key) {
+      try {
+        seasonByKey(key);
+      } catch {
+        throw new HttpError(400, "season must be a Monday, as YYYY-MM-DD");
+      }
+      return { season: await seasonScores(db, key, now) };
+    }
+    return { day: await dayScores(db, dayOf(now)), season: await seasonScores(db, seasonAt(now).key, now) };
+  }
+
   async function getPrizes(ctx: Ctx) {
     const now = new Date();
     let season;

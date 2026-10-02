@@ -11,6 +11,7 @@ import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
 import { chainOps, rentals, STARTING_BALANCE } from "../src/db/schema.js";
 import { seasonStatement } from "../src/db/statement.js";
 import { holdingOf, readHolding } from "../src/db/holdings.js";
+import { computeDay, dayOf, freezeEndedDays } from "../src/db/scores.js";
 import { seasonAt } from "../src/season.js";
 import { someWallet } from "./helpers.js";
 import { volume } from "../src/db/admin.js";
@@ -109,6 +110,25 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
       // The matchmaker compares the same figure in SQL against the minimum.
       const pick = await pickOpponent(db, agent.id, { minCandidates: 1 });
       expect(pick.opponentId).toBe(rival.id);
+    } finally {
+      await close();
+    }
+  });
+
+  it("scores and freezes a day through raw SQL, with the drivers' own types for counts and moments", async () => {
+    const { db, close } = await fresh();
+    try {
+      const a = await createAgent(db, { name: "Pa", presetName: "Anchor", ownerId: someWallet() });
+      const b = await createAgent(db, { name: "Pb", presetName: "Hammer", ownerId: someWallet() });
+      await runMatch(db, a.id, b.id, { seed: 41 });
+      const today = dayOf(new Date());
+      const rows = await computeDay(db, today);
+      expect(rows.map((r) => typeof r.rankedMatches)).toEqual(["number", "number"]);
+      expect(rows.every((r) => r.rankedMatches === 1)).toBe(true);
+      // The first ranked match's moment comes back as a Date here and a string
+      // elsewhere; either way the run starts on today, which is not over.
+      expect(await freezeEndedDays(db, new Date())).toBe(0);
+      expect(await freezeEndedDays(db, new Date((today + 1) * 86_400_000 + 1))).toBe(1);
     } finally {
       await close();
     }

@@ -865,6 +865,49 @@ export const holdings = pgTable("holdings", {
 });
 
 /**
+ * A UTC day whose scores are frozen (src/db/scores.ts). One row per day, the
+ * lock that makes freezing happen once, and the parameters the day was scored
+ * with - so a day's qualifying bar can be read afterwards whatever the
+ * parameters are set to later.
+ */
+export const scoreDays = pgTable("score_days", {
+  /** The UTC day: unix days, as utcDay counts them. */
+  day: integer("day").primaryKey(),
+  opponentCap: integer("opponent_cap").notNull(),
+  minDailyMatches: integer("min_daily_matches").notNull(),
+  frozenAt: timestamp("frozen_at", { withTimezone: true }).notNull(),
+});
+
+/**
+ * One agent's score for one UTC day, frozen once the day is over and never
+ * recomputed (docs/holder-agents.md, Scoring). The power inputs are stored
+ * beside the score, so anyone can check the weight against what it was made of.
+ */
+export const dailyScores = pgTable(
+  "daily_scores",
+  {
+    day: integer("day")
+      .notNull()
+      .references(() => scoreDays.day),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    rankedMatches: integer("ranked_matches").notNull(),
+    /** Net chips, capped per opponent and floored at zero. */
+    points: integer("points").notNull(),
+    /** Whether it met the day's minimum of ranked matches, and so would be paid for the day. */
+    qualified: boolean("qualified").notNull(),
+    convictionDays: integer("conviction_days").notNull(),
+    /** The fraction of supply its owner's wallet held at the reading used. */
+    shareOfSupply: doublePrecision("share_of_supply").notNull(),
+    power: doublePrecision("power").notNull(),
+    weight: doublePrecision("weight").notNull(),
+    score: doublePrecision("score").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.agentId] })],
+);
+
+/**
  * What one grant hands out, in chips. Enough to rent at the 200-chip fee and
  * still fund an agent with the 3,600-chip minimum (MIN_FUNDING_CHIPS).
  */

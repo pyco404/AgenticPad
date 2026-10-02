@@ -3,6 +3,7 @@ import type { Db } from "./client.js";
 import { chips, seasonRate } from "../chips.js";
 import { matches, rentals, seasons } from "./schema.js";
 import { prizeTable, type PrizeRow } from "./standings.js";
+import { seasonScores, type SeasonScoreRow } from "./scores.js";
 import { seasonByKey } from "../season.js";
 
 /**
@@ -78,6 +79,18 @@ export type SeasonStatement = {
     /** The order prizes would pay in. Frozen once the season closes. */
     places: PrizeRow[];
   };
+  /**
+   * The holder score (docs/holder-agents.md): the sum of each agent's daily
+   * scores, with each day's power inputs stored beside its score (/scores?day=)
+   * so a payout can be checked against what it was made of. `share` is the
+   * fraction of a payout under the 10% cap, not an amount: nothing is paid yet.
+   */
+  scores: {
+    basis: "net chips won x weight(power), summed over the season's days";
+    frozen: boolean;
+    minSeasonMatches: number;
+    places: SeasonScoreRow[];
+  };
 };
 
 /**
@@ -120,6 +133,7 @@ export async function seasonStatement(db: Db, key: string, places = 50): Promise
     );
 
   const table = await prizeTable(db, key);
+  const scored = await seasonScores(db, key);
   return {
     season: {
       key,
@@ -152,6 +166,12 @@ export async function seasonStatement(db: Db, key: string, places = 50): Promise
       minMatches: table.minMatches,
       basis: "ranked net per chip staked",
       places: table.rows.slice(0, places),
+    },
+    scores: {
+      basis: "net chips won x weight(power), summed over the season's days",
+      frozen: scored.frozen,
+      minSeasonMatches: scored.params.minSeasonMatches,
+      places: scored.rows.slice(0, places),
     },
   };
 }

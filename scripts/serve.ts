@@ -165,6 +165,14 @@ if (rpc && process.env["CHAIN_STAKE_MINT"]) {
     },
   });
 }
+// Holder scores: each UTC day frozen once it is over (docs/holder-agents.md).
+{
+  const { startScores } = await import("../src/db/scores.js");
+  startScores(db, {
+    onLog: (line) => console.log(line),
+    onError: (error) => console.error(`scores: ${String(error).slice(0, 160)}`),
+  });
+}
 // Traits: counted from match logs in the background, never in the match path.
 {
   const { startTraits } = await import("../src/character/trait-store.js");
