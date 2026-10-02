@@ -40,11 +40,13 @@ Each part runs from 0 to 1, so power does too.
 
 ### Conviction
 
-- **The clock starts when a wallet first qualifies**, and the token amount it holds at that moment is recorded as its **conviction amount**.
+- **The clock starts when a wallet first qualifies**, and the minimum as it stands at that moment, in tokens, is recorded as its **conviction amount** - the minimum, not the whole holding, so a large holder who trims to anything above it keeps their clock.
 - **It runs while the wallet holds at least the conviction amount.** Selling below it sets the clock back to zero. Topping up never resets it, and never raises the conviction amount. Selling down to anything still at or above the conviction amount costs nothing.
 - **The dollar line does not touch it.** If $CLASH falls and the minimum is retuned to more tokens, a wallet that has not sold keeps its clock. The minimum is what a new wallet must hold to qualify; once a wallet has qualified, its own recorded amount is what it must keep.
 - **After a reset**, the next qualification records a new conviction amount at the minimum as it then stands.
 - **At 180 days the clock stops growing.**
+- **A wallet that qualified keeps its agent while it keeps its conviction amount**, even if a retune has since raised the minimum above it. It needs the minimum as it then stands only to qualify afresh.
+- **As built, the clock runs on readings** (decision 13), taken every ten minutes and whenever an owner asks: it starts at the first reading that holds the minimum, and a day's score counts the whole days it had run by that day's end.
 
 ## Scoring
 

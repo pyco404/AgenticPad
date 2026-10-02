@@ -31,7 +31,7 @@ import {
   type MatchRow,
   type RulesConfig,
 } from "./schema.js";
-import { balanceOf, balanceSql, balancesOf, record, settle, StakeError } from "./ledger.js";
+import { balanceOf, balanceSql, balancesOf, inPlayOf, inPlaySql, record, settle, StakeError } from "./ledger.js";
 import { isExiting } from "./exits.js";
 import { baseUnits, chips, rateOf, type Funding } from "../chips.js";
 import { utcDay } from "../chain/common.js";
@@ -312,10 +312,11 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
   // Nothing is at risk, but a player's agent must still hold the minimum to be
   // in play at all. A house agent holds nothing and needs nothing.
   const balances = await balancesOf(db, [rowA.id, rowB.id]);
+  const inPlay = await inPlayOf(db, [rowA.id, rowB.id]);
   for (const row of [rowA, rowB]) {
     if (row.ownerId === null) continue;
     const balance = balances.get(row.id) ?? 0;
-    if (!holdsEnoughToPlay(balance, rateOf(row))) {
+    if (!inPlay.get(row.id)) {
       throw new StakeError(
         `${row.name} holds too little to play: balance ${chips(balance, rateOf(row))}, needs ${MIN_FUNDING_CHIPS}`,
       );
@@ -689,13 +690,10 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
 
   // Paired on true rating: the only signal here that is not noise. No recency
   // gate, so a cold roster can bootstrap.
-  // Holding enough to be in play, in this agent's units. Candidates are all on
-  // the same flow as `me` (below), so one rate applies to every row here - a
-  // chip figure compared against a base-unit sum would call a vault holding
-  // fifty base units enough for a fifty-chip minimum.
-  const myRate = rateOf(me);
-  // A holder agent's balance is its owner's wallet, everyone else's their ledger (balanceSql).
-  const solvent = sql`${balanceSql()} >= ${baseUnits(MIN_FUNDING_CHIPS, myRate)}`;
+  // Holding enough to be in play, each candidate at its own flow's rate
+  // (inPlaySql): a holder agent's wallet, against its conviction amount once it
+  // has one; everyone else's ledger.
+  const solvent = inPlaySql();
 
   // A player looking for a match that counts needs another player. A house
   // opponent counts for nothing, so it is only ever offered when the caller asked for one.
@@ -949,6 +947,8 @@ const publicAgentColumns = {
   /** Base units. The unit is `funding`'s to say, so it travels beside it. */
   balance: balanceSql(),
   funding: agents.funding,
+  /** Whether it holds enough to be in play now (inPlaySql). */
+  inPlay: inPlaySql(),
   retired: sql<boolean>`${agents.retiredAt} is not null`,
   /** A house agent: unowned, seeded so a first player has someone to meet. */
   house: sql<boolean>`${agents.ownerId} is null`,

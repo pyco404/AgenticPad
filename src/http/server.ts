@@ -51,7 +51,7 @@ import { LiveStream, resumeFrom, type LiveOptions } from "./live.js";
 import { settlementStatus, settlementLag, SETTLEMENT_LAG_ALARM_MS } from "../chain/worker.js";
 import { rateOf, seasonRate, type Funding } from "../chips.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../db/faucet.js";
-import { holdingOf, holdingView, holdsMinimum, readHolding, type HoldingsChain } from "../db/holdings.js";
+import { holdingOf, holdingView, keeps, readHolding, type HoldingsChain } from "../db/holdings.js";
 import { prepareRental, rejectRental, submitRental, RentalError, type RentalChain } from "../db/rentals.js";
 import { checkDeposit, depositBlocked, prepareDeposit, submitDeposit, DepositError, type DepositChain } from "../db/deposits.js";
 import { prepareLossBudget, submitLossBudget, LossBudgetError, type LossBudgetChain } from "../db/loss-budget.js";
@@ -444,7 +444,7 @@ export function createApp(options: AppOptions): Server {
         console.error(`holdings: could not read ${ownerId}: ${String(error).slice(0, 160)}`);
         throw new HttpError(503, "couldn't read your wallet's $CLASH right now; try again in a moment");
       }
-      if (!holdsMinimum(holding.amount)) {
+      if (!keeps(holding)) {
         const view = holdingView(holding);
         throw new HttpError(
           403,
@@ -594,12 +594,14 @@ export function createApp(options: AppOptions): Server {
   }
 
   /** Whether an agent holds enough to play, and what that is, for the agent panel. */
-  function playStatus(row: { balance: number; funding: Funding; house?: boolean }) {
+  function playStatus(row: { balance: number; funding: Funding; house?: boolean; inPlay?: boolean }) {
     return {
       /** The least it must hold to play, in chips. */
       minToPlay: MIN_FUNDING_CHIPS,
       // A house agent never stakes, so nothing is asked of its balance - usually nothing.
-      canPlay: row.house === true || holdsEnoughToPlay(row.balance, rateOf(row)),
+      // inPlay where the row carries it (every public view does): it knows a
+      // holder's conviction amount, which the balance alone does not.
+      canPlay: row.house === true || (row.inPlay ?? holdsEnoughToPlay(row.balance, rateOf(row))),
     };
   }
 

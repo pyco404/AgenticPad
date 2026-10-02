@@ -115,7 +115,7 @@ describe("a day's score", () => {
     expect(rows.get(whale.id)!.score).toBeCloseTo(29);
     expect(rows.get(seeded.id)!.shareOfSupply).toBe(0);
     expect(rows.get(seeded.id)!.weight).toBe(1);
-    // Conviction runs on snapshots, the next step; until then it is 0, and stored as 0.
+    // Its holding was read today, after this day: no days held by this day's end.
     expect(rows.get(whale.id)!.convictionDays).toBe(0);
     await close();
   });

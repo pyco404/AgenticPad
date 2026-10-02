@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import pg from "pg";
 import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
-import { balanceOf, balancesOf, record } from "../src/db/ledger.js";
+import { balanceOf, balancesOf, inPlayOf, record } from "../src/db/ledger.js";
 import { createAgent, hasBudgetRoom, hasOutflowRoom, leaderboard, lostToday, pickOpponent, publicAgent, runMatch } from "../src/db/runner.js";
 import { stakedMatch } from "./staked-match.js";
 import { liveCounters } from "../src/db/feed.js";
 import { faucetStatus } from "../src/db/faucet.js";
-import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
+import { adoptSeasonRate, baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
 import { chainOps, rentals, STARTING_BALANCE } from "../src/db/schema.js";
 import { seasonStatement } from "../src/db/statement.js";
 import { holdingOf, readHolding } from "../src/db/holdings.js";
@@ -129,6 +129,31 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
       // elsewhere; either way the run starts on today, which is not over.
       expect(await freezeEndedDays(db, new Date())).toBe(0);
       expect(await freezeEndedDays(db, new Date((today + 1) * 86_400_000 + 1))).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it("decides a holder is in play from its conviction amount, a bigint, against the minimum bound as a parameter", async () => {
+    const { db, close } = await fresh();
+    try {
+      const owner = someWallet();
+      const min = baseUnits(3_600, DEVNET_CHIP_RATE);
+      const chain = { balanceOf: async () => min, supply: async () => baseUnits(1_000_000_000, DEVNET_CHIP_RATE) };
+      const agent = await createAgent(db, { name: "Kept", presetName: "Anchor", ownerId: owner, funding: "holder" });
+      await readHolding(db, chain, owner);
+      expect((await inPlayOf(db, [agent.id])).get(agent.id)).toBe(true);
+      const holding = await holdingOf(db, owner);
+      expect(holding!.convictionAmount).toBe(min);
+      expect(holding!.convictionSince).toBeInstanceOf(Date);
+      // The minimum doubles; the wallet has not sold, and stays in play.
+      adoptSeasonRate(2 * DEVNET_CHIP_RATE);
+      try {
+        expect((await inPlayOf(db, [agent.id])).get(agent.id)).toBe(true);
+        expect((await publicAgent(db, agent.id))!.inPlay).toBe(true);
+      } finally {
+        adoptSeasonRate(DEVNET_CHIP_RATE);
+      }
     } finally {
       await close();
     }

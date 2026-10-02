@@ -2,6 +2,7 @@ import { eq, inArray, max, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { agents, dailyScores, holdings, scoreDays } from "./schema.js";
 import { utcDay } from "../chain/common.js";
+import { convictionDays } from "./holdings.js";
 import { seasonByKey } from "../season.js";
 import { points, power, shares, weight, SCORE_PARAMS, type ScoreParams } from "../score.js";
 
@@ -16,9 +17,9 @@ import { points, power, shares, weight, SCORE_PARAMS, type ScoreParams } from ".
  * Nothing here is read by anything that plays. Scores are made of matches
  * already played; they never decide one.
  *
- * Conviction is not measured yet: it runs on holding snapshots, which is the
- * next step on the roadmap (docs/economy.md). Until then every day is scored
- * with conviction 0, and says so in the inputs it stores.
+ * Conviction is the clock each holding keeps (src/db/holdings.ts), counted in
+ * whole days to the end of the day being scored - or to now, for a day still
+ * running. It runs on snapshots, so it is only as exact as they are.
  */
 
 const DAY_MS = 86_400_000;
@@ -72,31 +73,33 @@ async function netsOn(db: Db, day: number) {
 }
 
 /**
- * What each agent's power is made of, now: the fraction of supply its owner's
- * wallet held at the last reading, and its conviction. Only a holder agent has
- * a holding; any other agent scores with none.
+ * What each agent's power is made of: the fraction of supply its owner's
+ * wallet held at the last reading, and the days its conviction clock has run
+ * by `at`. Only a holder agent has a holding; any other agent scores with none.
  */
-async function powerInputs(db: Db, agentIds: string[]) {
+async function powerInputs(db: Db, agentIds: string[], at: Date) {
   if (agentIds.length === 0) return new Map<string, { convictionDays: number; shareOfSupply: number }>();
   const rows = await db
-    .select({ id: agents.id, funding: agents.funding, amount: holdings.amount, supply: holdings.supply })
+    .select({ id: agents.id, funding: agents.funding, amount: holdings.amount, supply: holdings.supply, since: holdings.convictionSince })
     .from(agents)
     .leftJoin(holdings, eq(holdings.wallet, agents.ownerId))
     .where(inArray(agents.id, agentIds));
   return new Map(
     rows.map((r) => {
       const supply = Number(r.supply ?? 0);
-      const share = r.funding === "holder" && supply > 0 ? Number(r.amount ?? 0) / supply : 0;
-      // Conviction runs on snapshots, the next roadmap step; 0 until it does.
-      return [r.id, { convictionDays: 0, shareOfSupply: share }];
+      const holder = r.funding === "holder";
+      const share = holder && supply > 0 ? Number(r.amount ?? 0) / supply : 0;
+      return [r.id, { convictionDays: holder ? convictionDays(r.since, at) : 0, shareOfSupply: share }];
     }),
   );
 }
 
 /** Scores one UTC day from its matches and the holdings as they stand. Not stored. */
-export async function computeDay(db: Db, day: number, params: ScoreParams = SCORE_PARAMS): Promise<DayScore[]> {
+export async function computeDay(db: Db, day: number, params: ScoreParams = SCORE_PARAMS, now = new Date()): Promise<DayScore[]> {
   const nets = await netsOn(db, day);
-  const inputs = await powerInputs(db, [...nets.keys()]);
+  // Days held by the end of the day scored, or by now while it is still running.
+  const at = new Date(Math.min(now.getTime(), (day + 1) * DAY_MS));
+  const inputs = await powerInputs(db, [...nets.keys()], at);
   const rows = [...nets.entries()].map(([agentId, { matches, nets: byOpponent }]) => {
     const input = inputs.get(agentId) ?? { convictionDays: 0, shareOfSupply: 0 };
     const p = power(input);
@@ -130,7 +133,7 @@ export async function freezeDay(db: Db, day: number, now = new Date(), params: S
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`score-day:${day}`}, 0))`);
     const [done] = await tx.select({ day: scoreDays.day }).from(scoreDays).where(eq(scoreDays.day, day)).limit(1);
     if (done) return false;
-    const rows = await computeDay(t, day, params);
+    const rows = await computeDay(t, day, params, now);
     await tx.insert(scoreDays).values({ day, opponentCap: params.opponentCap, minDailyMatches: params.minDailyMatches, frozenAt: now });
     if (rows.length) await tx.insert(dailyScores).values(rows.map((r) => ({ day, ...r })));
     return true;

@@ -2,7 +2,7 @@ import { and, desc, eq, gt, gte, isNull, isNotNull, lte, or, sql } from "drizzle
 import { randomInt } from "node:crypto";
 import type { Db } from "./client.js";
 import { pickOpponent, runMatch } from "./runner.js";
-import { balanceOf, StakeError } from "./ledger.js";
+import { balanceOf, inPlayOf, StakeError } from "./ledger.js";
 import { chips, rateOf } from "../chips.js";
 import { recordEvent } from "./events.js";
 import { exitingSql } from "./exits.js";
@@ -65,7 +65,9 @@ export async function checkAgent(db: Db, row: AgentRow): Promise<AutoplayCheck> 
   // chip short of covering a match is treated as short, which it is.
   const balance = chips(await balanceOf(db, row.id), rateOf(row));
   const worst = WORST_MATCH;
-  if (balance < MIN_FUNDING_CHIPS) {
+  // inPlaySql rather than the balance against the minimum: a holder agent that
+  // keeps its conviction amount is in play even after a retune raised the minimum.
+  if (!(await inPlayOf(db, [row.id])).get(row.id)) {
     return {
       play: false,
       reason: "insolvent",

@@ -862,6 +862,14 @@ export const holdings = pgTable("holdings", {
   /** The token's total supply in base units at the same read: what position divides by. */
   supply: bigint("supply", { mode: "number" }).notNull(),
   readAt: timestamp("read_at", { withTimezone: true }).notNull(),
+  /**
+   * Conviction (docs/holder-agents.md): the minimum in base units at the
+   * reading where this wallet qualified, and when that was. The clock runs
+   * while the wallet holds at least this amount, whatever the minimum is
+   * retuned to; a reading below it resets both. Null while there is no clock.
+   */
+  convictionAmount: bigint("conviction_amount", { mode: "number" }),
+  convictionSince: timestamp("conviction_since", { withTimezone: true }),
 });
 
 /**

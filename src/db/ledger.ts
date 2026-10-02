@@ -1,6 +1,7 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { agents, elicitations, ledger, FREE_ELICITATIONS, MIN_STAKE, type LedgerReason } from "./schema.js";
+import { agents, elicitations, ledger, FREE_ELICITATIONS, MIN_FUNDING_CHIPS, MIN_STAKE, type LedgerReason } from "./schema.js";
+import { baseUnits, seasonRate, SEED_CHIP_RATE } from "../chips.js";
 
 /**
  * Money. Balances are derived from the ledger, never accumulated in a column,
@@ -43,6 +44,34 @@ export const balanceSql = () => sql<number>`(case when "agents"."funding" = 'hol
     then coalesce((select h.amount from holdings h where h.wallet = "agents"."owner_id"), 0)
     else coalesce((select sum(l.amount) from ledger l where l.agent_id = "agents"."id"), 0)
   end)::bigint`;
+
+/**
+ * Whether an agent holds enough to be in play, as SQL, for a row of `agents`.
+ *
+ * Seed and deposit agents: a ledger balance of at least the minimum, at their
+ * own rate. A holder agent: its wallet's last reading holds the minimum - or,
+ * once its conviction clock runs, its own conviction amount if that is lower
+ * (src/db/holdings.ts, keeps), so a retune that raises the minimum takes out
+ * nobody who has not sold. Every in-play check goes through here.
+ */
+export const inPlaySql = () => {
+  const minimum = baseUnits(MIN_FUNDING_CHIPS, seasonRate());
+  const seedMinimum = baseUnits(MIN_FUNDING_CHIPS, SEED_CHIP_RATE);
+  return sql<boolean>`(case
+    when "agents"."funding" = 'holder' then coalesce((
+      select h.amount >= least(coalesce(h.conviction_amount, ${minimum}::bigint), ${minimum}::bigint)
+      from holdings h where h.wallet = "agents"."owner_id"), false)
+    when "agents"."funding" = 'seed' then ${balanceSql()} >= ${seedMinimum}::bigint
+    else ${balanceSql()} >= ${minimum}::bigint
+  end)`;
+};
+
+/** inPlaySql for a set of agents. */
+export async function inPlayOf(db: Writable, agentIds: string[]): Promise<Map<string, boolean>> {
+  if (agentIds.length === 0) return new Map();
+  const rows = await db.select({ agentId: agents.id, inPlay: inPlaySql() }).from(agents).where(inArray(agents.id, agentIds));
+  return new Map(rows.map((r) => [r.agentId, Boolean(r.inPlay)]));
+}
 
 export async function balanceOf(db: Writable, agentId: string): Promise<number> {
   return (await balancesOf(db, [agentId])).get(agentId) ?? 0;
