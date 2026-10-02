@@ -21,6 +21,10 @@
  *            Rate 1, for ever - that program is frozen and its rate cannot move.
  *   deposit  the stake token: 6 decimals. One chip is one whole token on
  *            devnet; on mainnet it is the season's rate (seasonRate below).
+ *   holder   no vault at all: the agent is its owner's wallet holding the
+ *            token (docs/holder-agents.md). Its "balance" is that holding,
+ *            read off chain (src/db/holdings.ts), in base units of the same
+ *            6-decimal token, so it counts at the season's rate like deposit.
  *
  * Because the seed flow's rate is 1, every ledger row written before any of
  * this is already a correct base-unit value, and widening the columns needed no
@@ -38,7 +42,7 @@ export const STAKE_DECIMALS = 6;
 export const DEVNET_CHIP_RATE = 10 ** STAKE_DECIMALS;
 
 /** Which funding flow an agent was rented under, which decides its stake token. */
-export type Funding = "seed" | "deposit";
+export type Funding = "seed" | "deposit" | "holder";
 
 /**
  * The seed flow's rate. One, and not a coincidence worth relying on elsewhere:

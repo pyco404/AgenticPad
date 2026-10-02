@@ -347,7 +347,10 @@ function describeStop(
     case "insolvent":
       return {
         message: `Paused: balance ${balance} is below the ${MIN_FUNDING_CHIPS} an agent needs to play.`,
-        action: `Add funds to bring it to at least ${MIN_FUNDING_CHIPS}, then switch it back on.`,
+        action:
+          row.funding === "holder"
+            ? `Hold at least ${MIN_FUNDING_CHIPS} chips' worth of $CLASH in your wallet again, then switch it back on.`
+            : `Add funds to bring it to at least ${MIN_FUNDING_CHIPS}, then switch it back on.`,
       };
     case "retired":
       return {

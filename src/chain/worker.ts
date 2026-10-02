@@ -52,7 +52,12 @@ import { cutDue, dueAtSql, type CutResult } from "../db/netting.js";
  * Either may be absent: mainnet has no seed program, and a server that has
  * only the seed program has no deposit one. A flow with no client waits.
  */
-export type ChainPorts = { seed?: ChainPort; deposit?: ChainPort };
+/**
+ * One port per flow that has a program. A holder agent has none - no vault, no
+ * settlement (docs/holder-agents.md) - so `holder` is never set, and any op
+ * that names one finds no port, exactly as for a program this server lacks.
+ */
+export type ChainPorts = { seed?: ChainPort; deposit?: ChainPort; holder?: never };
 
 /**
  * Normalises either shape into a lookup. A lone client is the seed program's,

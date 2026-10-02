@@ -224,6 +224,38 @@ if (rpc && process.env["CHAIN_STAKE_MINT"] && process.env["FAUCET_ENABLED"] === 
   console.log("Faucet: off (set FAUCET_ENABLED=true to hand out test tokens)");
 }
 
+// Holder agents (docs/holder-agents.md): a wallet holding the token above the
+// minimum has an agent, with nothing rented or deposited. HOLDER_MINT names the
+// token, defaulting to the stake mint, which on devnet is the faucet's test
+// token standing in for $CLASH. FUNDING_MODE=holder puts every new agent on
+// this flow; HOLDER_WALLETS is a comma-separated allowlist for trying it first.
+let holderFlow: import("../src/http/server.js").AppOptions["holder"];
+const holderMint = process.env["HOLDER_MINT"] ?? process.env["CHAIN_STAKE_MINT"];
+if (rpc && holderMint) {
+  const { Connection, PublicKey } = await import("@solana/web3.js");
+  const { rpcHoldings } = await import("../src/chain/holdings.js");
+  const { startHoldings } = await import("../src/db/holdings.js");
+  const mode = process.env["FUNDING_MODE"] === "holder";
+  const allowed = new Set(
+    (process.env["HOLDER_WALLETS"] ?? "")
+      .split(",")
+      .map((w) => w.trim())
+      .filter(Boolean),
+  );
+  if (mode || allowed.size) {
+    const holdingsChain = rpcHoldings(new Connection(rpc, "confirmed"), new PublicKey(holderMint));
+    holderFlow = { chain: holdingsChain, allow: (ownerId) => mode || allowed.has(ownerId) };
+    startHoldings(db, holdingsChain, {
+      ...(Number(process.env["HOLDINGS_INTERVAL_MS"]) > 0 ? { intervalMs: Number(process.env["HOLDINGS_INTERVAL_MS"]) } : {}),
+      onLog: (line) => console.log(line),
+      onError: (error) => console.error(`holdings: ${String(error).slice(0, 160)}`),
+    });
+    console.log(`Holders: on for ${mode ? "every new agent" : `${allowed.size} allowlisted wallet(s)`}, token ${holderMint}`);
+  } else {
+    console.log("Holders: off (set FUNDING_MODE=holder or HOLDER_WALLETS to turn them on)");
+  }
+}
+
 // A host sets PORT and needs every interface; locally, loopback only.
 // Characters check chosen names and write bios for brief-written agents with
 // a small model, when there is a key to call one with.
@@ -283,7 +315,7 @@ const health = rpc
       // a seed balance of 186 into "0" on the page, which read as an empty
       // vault rather than a display bug.
       const { chipRate } = await import("../src/chips.js");
-      const inChips = (amount: number, funding: "seed" | "deposit") => amount / chipRate(funding);
+      const inChips = (amount: number, funding: import("../src/chips.js").Funding) => amount / chipRate(funding);
 
       return {
         at: now,
@@ -359,6 +391,7 @@ const { url } = await listen({
   ...(chain ? { chain } : {}),
   ...(faucet ? { faucet } : {}),
   ...(depositFlow ? { deposit: depositFlow } : {}),
+  ...(holderFlow ? { holder: holderFlow } : {}),
   // SEED_CUTOVER=closed stops new seed rentals and seed renewals. Nothing else
   // is needed: every rental already ends at a season boundary, so one that
   // cannot be renewed runs out there and lapses with its balance withdrawable.

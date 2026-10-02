@@ -1,6 +1,6 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { elicitations, ledger, FREE_ELICITATIONS, MIN_STAKE, type LedgerReason } from "./schema.js";
+import { agents, elicitations, ledger, FREE_ELICITATIONS, MIN_STAKE, type LedgerReason } from "./schema.js";
 
 /**
  * Money. Balances are derived from the ledger, never accumulated in a column,
@@ -24,21 +24,36 @@ export async function record(db: Writable, movements: Movement[]): Promise<void>
   );
 }
 
+/**
+ * An agent's balance in base units, as SQL, for a row of `agents`.
+ *
+ * Two kinds of agent hold money in two different places. A seed or deposit
+ * agent's balance is the sum of its ledger movements. A holder agent has no
+ * ledger and no vault: its balance is what its owner's wallet holds, as last
+ * read off chain (src/db/holdings.ts). Every balance read goes through here,
+ * so a check written against "the balance" - the minimum to play, the
+ * matchmaker's candidates, an owner's card - means the right thing for both.
+ *
+ * Written with every identifier qualified by hand, for any query that has
+ * `agents` in its FROM. Drizzle leaves columns unqualified in a select from a
+ * single table, and inside the ledger subquery an unqualified "id" is the
+ * ledger row's own id - which read every balance as zero on node-postgres.
+ */
+export const balanceSql = () => sql<number>`(case when "agents"."funding" = 'holder'
+    then coalesce((select h.amount from holdings h where h.wallet = "agents"."owner_id"), 0)
+    else coalesce((select sum(l.amount) from ledger l where l.agent_id = "agents"."id"), 0)
+  end)::bigint`;
+
 export async function balanceOf(db: Writable, agentId: string): Promise<number> {
-  const [row] = await db
-    .select({ balance: sql<number>`coalesce(sum(${ledger.amount}), 0)::bigint` })
-    .from(ledger)
-    .where(eq(ledger.agentId, agentId));
-  return Number(row?.balance ?? 0);
+  return (await balancesOf(db, [agentId])).get(agentId) ?? 0;
 }
 
 export async function balancesOf(db: Writable, agentIds: string[]): Promise<Map<string, number>> {
   if (agentIds.length === 0) return new Map();
   const rows = await db
-    .select({ agentId: ledger.agentId, balance: sql<number>`coalesce(sum(${ledger.amount}), 0)::bigint` })
-    .from(ledger)
-    .where(inArray(ledger.agentId, agentIds))
-    .groupBy(ledger.agentId);
+    .select({ agentId: agents.id, balance: balanceSql() })
+    .from(agents)
+    .where(inArray(agents.id, agentIds));
   return new Map(rows.map((r) => [r.agentId, Number(r.balance)]));
 }
 

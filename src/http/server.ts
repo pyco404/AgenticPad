@@ -50,6 +50,7 @@ import { LiveStream, resumeFrom, type LiveOptions } from "./live.js";
 import { settlementStatus, settlementLag, SETTLEMENT_LAG_ALARM_MS } from "../chain/worker.js";
 import { rateOf, seasonRate, type Funding } from "../chips.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../db/faucet.js";
+import { holdingOf, holdingView, holdsMinimum, readHolding, type HoldingsChain } from "../db/holdings.js";
 import { prepareRental, rejectRental, submitRental, RentalError, type RentalChain } from "../db/rentals.js";
 import { checkDeposit, depositBlocked, prepareDeposit, submitDeposit, DepositError, type DepositChain } from "../db/deposits.js";
 import { prepareLossBudget, submitLossBudget, LossBudgetError, type LossBudgetChain } from "../db/loss-budget.js";
@@ -145,6 +146,17 @@ export type AppOptions = {
     /** Base units burned per rental, as the program's config carries it. */
     fee: number;
     /** Whose rentals take this flow. */
+    allow: (ownerId: string) => boolean;
+  };
+  /**
+   * Holder agents (docs/holder-agents.md): a wallet holding the token above
+   * the minimum has an agent, with nothing rented or deposited. When set and
+   * `allow` says yes, a new agent takes this flow ahead of the other two, and
+   * the wallet's holding is read fresh before it is created.
+   */
+  holder?: {
+    chain: HoldingsChain;
+    /** Whose new agents take this flow. */
     allow: (ownerId: string) => boolean;
   };
   /**
@@ -295,6 +307,8 @@ export function createApp(options: AppOptions): Server {
     ["POST", /^\/rentals\/([^/]+)\/submit$/, postRentalSubmit],
     ["POST", /^\/rentals\/([^/]+)\/reject$/, postRentalReject],
     ["GET", /^\/rentals\/([^/]+)$/, getRental],
+    ["GET", /^\/holding$/, getHolding],
+    ["POST", /^\/holding$/, postHolding],
     ["GET", /^\/faucet$/, getFaucet],
     ["POST", /^\/faucet$/, postFaucet],
     ["POST", /^\/preview$/, postPreview],
@@ -358,6 +372,7 @@ export function createApp(options: AppOptions): Server {
     // Every agent this wallet owns, so a second device shows the same ones as the first.
     const deposit = options.deposit;
     const viaDeposit = Boolean(deposit?.allow(ownerId));
+    const viaHolder = Boolean(options.holder?.allow(ownerId));
     return {
       ownerId,
       agents: await agentsOf(db, ownerId),
@@ -368,9 +383,12 @@ export function createApp(options: AppOptions): Server {
        * and on the seed flow neither applies.
        */
       funding: {
-        mode: viaDeposit ? ("deposit" as const) : ("seed" as const),
-        feeChips: viaDeposit ? toChips(deposit!.fee, seasonRate()) : 0,
+        mode: viaHolder ? ("holder" as const) : viaDeposit ? ("deposit" as const) : ("seed" as const),
+        // A holder pays nothing: holding is the entry.
+        feeChips: !viaHolder && viaDeposit ? toChips(deposit!.fee, seasonRate()) : 0,
       },
+      /** On the holder flow, this wallet's last reading against the minimum; otherwise null. */
+      holding: viaHolder ? holdingView(await holdingOf(db, ownerId)) : null,
       /** Set while the seed flow is closing, so the screen can say so. */
       cutover: cutoverNotice(),
     };
@@ -412,6 +430,28 @@ export function createApp(options: AppOptions): Server {
     }
     const name = chosenName ?? "New agent";
 
+    // On the holder flow the wallet must hold the minimum, read now rather than
+    // trusted to an old reading - and before any model call is spent on a
+    // brief for an agent the wallet cannot have.
+    const holder = options.holder?.allow(ownerId) ? options.holder : undefined;
+    if (holder) {
+      let holding;
+      try {
+        holding = await readHolding(db, holder.chain, ownerId);
+      } catch (error) {
+        console.error(`holdings: could not read ${ownerId}: ${String(error).slice(0, 160)}`);
+        throw new HttpError(503, "couldn't read your wallet's $CLASH right now; try again in a moment");
+      }
+      if (!holdsMinimum(holding.amount)) {
+        const view = holdingView(holding);
+        throw new HttpError(
+          403,
+          `an agent needs this wallet to hold at least ${view.minimumChips} chips' worth of $CLASH ($20); it holds ${view.chips}`,
+          { holding: view },
+        );
+      }
+    }
+
     let table: Policy | undefined;
     let freeCall = false;
     let reused = false;
@@ -431,9 +471,9 @@ export function createApp(options: AppOptions): Server {
     // and cannot be created here and now: it needs a transaction signed in
     // their wallet, so the answer is the agent plus that transaction.
     const deposit = options.deposit;
-    const viaDeposit = Boolean(deposit?.allow(ownerId));
+    const viaDeposit = !holder && Boolean(deposit?.allow(ownerId));
     const cutover = cutoverNotice();
-    if (!viaDeposit && cutover) {
+    if (!holder && !viaDeposit && cutover) {
       throw new HttpError(
         503,
         `Renting is paused while AgentClash moves to the new settlement program, where you fund an agent yourself instead of being handed a starting balance. Agents rented before the move play until ${cutover.endsAt.toISOString().slice(0, 16).replace("T", " ")} UTC.`,
@@ -473,6 +513,7 @@ export function createApp(options: AppOptions): Server {
         ...(brief ? { brief } : {}),
         ...(table ? { policyTable: table } : {}),
       };
+      if (holder) return { row: await createAgent(t, { ...wanted, funding: "holder" }), rental: null };
       if (!viaDeposit) return { row: await createAgent(t, wanted), rental: null };
       // Inside the lock on purpose. Building the transaction is a round trip to
       // an RPC, but the lock is on this wallet alone, so the only thing it
@@ -515,7 +556,7 @@ export function createApp(options: AppOptions): Server {
        * at once, and a deposit rental hands back one that cannot play at all
        * until the owner signs `rental.transaction` and it lands.
        */
-      funding: rental ? ("deposit" as const) : ("seed" as const),
+      funding: rental ? ("deposit" as const) : holder ? ("holder" as const) : ("seed" as const),
       rental: rental
         ? {
             rentalId: rental.rentalId,
@@ -1167,6 +1208,31 @@ export function createApp(options: AppOptions): Server {
   }
 
   /** Devnet only: whether this wallet can be topped up, and when it can next ask. */
+  /** This wallet's last holding reading against the minimum. 404 off the holder flow. */
+  async function getHolding(ctx: Ctx) {
+    const ownerId = ctx.requireOwner();
+    if (!options.holder?.allow(ownerId)) throw new HttpError(404, "this server doesn't run holder agents for this wallet");
+    return { holding: holdingView(await holdingOf(db, ownerId)) };
+  }
+
+  /**
+   * Reads this wallet's holding now: after a buy, so the owner need not wait
+   * for the next scheduled read to see it count. Charged like playing a match:
+   * it costs no money, but it is an RPC call per request.
+   */
+  async function postHolding(ctx: Ctx) {
+    const ownerId = ctx.requireOwner();
+    const holder = options.holder;
+    if (!holder?.allow(ownerId)) throw new HttpError(404, "this server doesn't run holder agents for this wallet");
+    ctx.spendPlay();
+    try {
+      return { holding: holdingView(await readHolding(db, holder.chain, ownerId)) };
+    } catch (error) {
+      console.error(`holdings: could not read ${ownerId}: ${String(error).slice(0, 160)}`);
+      throw new HttpError(503, "couldn't read your wallet's $CLASH right now; try again in a moment");
+    }
+  }
+
   async function getFaucet(ctx: Ctx) {
     const wallet = ctx.requireOwner();
     if (!options.faucet) throw new HttpError(503, "there is no faucet on this network");

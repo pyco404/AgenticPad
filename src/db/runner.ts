@@ -31,7 +31,7 @@ import {
   type MatchRow,
   type RulesConfig,
 } from "./schema.js";
-import { balanceOf, balancesOf, record, settle, StakeError } from "./ledger.js";
+import { balanceOf, balanceSql, balancesOf, record, settle, StakeError } from "./ledger.js";
 import { isExiting } from "./exits.js";
 import { baseUnits, chips, rateOf, type Funding } from "../chips.js";
 import { utcDay } from "../chain/common.js";
@@ -194,8 +194,9 @@ export async function createAgent(db: Db, input: CreateAgentInput) {
       policyStakes: input.policyStakes ?? DEFAULT_RULES.stakes,
       funding,
       // A player's rental ends at the season boundary, however far into the
-      // season it starts. House agents are not rented and never end.
-      rentalEndsAt: input.ownerId ? rentalEndFor(input.now) : null,
+      // season it starts. House agents are not rented and never end, and
+      // neither do holder agents: nothing is rented, holding is the entry.
+      rentalEndsAt: input.ownerId && funding !== "holder" ? rentalEndFor(input.now) : null,
     })
     .returning();
   await tx.insert(ratings).values({ agentId: row!.id });
@@ -693,12 +694,8 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
   // chip figure compared against a base-unit sum would call a vault holding
   // fifty base units enough for a fifty-chip minimum.
   const myRate = rateOf(me);
-  const solvent = db
-    .select({ agentId: ledger.agentId, balance: sql<number>`sum(${ledger.amount})::bigint`.as("balance") })
-    .from(ledger)
-    .groupBy(ledger.agentId)
-    .having(sql`sum(${ledger.amount}) >= ${baseUnits(MIN_FUNDING_CHIPS, myRate)}`)
-    .as("solvent");
+  // A holder agent's balance is its owner's wallet, everyone else's their ledger (balanceSql).
+  const solvent = sql`${balanceSql()} >= ${baseUnits(MIN_FUNDING_CHIPS, myRate)}`;
 
   // A player looking for a match that counts needs another player. A house
   // opponent counts for nothing, so it is only ever offered when the caller asked for one.
@@ -710,19 +707,17 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
       ownerId: agents.ownerId,
       presetName: agents.presetName,
       rating: agents.trueRating,
-      balance: solvent.balance,
       // Each candidate's own unit: its funding flow decides how many base
       // units a chip of its balance is.
       funding: agents.funding,
     })
     .from(agents)
-    // Left, not inner: a house agent never stakes, so it needs no balance to be
-    // offered. Players still do - that is the condition below.
-    .leftJoin(solvent, eq(solvent.agentId, agents.id))
     .where(
       and(
         ne(agents.id, agentId),
-        or(isNull(agents.ownerId), isNotNull(solvent.agentId)),
+        // A house agent never stakes, so it needs no balance to be offered.
+        // Players still hold the minimum to be in play.
+        or(isNull(agents.ownerId), solvent),
         isNull(agents.retiredAt),
         // An expired agent is not matchable: it could not be recorded anyway.
         rentalOpenSql(),
@@ -811,7 +806,7 @@ export async function leaderboard(db: Db, limit = 50, tab: LadderTab = "winnings
   // winnings against the house are still there and simply do not count.
   const netPerMatch = sql<number>`case when ${ratings.rankedMatches} = 0 then 0
     else ${ratings.rankedNet}::double precision / ${ratings.rankedMatches} end`;
-  const balance = sql<number>`coalesce((select sum(${ledger.amount})::bigint from ${ledger} where ${ledger.agentId} = ${agents.id}), 0)`;
+  const balance = balanceSql();
   const rows = db
     .select({
       agentId: agents.id,
@@ -952,7 +947,7 @@ const publicAgentColumns = {
   rankedNet: ratings.rankedNet,
   recentForm: ratings.rollingNet50,
   /** Base units. The unit is `funding`'s to say, so it travels beside it. */
-  balance: sql<number>`coalesce((select sum(${ledger.amount})::bigint from ${ledger} where ${ledger.agentId} = ${agents.id}), 0)`,
+  balance: balanceSql(),
   funding: agents.funding,
   retired: sql<boolean>`${agents.retiredAt} is not null`,
   /** A house agent: unowned, seeded so a first player has someone to meet. */
@@ -1002,7 +997,7 @@ export async function ownerAgent(db: Db, agentId: string, ownerId: string | null
 /** Who is available to play. */
 export async function roster(db: Db, options: { limit?: number } = {}) {
 
-  const balance = sql<number>`coalesce((select sum(${ledger.amount})::bigint from ${ledger} where ${ledger.agentId} = ${agents.id}), 0)`;
+  const balance = balanceSql();
   const rows = await db
     .select({
       agentId: agents.id,

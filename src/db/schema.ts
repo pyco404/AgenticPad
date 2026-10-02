@@ -58,6 +58,10 @@ export const agents = pgTable(
      * the chip. "deposit" is the flow this default moves to once it is switched
      * on. An agent never changes flow - its vault is a token account for one
      * mint - so this is written when it is rented and never again.
+     *
+     * "holder" has no vault and no ledger: the agent is its owner's wallet
+     * holding $CLASH above the minimum (docs/holder-agents.md), read into
+     * `holdings`. Nothing is rented, so a holder agent has no rental end.
      */
     funding: text("funding").$type<Funding>().notNull().default("seed"),
     /**
@@ -751,6 +755,11 @@ export const RATING_WINDOW = 50;
  * so it is never spent (docs/no-loss-rewards.md): it is what a rental must be
  * funded with, what a withdrawal must leave to keep playing, and the $20 the
  * reward weight is measured against.
+ *
+ * For a holder agent it is the dollar-pegged minimum a wallet must hold to
+ * have an agent at all (docs/holder-agents.md, decision 3). In chips, so the
+ * season's rate turns it into tokens and it holds its dollar value as the
+ * rate is retuned at each boundary.
  */
 export const MIN_FUNDING_CHIPS = 3_600;
 
@@ -834,6 +843,26 @@ export const faucetGrants = pgTable(
   },
   (t) => [index("faucet_grants_wallet_idx").on(t.wallet, t.createdAt)],
 );
+
+/**
+ * What each wallet holds of the token, as last read off chain
+ * (src/db/holdings.ts). A holder agent's balance is this row, not a sum of
+ * ledger movements: the tokens never leave the owner's wallet, so there is no
+ * movement to record, only a reading to take.
+ *
+ * One row per wallet, overwritten by each read. It is a snapshot, so a sell
+ * and a rebuy between two reads is not seen - the gap docs/economy.md's
+ * roadmap states for conviction, which will run on these readings.
+ */
+export const holdings = pgTable("holdings", {
+  /** The owner's wallet: a base58 Solana public key, as `agents.ownerId`. */
+  wallet: text("wallet").primaryKey(),
+  /** Base units of the token across every account the wallet owns for it. */
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  /** The token's total supply in base units at the same read: what position divides by. */
+  supply: bigint("supply", { mode: "number" }).notNull(),
+  readAt: timestamp("read_at", { withTimezone: true }).notNull(),
+});
 
 /**
  * What one grant hands out, in chips. Enough to rent at the 200-chip fee and

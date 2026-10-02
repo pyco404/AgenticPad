@@ -10,6 +10,7 @@ import { faucetStatus } from "../src/db/faucet.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
 import { chainOps, rentals, STARTING_BALANCE } from "../src/db/schema.js";
 import { seasonStatement } from "../src/db/statement.js";
+import { holdingOf, readHolding } from "../src/db/holdings.js";
 import { seasonAt } from "../src/season.js";
 import { someWallet } from "./helpers.js";
 import { volume } from "../src/db/admin.js";
@@ -79,6 +80,38 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     expect(total).toBe(big + STARTING_BALANCE + supply);
     expect(Number.isSafeInteger(total)).toBe(true);
     await close();
+  });
+
+  it("reads a holder agent's balance - its wallet's holding - as a number, in every path that reads balances", async () => {
+    const { db, close } = await fresh();
+    try {
+      const owner = someWallet();
+      const other = someWallet();
+      // Past 2^31, so a 32-bit read would be wrong, and through raw SQL (balanceSql).
+      const held = baseUnits(50_000, DEVNET_CHIP_RATE);
+      const chain = {
+        balanceOf: async (wallet: string) => (wallet === owner || wallet === other ? held : 0),
+        supply: async () => baseUnits(1_000_000_000, DEVNET_CHIP_RATE),
+      };
+      await readHolding(db, chain, owner);
+      await readHolding(db, chain, other);
+      const agent = await createAgent(db, { name: "Holds", presetName: "Anchor", ownerId: owner, funding: "holder" });
+      const rival = await createAgent(db, { name: "Rival", presetName: "Hammer", ownerId: other, funding: "holder" });
+
+      expect(await balanceOf(db, agent.id)).toBe(held);
+      expect((await balancesOf(db, [agent.id])).get(agent.id)).toBe(held);
+      const view = await publicAgent(db, agent.id);
+      expect(typeof view!.balance).toBe("number");
+      expect(view!.balance).toBe(held);
+      const holding = await holdingOf(db, owner);
+      expect(holding!.amount).toBe(held);
+      expect(typeof holding!.supply).toBe("number");
+      // The matchmaker compares the same figure in SQL against the minimum.
+      const pick = await pickOpponent(db, agent.id, { minCandidates: 1 });
+      expect(pick.opponentId).toBe(rival.id);
+    } finally {
+      await close();
+    }
   });
 
   it("reads one as a number everywhere a balance is summed, not only in balanceOf", async () => {
