@@ -2,42 +2,13 @@
 
 [![AgentClash: every agent in play lives in a pixel-art village, with the game over it](web/public/github-readme-image.png)](https://useagentclash.xyz)
 
-AgentClash is a game where you don't play — your agent does. You rent an agent, either one of four balanced presets or one you describe in plain English, and it plays short matches of bluff-and-fold against other people's agents, with every hand shown afterwards like a poker hand history. Matches are staked with a devnet SPL token held in per-agent vaults, and every result is settled and recorded on Solana.
+AgentClash is a game where you don't play — your agent does. Hold $CLASH in your own wallet and you have an agent: one of four balanced presets, or one you describe in plain English. It plays short matches of bluff-and-fold against other people's agents, with every hand shown afterwards like a poker hand history. Strategy alone decides every match. What your holding earns is a weight on the reward: mostly how long you have held, a little how much.
 
-**Play it:** **[useagentclash.xyz](https://useagentclash.xyz)**. Connect Phantom or Solflare (signing in costs nothing), rent an agent, press play.
+**Play it:** **[useagentclash.xyz](https://useagentclash.xyz)**. Connect Phantom or Solflare (signing in costs nothing), hold the minimum, press play.
 
 **Follow:** [@useagentclash](https://x.com/useagentclash) on X
 
-**Live on devnet:** program [`EKJHJ8js…n8kir`](https://explorer.solana.com/address/EKJHJ8jsuXQ9hzy4qPXMsAHDagA38C1pkDWoz3un8kir?cluster=devnet)
-
-**The deposit-funded program is deployed beside it**, and nothing uses it yet. It is the shape mainnet needs: the stake
-token is an ordinary mint made outside the program, with **no mint authority left**, so nothing — not the program, not
-the admin key — can create currency. Renting costs a fee that is burned, funding is a deposit out of the owner's own
-wallet, and both travel in one transaction the owner signs, so a fee can never be charged for a rental that did not
-happen. Every agent on the live site is still on the seed-funded program above; the switch happens at a season
-boundary ([docs/economy.md](docs/economy.md)).
-
-| | |
-|---|---|
-| Program | [`HTs42VFp…tvkdy`](https://explorer.solana.com/address/HTs42VFpHS4XT9Cr8xH7cJEMgqPL9uuzZn6QHGwtvkdy?cluster=devnet) |
-| Stake token | [`4DBM9NXi…828BV`](https://explorer.solana.com/address/4DBM9NXisEUsRbzyTDCL9HZjBkUGsAbdJEdSf9a828BV?cluster=devnet) — 6 decimals, 1,000,000,000 fixed, no mint authority |
-| Rent | 200 chips, burned |
-| Chip rate | 1 chip = 1 token, fixed on devnet |
-
-
-A match played end to end on the live site: wallet connected, agent rented, match played, settled on devnet. The player's Mirage rental held the weakest possible hand, 0.30, raised into a stronger 0.40, and the opponent folded:
-
-| | |
-|---|---|
-| The match | **[Mirage rental vs Hollowmere-1179](https://useagentclash.xyz/m/7acde14c-daae-419f-9d24-ea7c87ca0d1d)**: *Mirage rental raised 0.30 into 0.40 and took it*, won 14 |
-| Settlement transaction | [`5Stov8CB…oosxGcC`](https://explorer.solana.com/tx/5Stov8CB16mBtxBbsU1E4iPug6hkBELyzuavNAESzG9gpQcaryT45X2c9np1nmbjhZwaXEJ2jpiRakPU1oosxGcC?cluster=devnet) |
-| Settlement record (one per match) | [`EY8D647b…WCN1`](https://explorer.solana.com/address/EY8D647bgAmi6NM2VpFMkjreorGnf6B8ckkWNZv6WCN1?cluster=devnet) |
-| Paying vault → receiving vault | [`Fmx3g5Lq…yw4vj`](https://explorer.solana.com/address/Fmx3g5LqzwzcwmdK4JFfupvCkUvVi3WpcTRfoU7yw4vj?cluster=devnet) → [`BcGEEkDH…LikDi`](https://explorer.solana.com/address/BcGEEkDHqpHMX3emGS9hk6dwi2LD221b9L8uCagLikDi?cluster=devnet) |
-| Game currency mint | [`8S5QVBtZ…wA1N7`](https://explorer.solana.com/address/8S5QVBtZcBoKdKVGGUH2tCDpnoLYBxtGrPYDTBwwA1N7?cluster=devnet) |
-
-That session also rented an agent from a written brief and played it. All 20 matches settled on devnet from the deployed API.
-
-Security model and known limitations: **[docs/security.md](docs/security.md)**. Read it before treating any of this as more than a devnet demo.
+**$CLASH has not launched.** Until it does, the game runs on Solana devnet with a test token from the faucet standing in for it. Nothing is deposited, staked or settled, and there is no on-chain program: your tokens stay in your wallet, and the server only reads what it holds. The design is **[docs/holder-agents.md](docs/holder-agents.md)**; the build order is the roadmap in **[docs/economy.md](docs/economy.md)**.
 
 ---
 
@@ -45,21 +16,13 @@ Security model and known limitations: **[docs/security.md](docs/security.md)**. 
 
 Each round, both agents privately draw an edge from 0.30 to 0.70 — roughly, their chance of winning the round. Neither sees the other's. One agent acts first and the other answers: **fold** (pay the ante and lose the round), **call**, or **raise**. If nobody folds, a weighted coin decides the round for the base bet, or the raised bet if anyone raised. First to two rounds, at most three — so a match can move at most two rounds at the raised bet.
 
-The amounts depend on the **band** you rent in, which is a money scale rather than a ceiling:
-
-| Band | Ante | Bet | Raised | Most a match can move |
-|---|---|---|---|---|
-| A | 2 | 5 | 10 | 20 |
-| B | 4 | 10 | 20 | 40 |
-| C | 6 | 15 | 30 | 60 |
-
-Every amount scales by the same factor, so the decision an agent faces is identical in all three and the presets stay exactly as balanced as they were measured to be. Agents are matched only against others in their own band. Nothing is clamped, so an agent plays a band only while its balance could pay that band's worst match outright.
+Every match plays at one scale: ante 4, bet 10, raised 20, so a match is won by at most 40 chips. A match moves no money; the chips it was won by are its score. Matches between two players' agents are ranked, and they are what the ladder and the day's scores count; a match with a house agent in it is an exhibition and counts toward nothing.
 
 Because the opponent's edge is hidden and a raise can be answered in the same round, a weak agent can raise and make a stronger one fold. That is a bluff, and whether it pays is the game.
 
 ## Running it
 
-**Prerequisites:** Node 24 and npm. A Phantom or Solflare browser extension to sign in. `npm run check` also needs the Postgres binaries on the machine (Debian/Ubuntu: `apt install postgresql`) — it starts a throwaway cluster for the checks that must run against the real driver, and refuses to pass without one. For the chain: Rust, the Solana CLI (3.x) and Anchor 0.32.1; `check` runs the program's tests too when those are present, and skips them with a message when they are not.
+**Prerequisites:** Node 24 and npm. A Phantom or Solflare browser extension to sign in. `npm run check` also needs the Postgres binaries on the machine (Debian/Ubuntu: `apt install postgresql`) — it starts a throwaway cluster for the checks that must run against the real driver, and refuses to pass without one.
 
 ```bash
 npm install
@@ -77,7 +40,7 @@ Open http://localhost:3000, connect a wallet holding the token, get an agent and
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | API | Needed to rent an agent from a written brief; read from the environment or a `.env` file in the repo root. Without it, presets work and briefs return 503. |
+| `ANTHROPIC_API_KEY` | API | Needed to make an agent from a written brief; read from the environment or a `.env` file in the repo root. Without it, presets work and briefs return 503. |
 | `CHAIN_RPC_URL` | API | The RPC holdings are read from, e.g. `https://api.devnet.solana.com`. Without it no wallet is read and nobody can get an agent. |
 | `HOLDER_MINT` | API | The token holders hold, defaulting to `CHAIN_STAKE_MINT` (devnet's test token). |
 | `FUNDING_MODE`, `HOLDER_WALLETS` | API | `FUNDING_MODE=holder` lets every wallet get an agent by holding; `HOLDER_WALLETS` is a comma-separated allowlist for trying it first. |
@@ -122,7 +85,7 @@ curl https://useagentclash.xyz/commit.txt
 
 **Check the deploy logs every time.** A correct web deploy logs `agentclash-web@1.0.0 start` → `next start`. If it logs `agentclash@0.0.1 start` → `tsx scripts/serve.ts`, the API build shipped to the web service and the site is down — Railway has marked such a deployment `SUCCESS` before the container began crash-looping, so the status alone is not enough. This has taken the site down twice.
 
-The API takes `DATABASE_URL`, `CHAIN_RPC_URL`, `CHAIN_SETTLER_SECRET` (the settler key's JSON byte array), `ANTHROPIC_API_KEY`, `CORS_ORIGIN`, `AUTH_DOMAIN`, `HOST=0.0.0.0` and `TRUST_PROXY=1`; the web app takes the three `NEXT_PUBLIC_*` variables at build time.
+The API takes `DATABASE_URL`, `CHAIN_RPC_URL`, `HOLDER_MINT` (or `CHAIN_STAKE_MINT`), `FUNDING_MODE=holder`, `ANTHROPIC_API_KEY`, `CORS_ORIGIN`, `AUTH_DOMAIN`, `HOST=0.0.0.0` and `TRUST_PROXY=1`; the web app takes the three `NEXT_PUBLIC_*` variables at build time.
 
 The site has one address. `www.useagentclash.xyz` (CNAME to Railway, on Vercel DNS) and the `*.up.railway.app` default domain both answer with a permanent 308 to `https://useagentclash.xyz`, keeping the path and query — see `web/proxy.ts`, which reads the apex from `NEXT_PUBLIC_SITE_URL`. So `CORS_ORIGIN` and `AUTH_DOMAIN` name the apex only: nothing reaches the API from a www origin.
 
@@ -131,20 +94,21 @@ The site has one address. `www.useagentclash.xyz` (CNAME to Railway, on Vercel D
 ```
  browser ──wallet signature──▶ HTTP API ──▶ runner ──▶ engine (match)
                                   │            │
-                                  │            ├──▶ ledger + outbox   (Postgres, one transaction)
-                                  │            │
-                           exact calculator    └──▶ worker ──▶ settlement program (Solana)
+                                  │            └──▶ matches + ratings   (Postgres, one transaction)
+                                  │
+                           holdings reader ──▶ wallet balances (Solana RPC, read only)
+                           scores ──▶ each day frozen with its power inputs
 ```
 
 **Engine** — `src/engine.ts`, `src/round.ts`. A pure, deterministic TypeScript match: seeded PRNG, turn order, the draw, resolution. The same seed and agents always produce the same match, so every stored match replays exactly from its seed and rules.
 
-**Agents are decision tables** — `src/presets.ts`, `src/agents/`. A strategy is 30 cells: an action for each of five edges in six situations. The four presets (Anchor, Hammer, Mirage, Bully) are tables. An agent rented from a brief asks the model once, at rent time, to fill in a table, which is stored with the agent; the model is never called during a match and never signs anything.
+**Agents are decision tables** — `src/presets.ts`, `src/agents/`. A strategy is 30 cells: an action for each of five edges in six situations. The four presets (Anchor, Hammer, Mirage, Bully) are tables. An agent made from a brief asks the model once, when it is created, to fill in a table, which is stored with the agent; the model is never called during a match and never signs anything.
 
-**Exact calculator** — `src/exact.ts`. Because agents are tables, a matchup's expected value can be computed exactly by enumerating every draw and coin flip — no sampling noise. It was used to balance the presets, and in the product it rates a brief against today's roster before you rent, privately. The public ladder ranks what agents actually won, not this number.
+**Exact calculator** — `src/exact.ts`. Because agents are tables, a matchup's expected value can be computed exactly by enumerating every draw and coin flip — no sampling noise. It was used to balance the presets, and in the product it rates a brief against today's roster, privately. The public ladder ranks what agents actually won, not this number.
 
-**Off-chain ledger** — `src/db/`. Postgres through Drizzle. Every movement of money is a ledger row and balances are sums of rows, never an updated column. A match, its ledger rows, both ratings and its chain op are written in one transaction.
+**Holdings** — `src/db/holdings.ts`, `src/chain/holdings.ts`. Each wallet behind an agent is read every ten minutes; the reading is the agent's balance, decides whether it is in play, and keeps its conviction clock. A sell and a buy-back between two readings is not seen.
 
-**On-chain settlement** — `chain/`, `src/chain/`. An Anchor program with a 0-decimal SPL mint, a vault PDA per agent (funded when rented), and a settlement record PDA per match. Renting and settling write outbox rows; a worker submits them in order, stops at the first failure, and never sends twice. The ledger is authoritative; the chain records it, and a reconciler reports any disagreement. The program also enforces its own limits — only the settler key, at most `max_settlement` per match (60, which is exactly band C's worst match), each match once, and no more than a quarter of a vault's balance paid out per hour — so it doesn't simply trust the server. On the deposit program, matches settle hourly and net: one transfer per agent per hour through a clearing account (`src/db/netting.ts`).
+**Scores** — `src/score.ts`, `src/db/scores.ts`. Net chips won against other players, capped at 40 per opponent a day and floored at zero, times a weight from x1 to x4 that the holding earns. Each UTC day is frozen once it is over, with every agent's power inputs stored beside its score.
 
 **Auth** — `src/auth/`. Sign-in with a Solana wallet: a single-use nonce inside a message naming the site, verified as an ed25519 signature, exchanged for a session.
 
@@ -160,30 +124,27 @@ The same habit of measuring shaped the rest:
 
 - **Ratings.** A rolling average over 50 matches has a spread of ±5.6 chips, while the real gaps between presets are about 0.1. That couldn't rank anything, so the ladder ranks total winnings — a fact — and the exact rating stays private.
 - **Starting balance.** At 60, 82% of agents went broke, half of them within 13 matches. 180 was right while a match could never move more than 40 and a ceiling clamped what was left. Once bands became money scales and the clamp went, a week of autoplay at one match per ten minutes needed more: at 900, 99% of band A agents last the week, 80% in band B and 61% in band C. Those figures are measured, not estimated — the simulation enumerated every draw and flip. (Both the simulation and bands were removed on 2026-10-01: with nothing staked, nobody goes broke and there is one scale.)
-- **Bands are money scales, not ceilings.** The old per-match ceiling decided who an agent met and clamped its results, which meant the top two bands played identically: a match could never move more than 40 anyway. A band now multiplies every amount by one factor — A ×0.5, B ×1, C ×1.5 — so the decision each agent faces is identical in all three and only what it is worth changes. Records are normalised back onto band B's scale, so the ladder ranks agents rather than the band they picked.
+- **Bands were money scales, not ceilings.** The old per-match ceiling decided who an agent met and clamped its results, which meant the top two bands played identically: a match could never move more than 40 anyway. Bands then multiplied every amount by one factor — A ×0.5, B ×1, C ×1.5 — so the decision each agent faced was identical in all three and only what it was worth changed. They went on 2026-10-01, when matches stopped moving money.
 
 ## Limitations
 
-Stated plainly; details in [docs/security.md](docs/security.md).
+Stated plainly; the design and what is still open are in [docs/holder-agents.md](docs/holder-agents.md).
 
-- **The game is devnet and fake currency only.** No mainnet deployment of the game, and in-game balances have no value. See [docs/economy.md](docs/economy.md) for what is still open.
-- **Two ways out, and one of them needs nobody.** The everyday withdrawal is co-signed by the server, which is instant and costs the owner no SOL. Behind it is an exit the owner signs alone: `request_exit`, a thirty-minute window in which the server settles what it already owes, then `claim_exit`. A server that refuses, stalls or disappears cannot strand the money — [`web/public/exit/`](web/public/exit/) drives the whole thing from a plain HTML page with no dependency on us. Depositing back into a vault works too.
-- **A stolen settler key could drain vaults**, 60 at a time, by inventing match ids. Each settlement is capped, and so is the total: a vault pays out at most a quarter of its balance — never less than 120 — in each hour (each ten minutes on the older seed program). Because that cap is read from the balance as it falls, a window in practice closes at about a fifth of what the vault held when it opened.
-- **The admin key can upgrade the program**, and can raise the per-match limit through `set_max_settlement` (bounded by `MAX_SEED`, and refused to every other key including the settler's). It should be handed to a multisig or made immutable before anything real is at stake.
-- **One agent in play per wallet.** A wallet can hold only one un-retired agent; renting another is refused until the current one retires, which happens when its balance is withdrawn in full or falls below what any band costs.
-- **Briefs need an Anthropic API key.** Without one, only presets can be rented. The measurement of how much a brief actually changes play (`npm run brief-sweep`) has not yet been run against a live model.
+- **The game is devnet and a test token only.** $CLASH has not launched, and rewards are not paid until the legal review.
+- **Holdings are snapshots.** A wallet is read every ten minutes, so a sell and a buy-back between two reads is not seen, and keeps its conviction clock. Indexing transfers would close that; it waits until someone exploits it.
+- **Splitting a holding across wallets pays.** Each wallet earns its own points; the fixed reward pool and the 10% share cap bound it, and the design records it as a known property.
+- **One agent in play per wallet.**
+- **Briefs need an Anthropic API key.** Without one, only presets can be played.
 - **The session token lives in browser storage**, readable by any script on the page.
-- **Third-party RPC.** The deployed settlement worker settles through a Helius devnet endpoint rather than Solana's public one, which rate-limits shared cloud IPs. That removes the throttling but puts a third party on the path between the ledger and the chain.
 
 ## Repository
 
 ```
-src/        engine, exact calculator, presets, agents, ledger, auth, chain client, HTTP API
-chain/      the Anchor settlement program
-web/        Next.js app: renting, playing, ladder, public match pages
-scripts/    balance harness, preset search, seeding, deployment
-test/       vitest suites; test/chain.test.ts runs against a local validator
-docs/       security model; the economy and bands; how LLM agents plug in
+src/        engine, exact calculator, presets, agents, holdings, scores, auth, HTTP API
+web/        Next.js app: the village, getting an agent, playing, ladder, rewards, match pages
+scripts/    balance harness, preset search, seeding, the season rate, deployment
+test/       vitest suites; test/postgres.test.ts runs against a real Postgres
+docs/       the holder-agents design, the earlier models, how LLM agents plug in
 ```
 
-More: [docs/security.md](docs/security.md) · [docs/economy.md](docs/economy.md) · [docs/ai-agents.md](docs/ai-agents.md)
+More: [docs/holder-agents.md](docs/holder-agents.md) · [docs/economy.md](docs/economy.md) · [docs/ai-agents.md](docs/ai-agents.md)
