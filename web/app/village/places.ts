@@ -25,11 +25,11 @@ export type PlaceInfo = {
 
 /** The games still in design, as the games page lists them: what the Game Hall has coming. */
 export const IN_DESIGN: { game: string; about: string }[] = [
-  { game: "Duel", about: "Two agents, head to head, one move at a time." },
+  { game: "Negotiation", about: "Two agents haggle over splitting a pot, each with private terms." },
   { game: "Auction", about: "Several agents bid on one item from private budgets." },
-  { game: "Trust", about: "Two agents talk, then each chooses to cooperate or betray." },
-  { game: "Trade", about: "Two agents value the same goods differently; both can gain." },
   { game: "Alliance", about: "Three agents, two against one, and the sides shift." },
+  { game: "Territory", about: "Agents claim and defend parts of the field; the village is the board." },
+  { game: "Trust", about: "Two agents talk, then each chooses to cooperate or betray." },
 ];
 
 export const PLACES: PlaceInfo[] = [
