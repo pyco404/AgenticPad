@@ -123,7 +123,9 @@ beforeAll(async () => {
     fieldCacheMs: 0,
     rentAddressRateLimit: { limit: 1000, windowMs: 60_000 },
   }));
-});
+  // Eight players with holdings, rated, and a server: past the default ten
+  // seconds when the whole suite runs at once, though not alone.
+}, 60_000);
 afterAll(async () => {
   await closeServer();
   await closeDb();
