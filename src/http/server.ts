@@ -51,7 +51,8 @@ import { LiveStream, resumeFrom, type LiveOptions } from "./live.js";
 import { settlementStatus, settlementLag, SETTLEMENT_LAG_ALARM_MS } from "../chain/worker.js";
 import { rateOf, seasonRate, type Funding } from "../chips.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../db/faucet.js";
-import { holdingOf, holdingView, keeps, readHolding, type HoldingsChain } from "../db/holdings.js";
+import { holdingOf, holdingView, keeps, readHolding, type Holding, type HoldingsChain } from "../db/holdings.js";
+import { conviction, CONVICTION_CAP_DAYS, position, power, weight } from "../score.js";
 import { prepareRental, rejectRental, submitRental, RentalError, type RentalChain } from "../db/rentals.js";
 import { checkDeposit, depositBlocked, prepareDeposit, submitDeposit, DepositError, type DepositChain } from "../db/deposits.js";
 import { prepareLossBudget, submitLossBudget, LossBudgetError, type LossBudgetChain } from "../db/loss-budget.js";
@@ -593,6 +594,29 @@ export function createApp(options: AppOptions): Server {
     return { ...row, balance: toChips(row.balance, rateOf(row)), balanceBaseUnits: row.balance };
   }
 
+  /**
+   * A holder's wallet against the minimum, its conviction clock, and the power
+   * and weight those earn now. Power weights the reward and never a match: this
+   * is what a day's score would be multiplied by if the day ended now.
+   */
+  function holderView(holding: Holding | null) {
+    const view = holdingView(holding);
+    const shareOfSupply = holding && holding.supply > 0 ? holding.amount / holding.supply : 0;
+    const p = power({ convictionDays: view.conviction.days, shareOfSupply });
+    return {
+      holding: view,
+      power: {
+        convictionDays: view.conviction.days,
+        convictionCapDays: CONVICTION_CAP_DAYS,
+        conviction: conviction(view.conviction.days),
+        shareOfSupply,
+        position: position(shareOfSupply),
+        power: p,
+        weight: weight(p),
+      },
+    };
+  }
+
   /** Whether an agent holds enough to play, and what that is, for the agent panel. */
   function playStatus(row: { balance: number; funding: Funding; house?: boolean; inPlay?: boolean }) {
     return {
@@ -661,6 +685,9 @@ export function createApp(options: AppOptions): Server {
         autoplay: await autoplayStatus(db, full!, { intervalMs: autoplayIntervalMs }),
         // Where its rental stands: active, renewed, expired and renewable, or lapsed.
         rental: rentalStatus(full!),
+        // A holder agent's wallet and the power it earns (docs/holder-agents.md);
+        // null for an agent on another flow.
+        holder: full!.funding === "holder" && full!.ownerId ? holderView(await holdingOf(db, full!.ownerId)) : null,
         sinceYouLeft: await sinceYouLeft(db, full!),
         view: "owner",
       };

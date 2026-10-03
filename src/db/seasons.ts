@@ -102,11 +102,13 @@ export async function closeSeason(db: Db, key: string, now = new Date()): Promis
       }
     }
 
-    // Autoplay stops for everyone at the boundary, renewed or not: a new
-    // season is played only once the owner says so. Band and floor stay.
+    // Autoplay stops for every rental at the boundary, renewed or not: a new
+    // season is played only once the owner says so. Not for a holder agent:
+    // nothing was rented, so nothing ended, and its owner's holding is the
+    // standing yes (docs/holder-agents.md).
     let autoplayStopped = 0;
     for (const p of players) {
-      if (!p.autoplay) continue;
+      if (!p.autoplay || p.funding === "holder") continue;
       await tx
         .update(agents)
         .set({ autoplay: false, autoplayStoppedReason: "season", autoplayStoppedAt: now })

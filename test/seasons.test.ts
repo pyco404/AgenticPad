@@ -178,6 +178,20 @@ describe("the season boundary", () => {
     await close();
   });
 
+  it("leaves a holder agent's autoplay on through the boundary: nothing was rented, so nothing ended", async () => {
+    const { db, close } = await fresh();
+    const current = seasonAt(new Date());
+    const holder = await createAgent(db, { name: "Holds", presetName: "Anchor", ownerId: someWallet(), funding: "holder" });
+    await db.update(agents).set({ autoplay: true }).where(eq(agents.id, holder.id));
+    await closeSeason(db, current.key, current.end);
+    const [row] = await db.select().from(agents).where(eq(agents.id, holder.id));
+    expect(row!.autoplay).toBe(true);
+    expect(row!.autoplayStoppedReason).toBeNull();
+    expect(row!.rentalEndsAt).toBeNull();
+    expect(await eventsOf(db, holder.id)).toEqual([]);
+    await close();
+  });
+
   it("lapses an expired agent once its 24 hours are up, and only once", async () => {
     const { db, close } = await fresh();
     const { a, b, current } = await season(db);

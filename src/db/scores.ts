@@ -163,6 +163,7 @@ export async function freezeEndedDays(db: Db, now = new Date(), params: ScorePar
 
 export type ScoreRow = DayScore & {
   name: string;
+  presetName: string | null;
   mark: string | null;
   /** This row's fraction of the payout, under the 10% cap. 0 when it did not qualify. */
   share: number;
@@ -177,12 +178,12 @@ export type DayTable = {
 };
 
 async function named<T extends { agentId: string }>(db: Db, rows: T[]) {
-  if (rows.length === 0) return new Map<string, { name: string; mark: string | null }>();
+  if (rows.length === 0) return new Map<string, { name: string; presetName: string | null; mark: string | null }>();
   const found = await db
-    .select({ id: agents.id, name: agents.name, mark: agents.mark })
+    .select({ id: agents.id, name: agents.name, presetName: agents.presetName, mark: agents.mark })
     .from(agents)
     .where(inArray(agents.id, rows.map((r) => r.agentId)));
-  return new Map(found.map((r) => [r.id, { name: r.name, mark: r.mark }]));
+  return new Map(found.map((r) => [r.id, { name: r.name, presetName: r.presetName, mark: r.mark }]));
 }
 
 /** Shares among the qualified rows only, in the rows' order. */
@@ -219,13 +220,19 @@ export async function dayScores(db: Db, day: number, params: ScoreParams = SCORE
     day: dayDate(day),
     frozen: frozen !== null,
     params: base.params,
-    rows: withShares(base.rows).map((r) => ({ ...r, name: names.get(r.agentId)?.name ?? "", mark: names.get(r.agentId)?.mark ?? null })),
+    rows: withShares(base.rows).map((r) => ({
+      ...r,
+      name: names.get(r.agentId)?.name ?? "",
+      presetName: names.get(r.agentId)?.presetName ?? null,
+      mark: names.get(r.agentId)?.mark ?? null,
+    })),
   };
 }
 
 export type SeasonScoreRow = {
   agentId: string;
   name: string;
+  presetName: string | null;
   mark: string | null;
   rankedMatches: number;
   points: number;
@@ -259,7 +266,16 @@ export async function seasonScores(db: Db, key: string, now = new Date(), params
     const table = await dayScores(db, day, params);
     if (!table.frozen) allFrozen = false;
     for (const r of table.rows) {
-      const t = totals.get(r.agentId) ?? { agentId: r.agentId, name: r.name, mark: r.mark, rankedMatches: 0, points: 0, score: 0, days: 0 };
+      const t = totals.get(r.agentId) ?? {
+        agentId: r.agentId,
+        name: r.name,
+        presetName: r.presetName,
+        mark: r.mark,
+        rankedMatches: 0,
+        points: 0,
+        score: 0,
+        days: 0,
+      };
       t.rankedMatches += r.rankedMatches;
       t.points += r.points;
       t.score += r.score;

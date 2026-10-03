@@ -124,6 +124,16 @@ describe("holder agents", () => {
     expect(await db.select().from(ledger).where(eq(ledger.agentId, id))).toEqual([]);
     expect(await db.select().from(chainOps).where(eq(chainOps.agentId, id))).toEqual([]);
     expect(await balanceOf(db, id)).toBe(MIN);
+
+    // Its owner sees the wallet, the clock and the weight they earn; nothing about a rental.
+    const own = await api(`/agents/${id}`, { as: "holds" });
+    expect(own.body.view).toBe("owner");
+    expect(own.body.rental.state).toBe("house");
+    expect(own.body.holder.holding.eligible).toBe(true);
+    expect(own.body.holder.holding.conviction.chips).toBe(MIN_FUNDING_CHIPS);
+    expect(own.body.holder.power.convictionDays).toBe(0);
+    expect(own.body.holder.power.weight).toBeGreaterThanOrEqual(1);
+    expect(own.body.holder.power.weight).toBeLessThan(1.01);
   });
 
   it("tells a signed-in wallet which flow it is on and what it holds", async () => {
