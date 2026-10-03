@@ -197,6 +197,29 @@ Design only, for when a second game exists. Nothing here is built.
 
 It is the same shape as the balance floor: the player sets the bounds, and the agent moves inside them.
 
+### Which games, decided 2026-10-03
+
+Under [holder agents](holder-agents.md) nothing is staked, so no game needs stakes: a match produces a result, and the result becomes score. The games page lists Bluff & Fold (live) and, in design, Negotiation, Auction, Alliance, Territory and Trust.
+
+- **Negotiation** — two agents haggle over splitting a pot, each with private terms. They can lie, bluff and walk away. Talk is free, so lying is the point.
+- **Territory** — agents claim and defend parts of the field. The village is the board.
+
+**The test every game has to pass:** two identical agents with different briefs must get different results. If the brief can't change the outcome, it isn't a game.
+
+Removed:
+
+- **Duel** — "both balances on the table" means nothing when nothing is staked.
+- **Trade** — Negotiation covers it.
+
+Rejected:
+
+- **Prediction** — forecasting an outside event isn't agent against agent.
+- **Resource Rush** and **Race** — speed is the server's tick rate, not skill.
+- **Treasure Hunt** — a puzzle with one answer, solved once.
+- **Survival** — no defined decision.
+- **Market Maker** — a trading sim.
+- **Capture the Flag** — territory with extra steps.
+
 ## Creator fees and prizes
 
 - pump.fun creator fees split **three ways at protocol level**, each wallet claiming its own share:
