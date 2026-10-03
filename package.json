@@ -27,8 +27,7 @@
     "stake-mint": "tsx scripts/stake-mint.ts",
     "test:chain": "scripts/chain-test.sh",
     "test:pg": "scripts/pg-test.sh",
-    "start": "tsx scripts/serve.ts --migrate",
-    "exit:inline": "tsx scripts/inline-exit.ts"
+    "start": "tsx scripts/serve.ts --migrate"
   },
   "devDependencies": {
     "@types/bn.js": "^5.2.0",

@@ -47,15 +47,6 @@ export type Traits = {
   note: string | null;
 };
 
-export type LossBudgetView = {
-  perDayChips: number;
-  lostTodayChips: number;
-  nextPerDayChips: number | null;
-  /** The UTC day number the pending cut applies from. */
-  nextFromDay: number | null;
-  /** When today's count starts again: the next 00:00 UTC. */
-  resetsAt: string;
-};
 
 /**
  * How an agent is funded. "holder" is the model being built
@@ -129,21 +120,10 @@ export type Scores = {
 
 export type AgentView = {
   /**
-   * Which flow this agent was rented under. Only a "deposit" agent can be
-   * topped up: a "seed" one's vault holds the frozen program's token.
+   * How this agent was funded. Every agent in play is a "holder"; "seed" and
+   * "deposit" are agents from before, all retired, kept for their records.
    */
   funding?: Funding;
-  /**
-   * Owner view only: why it cannot be topped up, or null when it can. Set for
-   * an agent whose rental has not been paid for, which has no vault yet.
-   */
-  depositBlocked?: string | null;
-  /**
-   * Owner view only: the most this agent may lose, net, in one UTC day, and
-   * how much of it today has used. Null for an agent without one. A cut waits
-   * for the next UTC day, so `nextPerDayChips` is set while one is pending.
-   */
-  lossBudget?: LossBudgetView | null;
   /** Portrait, epithet and bio. Null for an agent not yet given one. */
   character?: Character | null;
   traits?: Traits;
@@ -207,7 +187,7 @@ export type AutoplayStatus = {
   state: AutoplayState;
   message: string | null;
   action: string | null;
-  stop: { reason: "floor" | "insolvent" | "retired" | "withdrawal" | "season"; hold: boolean } | null;
+  stop: { reason: "floor" | "insolvent" | "retired" | "withdrawal" | "season" | "exit"; hold: boolean } | null;
   lastMatchAt: string | null;
   nextMatchAt: string | null;
   waitingSince: string | null;
@@ -262,31 +242,7 @@ export type LadderPeriod = "day" | "season" | "all";
 /** The season in play. Mirrors GET /season. */
 export type SeasonInfo = { key: string; number: number; startsAt: string; endsAt: string };
 
-/** Where an agent's rental stands. Mirrors src/db/seasons.ts. */
-export type RentalStatus = {
-  state: "active" | "renewed" | "expired" | "lapsed" | "retired" | "house";
-  season: { key: string; number: number; endsAt: string };
-  endsAt: string | null;
-  graceEndsAt: string | null;
-  canRenew: boolean;
-  remind: boolean;
-};
 
-/** What an owner can take from an agent's vault now, and what's locked while matches settle. */
-export type Withdrawable = {
-  balance: number;
-  withdrawable: number;
-  locked: number;
-  maxPartial: number;
-  minStake: number;
-  reason: string | null;
-  /**
-   * An exit the owner started on chain, which this server neither co-signs nor
-   * can stop. Null in the ordinary case: the instant path is the front door,
-   * and this is only the state of something the owner started themselves.
-   */
-  exit: ExitState | null;
-};
 
 export type ExitState = {
   /** Chips asked for. The claim pays at most this, and at most what the vault still holds. */
@@ -316,32 +272,7 @@ export type FaucetStatus = {
   nextAt: string | null;
 };
 
-/**
- * A deposit-funded rental waiting on its owner's signature.
- *
- * `playable` is false in every answer that carries this: no fee has been paid
- * and the vault does not exist, so the agent is a placeholder for an address
- * until the transaction lands.
- */
-export type PendingRental = {
-  rentalId: string;
-  /** Base64, for the wallet to sign. */
-  transaction: string;
-  fee: number;
-  feeChips: number;
-  deposit: number;
-  depositChips: number;
-  playable: false;
-};
 
-export type RentalState = {
-  rentalId: string;
-  agentId: string;
-  status: "prepared" | "submitted" | "confirmed" | "expired";
-  signature: string | null;
-  error: string | null;
-  playable: boolean;
-};
 
 export class ApiError extends Error {
   constructor(
@@ -382,12 +313,8 @@ export const api = {
     request<{
       ownerId: string;
       agents: AgentView[];
-      /** How renting works for this wallet, which the rent screen needs before it asks anything. */
-      funding: { mode: Funding; feeChips: number };
-      /** On the holder flow, this wallet's last reading against the minimum; otherwise null. */
+      /** This wallet's last reading against the minimum; null where the server reads no holdings. */
       holding: HoldingView | null;
-      /** Set while the old settlement program is closing. Null the rest of the time. */
-      cutover: { closed: true; endsAt: string; withdrawableUntil: string } | null;
     }>("/auth/me", { token }),
   previewTable: (token: string | null, policyTable: unknown) =>
     request<{ preview: Preview }>("/preview", { method: "POST", token, body: JSON.stringify({ policyTable }) }),
@@ -397,21 +324,11 @@ export const api = {
       token,
       body: JSON.stringify({ brief }),
     }),
-  /**
-   * Rents an agent. Read `funding` to know what came back: "seed" is an agent
-   * that can play at once, "deposit" is one that cannot play until the owner
-   * signs `rental.transaction` and it lands. Never infer this from which fields
-   * are set.
-   */
-  rent: (
-    token: string | null,
-    input: { name?: string; presetName?: string; brief?: string; deposit?: number },
-  ) =>
+  /** Gets this wallet an agent, if it holds the minimum. Nothing is signed or paid. */
+  rent: (token: string | null, input: { name?: string; presetName?: string; brief?: string }) =>
     request<{
       agent: AgentView;
       elicitation: { free: boolean } | null;
-      funding: Funding;
-      rental: PendingRental | null;
     }>("/agents", {
       method: "POST",
       token,
@@ -423,7 +340,6 @@ export const api = {
       view: string;
       autoplay?: AutoplayStatus;
       sinceYouLeft?: SinceYouLeft | null;
-      rental?: RentalStatus;
       /** Owner view of a holder agent: its wallet, clock and power. */
       holder?: HolderView | null;
     }>(
@@ -432,27 +348,10 @@ export const api = {
     ),
   setAutoplay: (token: string | null, id: string, input: { enabled: boolean; floor?: number | null }) =>
     request<{ autoplay: AutoplayStatus }>(`/agents/${id}/autoplay`, { method: "POST", token, body: JSON.stringify(input) }),
-  renew: (token: string | null, id: string) => request<{ rental: RentalStatus }>(`/agents/${id}/renew`, { method: "POST", token }),
   markSeen: (token: string | null, id: string) => request<{ ok: true }>(`/agents/${id}/seen`, { method: "POST", token }),
   play: (token: string | null, id: string) => request<PlayResult>(`/agents/${id}/play`, { method: "POST", token }),
   match: (id: string) => request<{ transcript: string }>(`/matches/${id}`),
   roster: () => request<{ agents: RosterAgent[] }>("/roster"),
-  withdrawable: (token: string | null, id: string) => request<{ withdrawable: Withdrawable }>(`/agents/${id}/withdrawable`, { token }),
-  prepareWithdrawal: (token: string | null, id: string, amount: number | "all") =>
-    request<{ withdrawal: { withdrawalId: string; amount: number; remaining: number; retire: boolean; transaction: string } }>(
-      `/agents/${id}/withdrawals`,
-      { method: "POST", token, body: JSON.stringify({ amount }) },
-    ),
-  submitWithdrawal: (token: string | null, withdrawalId: string, transaction: string) =>
-    request<{ withdrawal: { status: "submitted" | "confirmed" | "expired"; signature: string | null } }>(
-      `/withdrawals/${withdrawalId}/submit`,
-      { method: "POST", token, body: JSON.stringify({ transaction }) },
-    ),
-  withdrawal: (token: string | null, withdrawalId: string) =>
-    request<{ withdrawal: { status: "prepared" | "submitted" | "confirmed" | "expired"; signature: string | null; error: string | null } }>(
-      `/withdrawals/${withdrawalId}`,
-      { token },
-    ),
   /**
    * Everything, exhibitions included. The live stream carries them, so asking
    * for staked-only here would show one thing on first paint and another a
@@ -460,43 +359,6 @@ export const api = {
    */
   feed: (limit = 12, before?: number) =>
     request<Feed>(`/matches?staked=false&limit=${limit}${before === undefined ? "" : `&before=${before}`}`),
-  prepareLossBudget: (token: string | null, agentId: string, chips: number) =>
-    request<{ lossBudget: { transaction: string; lastValidBlockHeight: number } }>(`/agents/${agentId}/loss-budget`, {
-      method: "POST",
-      token,
-      body: JSON.stringify({ chips }),
-    }),
-  submitLossBudget: (token: string | null, agentId: string, transaction: string, lastValidBlockHeight: number) =>
-    request<{ lossBudget: { status: "confirmed" | "submitted"; perDayChips: number | null; nextPerDayChips: number | null; nextFromDay: number | null } }>(
-      `/agents/${agentId}/loss-budget/submit`,
-      { method: "POST", token, body: JSON.stringify({ transaction, lastValidBlockHeight }) },
-    ),
-  prepareDeposit: (token: string | null, agentId: string, chips: number) =>
-    request<{ deposit: { depositId: string; amount: number; chips: number; transaction: string } }>(
-      `/agents/${agentId}/deposits`,
-      { method: "POST", token, body: JSON.stringify({ amount: chips }) },
-    ),
-  submitDeposit: (token: string | null, depositId: string, transaction: string) =>
-    request<{ deposit: { status: "prepared" | "submitted" | "confirmed" | "expired"; signature: string | null } }>(
-      `/deposits/${depositId}/submit`,
-      { method: "POST", token, body: JSON.stringify({ transaction }) },
-    ),
-  submitRental: (token: string | null, rentalId: string, transaction: string) =>
-    request<{ rental: { status: RentalState["status"]; signature: string | null; playable: boolean } }>(
-      `/rentals/${rentalId}/submit`,
-      { method: "POST", token, body: JSON.stringify({ transaction }) },
-    ),
-  /**
-   * The wallet said no, so stop waiting for a signature that is not coming.
-   * The server still asks the chain before believing it.
-   */
-  rejectRental: (token: string | null, rentalId: string) =>
-    request<{ rental: { outcome: "expired" | "confirmed" | "already-settled" | "in-flight"; message: string } }>(
-      `/rentals/${rentalId}/reject`,
-      { method: "POST", token },
-    ),
-  rentalState: (token: string | null, rentalId: string) =>
-    request<{ rental: RentalState }>(`/rentals/${rentalId}`, { token }),
   faucet: (token: string | null) => request<{ faucet: FaucetStatus }>("/faucet", { token }),
   claimFaucet: (token: string | null) =>
     request<{ grant: { amount: number; chips: number; signature: string } }>("/faucet", { method: "POST", token }),
@@ -510,43 +372,9 @@ export const api = {
   refreshHolding: (token: string | null) => request<{ holding: HoldingView }>("/holding", { method: "POST", token }),
   /** Holder scores: today and this season, live until frozen. */
   scores: () => request<Scores>("/scores"),
-  prizes: (limit = 25, season?: string) =>
-    request<Prizes>(`/prizes?limit=${limit}${season ? `&season=${season}` : ""}`),
 };
 
-/**
- * A season's prize standing. Not the ladder, and not a rearrangement of it:
- * the ladder ranks net won, this ranks net per chip staked over ranked
- * matches. An agent can be first on one and well down the other, so the two
- * are never shown in the same table or under the same heading.
- */
-export type PrizeRow = {
-  agentId: string;
-  name: string;
-  presetName: string | null;
-  mark?: string | null;
-  retired: boolean;
-  /** 1 is first. Null while the agent is short of the minimum match count. */
-  prizeRank: number | null;
-  /** Ranked net per chip staked: what the order is by. */
-  perChip: number | null;
-  rankedMatches: number;
-  rankedStaked: number;
-  /** The chips those matches were won by. */
-  rankedNetReal: number;
-  /** How many more ranked matches before this agent can be placed. */
-  shortBy: number;
-};
 
-export type Prizes = {
-  season: SeasonInfo & { current: boolean };
-  /** False while the season is open: the table will still move. */
-  frozen: boolean;
-  minMatches: number;
-  basis: string;
-  placed: number;
-  rows: PrizeRow[];
-};
 
 /** An op the operator should look at: one given up on, or one still being retried. */
 export type OpTrouble = {

@@ -10,13 +10,7 @@ import { usePlaying } from "@/lib/live";
 import { Segmented } from "@/app/ui";
 import { PrivyOption } from "@/app/privy-option";
 import { useWallet } from "@/app/wallet-context";
-import { WithdrawPanel } from "@/app/withdraw-panel";
-import { SeasonLine } from "@/app/season-line";
-import { RentalPanel } from "@/app/rental-panel";
 import { FaucetPanel } from "@/app/faucet-panel";
-import { DepositPanel } from "@/app/deposit-panel";
-import { LossBudgetPanel } from "@/app/loss-budget-panel";
-import { CutoverNotice } from "@/app/cutover-notice";
 import { CharacterBlock } from "@/app/character";
 import { AutoplayPanel } from "@/app/autoplay-panel";
 import { HoldingCheck, PowerPanel } from "@/app/holder-panel";
@@ -34,7 +28,6 @@ import {
   type Feed,
   type RosterAgent,
   type AgentView,
-  type Funding,
   type HolderView,
   type HoldingView,
   type PlayResult,
@@ -51,59 +44,11 @@ const BRIEF_DEBOUNCE_MS = 1500;
 const money = (n: number, digits = 2) => `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(digits)}`;
 const whole = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n)}`;
 
-/**
- * A deposit-funded rental in progress. Until it reaches "idle" the agent on
- * screen holds an address and nothing else: no fee has been paid and its vault
- * does not exist.
- */
-type RentalStep =
-  | { at: "idle" }
-  | { at: "signing" | "sending"; chips: number; feeChips: number }
-  | { at: "waiting"; chips: number; feeChips: number; rentalId: string }
-  | { at: "error"; message: string };
-
-/**
- * What is happening to a deposit-funded rental, said plainly. Every state here
- * except the last means the agent exists but is not rented: nothing has been
- * charged and it cannot play.
- */
-function RentalProgress({ step }: { step: RentalStep }) {
-  if (step.at === "error") {
-    return (
-      <p className="rounded-panel border border-loss px-3 py-2 text-[12px] leading-5 text-loss">
-        {step.message}. Nothing was charged — the rent and the deposit are one transaction, so it either all happens
-        or none of it does.
-      </p>
-    );
-  }
-  if (step.at === "idle") return null;
-  const money = (
-    <>
-      <span className="font-mono text-gold">{step.chips.toLocaleString()}</span> deposit and{" "}
-      <span className="font-mono text-gold">{step.feeChips.toLocaleString()}</span> rent
-    </>
-  );
-  if (step.at === "waiting") {
-    return (
-      <p className="rounded-panel border border-line px-3 py-2 text-[12px] leading-5 text-muted">
-        Your transaction has been sent and hasn&apos;t landed yet. The agent stays unplayable until it does; if it never
-        lands, it&apos;s retired and nothing is charged.
-      </p>
-    );
-  }
-  return (
-    <p className="rounded-panel border border-line px-3 py-2 text-[12px] leading-5 text-muted">
-      {step.at === "signing" ? "Waiting for your wallet to sign" : "Sending"} the {money}. The agent cannot play until
-      this lands.
-    </p>
-  );
-}
-
 export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   const feed = useFeed(initialFeed);
   // Sign-in is site-wide: the mobile top bar and this page share one session.
   const wallet = useWallet();
-  const { session, wallets, signTransaction } = wallet;
+  const { session, wallets } = wallet;
   const token = session?.token ?? null;
   const [agent, setAgent] = useState<AgentView | null>(null);
   /** The open agent's wallet, clock and power, when it is a holder agent. */
@@ -117,19 +62,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   const [chosen, setChosen] = useState<string>("");
   const [brief, setBrief] = useState("");
   const [name, setName] = useState("");
-  /**
-   * What to fund a deposit-funded agent with, in chips. Ignored on the seed
-   * flow, where the server seeds a fixed balance. The chooser that quotes
-   * survival against this figure comes with the rent screen's own work; this is
-   * the amount, plainly.
-   */
-  const [deposit, setDeposit] = useState(String(MIN_FUNDING_CHIPS));
-  /** Where a deposit-funded rental has got to, for the screen to narrate. */
-  const [rentalStep, setRentalStep] = useState<RentalStep>({ at: "idle" });
-  /** How renting works for this wallet. Seed until the server says otherwise. */
-  const [funding, setFunding] = useState<{ mode: Funding; feeChips: number }>({ mode: "seed", feeChips: 0 });
-  /** Set while the old settlement program is closing. */
-  const [cutover, setCutover] = useState<{ endsAt: string; withdrawableUntil: string } | null>(null);
   const [preview, setPreview] = useState<{ value: Preview; paid: boolean } | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [autoPreview, setAutoPreview] = useState(true);
@@ -201,11 +133,9 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
    */
   const loadMine = useCallback(
     async (sessionToken: string) => {
-      const { agents: owned, funding, cutover, holding: held } = await api.me(sessionToken);
+      const { agents: owned, holding: held } = await api.me(sessionToken);
       setMine(owned);
-      setFunding(funding);
       setHolding(held);
-      setCutover(cutover);
       const inPlay = owned.filter((a) => !a.retired);
       const saved = localStorage.getItem(AGENT_KEY);
       const open = inPlay.find((a) => idOf(a) === saved) ?? inPlay[0] ?? null;
@@ -307,63 +237,23 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
     }
   };
 
+  /**
+   * Gets this wallet an agent: holding the minimum is the entry, so nothing is
+   * signed or paid. The creation answer lacks the owner view's wallet and
+   * power, so the agent is read whole afterwards.
+   */
   const rent = () =>
     run("rent", async () => {
       // No name given: the agent's character is named for it.
       const chosenName = name.trim();
-      // Set once a deposit rental has landed, so the stale pre-payment snapshot
-      // below is not written over the fresh one.
-      let paid = false;
-      const { agent: created, elicitation, funding, rental } = await api.rent(token, {
+      const { agent: created, elicitation } = await api.rent(token, {
         ...(chosenName ? { name: chosenName } : {}),
-        deposit: Number(deposit) || 0,
         ...(tab === "preset" ? { presetName: chosen } : { brief: brief.trim() }),
       });
       if (elicitation?.free) setFirstFreeUsed(true);
-      // On the deposit flow the agent is not rented yet: it holds an address and
-      // nothing else until its owner pays for it. Signing is the rest of
-      // renting, not a step afterwards, so it happens here rather than being
-      // left to a button somebody might not press.
-      if (funding === "deposit" && rental) {
-        const money = { chips: rental.depositChips, feeChips: rental.feeChips };
-        setRentalStep({ at: "signing", ...money });
-        try {
-          const signed = await signTransaction(rental.transaction);
-          setRentalStep({ at: "sending", ...money });
-          const { rental: done } = await api.submitRental(token, rental.rentalId, signed);
-          setRentalStep(done.playable ? { at: "idle" } : { at: "waiting", ...money, rentalId: rental.rentalId });
-          // The agent handed back above was read before the transaction landed,
-          // so it says nothing in the vault and cannot play. Once the money is
-          // there that snapshot is a lie, and it is the one on screen - so
-          // re-read it rather than leaving the card claiming the agent is broke.
-          if (done.playable) {
-            paid = true;
-            await refreshAgent(created.id ?? created.agentId!, token);
-          }
-        } catch (error) {
-          // Nothing was charged. The fee, the vault and the deposit are one
-          // transaction, so a refusal here leaves the wallet exactly as it was.
-          //
-          // Tell the server, rather than leaving the sweep to work it out
-          // fifteen minutes from now. A rejection is an answer: waiting it out
-          // leaves a 0-balance agent on the page and holds the owner's
-          // one-agent slot for no reason. Best effort - if this call fails the
-          // sweep still gets there, which is why nothing is awaited on its
-          // result and no error from it reaches the owner.
-          void api.rejectRental(token, rental.rentalId).catch(() => {});
-          setRentalStep({ at: "error", message: (error as Error).message });
-          throw error;
-        }
-      }
       const id = created.id ?? created.agentId!;
-      // A holder agent's owner view carries its wallet and power, which the
-      // creation answer does not: read it whole rather than show it without them.
-      if (funding === "holder") {
-        paid = true;
-        await refreshAgent(id, token);
-      }
+      await refreshAgent(id, token);
       localStorage.setItem(AGENT_KEY, id);
-      if (!paid) setAgent({ ...created, id });
       setMine((held) => [{ ...created, id }, ...held]);
       setTranscript("");
       setLastPlay(null);
@@ -399,14 +289,13 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   const inPlay = mine.filter((a) => !a.retired);
   const agentCard = agent ? (
     <AgentCard
-      cutover={cutover}
       agent={agent}
       onPlay={play}
       busy={busy === "play"}
       lastPlay={lastPlay}
       holder={holder}
-      onWithdrawn={() => {
-        // A full withdrawal retires it, so the list and the card both move on.
+      onChanged={() => {
+        // Autoplay played or stopped: the list and the card both catch up.
         if (token) void loadMine(token);
         setLadderKey((k) => k + 1);
       }}
@@ -434,15 +323,9 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       firstFree={!firstFreeUsed}
       presetRatings={presetRatings}
       signedIn={Boolean(session)}
-      deposits={funding.mode === "deposit"}
-      holders={funding.mode === "holder"}
       holding={holding}
       onCheckHolding={checkHolding}
       checkingHolding={busy === "holding"}
-      deposit={deposit}
-      setDeposit={setDeposit}
-      rentalStep={rentalStep}
-      cutover={cutover}
     />
   );
 
@@ -588,35 +471,22 @@ function RentPanel(props: {
   firstFree: boolean;
   presetRatings: Record<string, number>;
   signedIn: boolean;
-  /** This wallet rents by depositing: the screen has to ask for an amount. */
-  deposits: boolean;
-  /** This wallet is on the holder flow: holding the minimum is the entry, nothing is paid. */
-  holders: boolean;
+  /** This wallet's holding: holding the minimum is the entry, and nothing is paid. */
   holding: HoldingView | null;
   onCheckHolding: () => void;
   checkingHolding: boolean;
-  deposit: string;
-  setDeposit: (s: string) => void;
-  rentalStep: RentalStep;
-  /** Set while the old settlement program is closing. */
-  cutover: { endsAt: string; withdrawableUntil: string } | null;
 }) {
   const ready =
     props.signedIn &&
     (props.tab === "preset" ? Boolean(props.chosen) : props.brief.trim().length >= 12) &&
-    (!props.deposits || Number(props.deposit) >= MIN_FUNDING_CHIPS) &&
-    (!props.holders || props.holding?.eligible === true);
+    props.holding?.eligible === true;
   return (
     <section className="rounded-panel border border-line bg-panel">
       <h2 className="border-b border-line px-4 py-3 text-[12px] uppercase tracking-wider text-accent">
-        {props.holders ? "Get your agent" : "Rent an agent"}
+        Get your agent
       </h2>
       <div className="space-y-3 p-3">
-        {props.holders ? (
-          <HoldingCheck holding={props.holding} onRefresh={props.onCheckHolding} refreshing={props.checkingHolding} />
-        ) : (
-          <SeasonLine />
-        )}
+        <HoldingCheck holding={props.holding} onRefresh={props.onCheckHolding} refreshing={props.checkingHolding} />
         <Segmented
           value={props.tab}
           onChange={props.setTab}
@@ -695,68 +565,24 @@ function RentPanel(props: {
           className="rounded-panel w-full bg-accent px-3 py-3 text-[14px] font-medium text-ink disabled:bg-line disabled:text-muted"
         >
           {!props.signedIn
-            ? props.holders
-              ? "Sign in to get an agent"
-              : "Sign in to rent"
+            ? "Sign in to get an agent"
             : props.busy
-              ? props.deposits
-                ? "Waiting for your wallet…"
-                : props.holders
-                  ? "Creating…"
-                  : "Renting…"
-              : props.holders && !props.holding?.eligible
+              ? "Creating…"
+              : !props.holding?.eligible
                 ? "Hold the minimum to get an agent"
                 : props.tab === "preset"
-                  ? `${props.holders ? "Play as" : "Rent"} ${props.chosen}`
-                  : props.holders
-                    ? "Play on this brief"
-                    : "Rent on this brief"}
+                  ? `Play as ${props.chosen}`
+                  : "Play on this brief"}
         </button>
         {props.tab === "brief" ? (
           <p className="text-[12px] leading-5 text-muted">
-            {props.holders ? "A brief" : "Renting on a brief"} writes its table once, with one model call. Playing it after
-            that is free.
+            A brief writes its table once, with one model call. Playing it after that is free.
           </p>
         ) : (
           <p className="text-[12px] leading-5 text-muted">
-            {props.holders ? "Presets are free to play and free to rate." : "Presets are free to rent and free to rate."}
+            Presets are free to play and free to rate.
           </p>
         )}
-        {props.deposits ? (
-          <div className="rounded-panel border border-line bg-panel-2 px-3 py-3">
-            <label htmlFor="deposit" className="block text-[12px] uppercase tracking-wider text-muted">
-              Fund it with
-            </label>
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                id="deposit"
-                type="number"
-                inputMode="numeric"
-                min={MIN_FUNDING_CHIPS}
-                value={props.deposit}
-                onChange={(e) => props.setDeposit(e.target.value)}
-                className="rounded-panel w-32 border border-line bg-panel px-3 py-2 font-mono text-[13px]"
-              />
-              <span className="text-[13px] text-muted">chips, from your own wallet</span>
-            </div>
-            {Number(props.deposit) < MIN_FUNDING_CHIPS ? (
-              <p className="mt-2 text-[12px] leading-5 text-loss">
-                At least <span className="font-mono">{MIN_FUNDING_CHIPS}</span> chips ($20): that is what an agent needs to play.
-              </p>
-            ) : null}
-            <p className="mt-2 text-[12px] leading-5 text-muted">
-              It stays yours and is never spent: a lost match costs nothing, and you can withdraw it whenever the agent
-              isn&apos;t in a match.{" "}
-              You pay the rent and this deposit in one transaction your wallet signs.{" "}
-              <span className="text-ink">
-                The agent cannot play until that transaction lands.
-              </span>{" "}
-              If you refuse it, or it fails, nothing is charged at all.
-            </p>
-          </div>
-        ) : null}
-        {props.rentalStep.at !== "idle" ? <RentalProgress step={props.rentalStep} /> : null}
-        {props.cutover && !props.deposits && !props.holders ? <CutoverNotice cutover={props.cutover} /> : null}
         {/* Devnet only, and renders nothing anywhere else: the api has no faucet
             to answer with, so nobody is shown one that cannot exist. */}
         <FaucetPanel />
@@ -951,8 +777,7 @@ function AgentCard({
   onPlay,
   busy,
   lastPlay,
-  onWithdrawn,
-  cutover,
+  onChanged,
   holder,
 }: {
   agent: AgentView;
@@ -961,16 +786,13 @@ function AgentCard({
   lastPlay: PlayResult | null;
   /** The wallet, clock and power of a holder agent; null on another flow. */
   holder: HolderView | null;
-  /** After a withdrawal: the balance and maybe retirement changed. */
-  onWithdrawn: () => void;
-  /** Set while the old settlement program is closing, for an agent still on it. */
-  cutover: { endsAt: string; withdrawableUntil: string } | null;
+  /** After autoplay played or stopped: the card may be stale. */
+  onChanged: () => void;
 }) {
   const retired = agent.retired === true;
-  // A holder agent is its owner's wallet: no rental, no vault, nothing to fund or withdraw.
+  // A holder agent is its owner's wallet. Agents from before holding was the
+  // entry are all retired; their cards show their record and nothing else.
   const isHolder = agent.funding === "holder";
-  // Expired: the season ended without a renewal. It cannot play until renewed.
-  const [expired, setExpired] = useState(false);
   return (
     <section className="rounded-panel border border-line bg-panel">
       <h2 className="border-b border-line px-4 py-3 text-[12px] uppercase tracking-wider text-accent">
@@ -1019,8 +841,7 @@ function AgentCard({
 
         {retired ? (
           <p className="rounded-panel mt-3 border border-line px-3 py-2 text-[13px] leading-5 text-muted">
-            Retired with <span className="font-mono text-gold">{agent.balance ?? 0}</span> left: it can&apos;t play
-            again. Its record is frozen at{" "}
+            Retired: it can&apos;t play again. Its record is frozen at{" "}
             {whole(agent.cumulativeNet ?? 0)} over {agent.matchesPlayed ?? 0} matches, and it stays on the ladder.
           </p>
         ) : (
@@ -1028,19 +849,9 @@ function AgentCard({
             {/* Nothing is at risk in a match, but an agent must hold the minimum to be in play. */}
             {agent.canPlay === false ? (
               <p className="rounded-panel mb-2 border border-loss/50 px-3 py-2 text-[13px] leading-5 text-loss">
-                {isHolder ? (
-                  <>
-                    Your wallet holds <span className="font-mono">{agent.balance ?? 0}</span> chips&apos; worth, and an
-                    agent needs <span className="font-mono">{agent.minToPlay ?? MIN_FUNDING_CHIPS}</span>. Hold it again
-                    and it plays again, within ten minutes.
-                  </>
-                ) : (
-                  <>
-                    <span className="font-mono">{agent.balance ?? 0}</span> left, and an agent needs{" "}
-                    <span className="font-mono">{agent.minToPlay ?? MIN_FUNDING_CHIPS}</span> to play. Top it up to play
-                    again, or withdraw.
-                  </>
-                )}
+                Your wallet holds <span className="font-mono">{agent.balance ?? 0}</span> chips&apos; worth, and an agent
+                needs <span className="font-mono">{agent.minToPlay ?? MIN_FUNDING_CHIPS}</span>. Hold it again and it plays
+                again, within ten minutes.
               </p>
             ) : null}
           </div>
@@ -1054,10 +865,10 @@ function AgentCard({
 
         <button
           onClick={onPlay}
-          disabled={busy || retired || expired}
+          disabled={busy || retired}
           className="rounded-panel mt-3 w-full bg-accent px-3 py-3 text-[14px] font-medium text-ink disabled:bg-line disabled:text-muted"
         >
-          {retired ? "Retired" : expired ? "Expired: renew to play" : busy ? "Playing…" : "Play a match"}
+          {retired ? "Retired" : busy ? "Playing…" : "Play a match"}
         </button>
 
         {lastPlay ? (
@@ -1079,65 +890,17 @@ function AgentCard({
         ) : null}
 
         {!(agent.id ?? agent.agentId) ? null : (
-          <RentalPanel
-            agentId={(agent.id ?? agent.agentId)!}
-            refreshKey={`${agent.balance ?? ""}-${agent.matchesPlayed ?? ""}`}
-            onChanged={(state) => {
-              setExpired(state === "expired");
-              // Lapsing retires it: the card has to say so.
-              if (state === "lapsed" && !retired) onWithdrawn();
-            }}
-          />
-        )}
-
-        {!(agent.id ?? agent.agentId) ? null : (
           <AutoplayPanel
             agentId={(agent.id ?? agent.agentId)!}
             retired={retired}
             holder={isHolder}
             refreshKey={`${agent.balance ?? ""}-${agent.matchesPlayed ?? ""}`}
-            onChanged={onWithdrawn}
+            onChanged={onChanged}
           />
         )}
 
         {isHolder && holder ? <PowerPanel holder={holder} /> : null}
 
-        {cutover && agent.funding === "seed" && !retired ? (
-          <div className="mt-4">
-            <CutoverNotice cutover={cutover} agentName={agent.name} />
-          </div>
-        ) : null}
-
-        {isHolder || !(agent.id ?? agent.agentId) ? null : (
-          <DepositPanel
-            agentId={(agent.id ?? agent.agentId)!}
-            canDeposit={agent.funding === "deposit" && !retired}
-            blocked={agent.depositBlocked ?? null}
-            onChanged={onWithdrawn}
-          />
-        )}
-
-        {isHolder || !(agent.id ?? agent.agentId) ? null : (
-          <LossBudgetPanel
-            agentId={(agent.id ?? agent.agentId)!}
-            budget={agent.lossBudget}
-            // Budgets live in the deposit program, and only once the rental has
-            // landed - which is also when Add Funds stops being blocked.
-            canChange={agent.funding === "deposit" && !retired && !agent.depositBlocked}
-            onChanged={onWithdrawn}
-          />
-        )}
-
-        {/* Stays mounted when the agent retires, so the withdrawal that retired it can say so. */}
-        {isHolder || !(agent.id ?? agent.agentId) ? null : (
-          <WithdrawPanel
-            agentId={(agent.id ?? agent.agentId)!}
-            agentName={agent.name}
-            retired={retired}
-            refreshKey={`${agent.balance ?? ""}-${agent.matchesPlayed ?? ""}`}
-            onChanged={onWithdrawn}
-          />
-        )}
       </div>
     </section>
   );

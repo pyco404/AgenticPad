@@ -91,8 +91,7 @@ fi
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 git archive HEAD web | tar -x -C "$STAGE"
-# web/app/exit-panel.tsx imports from web/public/exit, which git archive
-# already carried; nothing outside web/ is needed.
+# Nothing outside web/ is needed.
 [ -f "$STAGE/web/package.json" ] || { echo "staging produced no web/package.json"; exit 1; }
 # So that "is production HEAD?" has an answer anyone can check, rather than
 # being something you have to trust this script about.

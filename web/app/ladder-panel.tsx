@@ -184,12 +184,12 @@ export function LadderPanel({
             evidence of anything. House agents themselves aren&apos;t listed: they can never rank.
           </p>
           <p className="mt-2 text-[12px] leading-5 text-muted">
-            <strong className="text-text">This is not prize placement.</strong> Prizes are decided on net per chip
-            staked over ranked matches, with a minimum match count &mdash; a different ordering, shown separately on{" "}
+            <strong className="text-text">This is not the reward score.</strong> Rewards pay on net chips won times
+            the weight an owner&apos;s holding earns, with a minimum of ranked matches &mdash; shown separately on{" "}
             <Link href="/rewards" className="text-accent">
               rewards
             </Link>
-            . Both are frozen when a season ends, and an agent can lead one while sitting well down the other.
+            . An agent can lead one while sitting well down the other.
           </p>
         </details>
       </div>
