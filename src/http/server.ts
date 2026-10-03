@@ -20,7 +20,6 @@ import {
   runMatch,
   type LadderTab,
   field,
-  holdsEnoughToPlay,
 } from "../db/runner.js";
 import { autoplayStatus, markSeen, setAutoplay, sinceYouLeft } from "../db/autoplay.js";
 import { dayFromDate, dayOf, dayScores, seasonScores } from "../db/scores.js";
@@ -345,11 +344,17 @@ export function createApp(options: AppOptions): Server {
     }
     const name = chosenName ?? "New agent";
 
-    // On the holder flow the wallet must hold the minimum, read now rather than
-    // trusted to an old reading - and before any model call is spent on a
+    // Holding is the agent: the wallet must hold the minimum, read now rather
+    // than trusted to an old reading - and before any model call is spent on a
     // brief for an agent the wallet cannot have.
     const holder = options.holder?.allow(ownerId) ? options.holder : undefined;
-    if (holder) {
+    if (!holder) {
+      throw new HttpError(
+        options.holder ? 403 : 503,
+        options.holder ? "agents aren't open to this wallet yet" : "this server reads no wallets, so it can't give anyone an agent",
+      );
+    }
+    {
       let holding;
       try {
         holding = await readHolding(db, holder.chain, ownerId);
@@ -382,9 +387,9 @@ export function createApp(options: AppOptions): Server {
       table = validatePolicy(result.table);
     }
 
-    // One agent in play per wallet. The check and the rental share a transaction
-    // and a lock on this wallet, so renting from two devices at once still
-    // leaves one agent, not two.
+    // One agent in play per wallet. The check and the creation share a
+    // transaction and a lock on this wallet, so asking from two devices at once
+    // still leaves one agent, not two.
     const row = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 0))`);
       const active = await activeAgentsOf(tx as unknown as Db, ownerId);
@@ -402,7 +407,7 @@ export function createApp(options: AppOptions): Server {
         ...(brief ? { brief } : {}),
         ...(table ? { policyTable: table } : {}),
       };
-      return createAgent(t, holder ? { ...wanted, funding: "holder" } : wanted);
+      return createAgent(t, wanted);
     });
     await refreshTrueRatings(db);
     // Its character: a face, a name unless the owner gave one, an epithet and a
@@ -468,14 +473,13 @@ export function createApp(options: AppOptions): Server {
   }
 
   /** Whether an agent holds enough to play, and what that is, for the agent panel. */
-  function playStatus(row: { balance: number; funding: Funding; house?: boolean; inPlay?: boolean }) {
+  function playStatus(row: { house?: boolean; inPlay: boolean }) {
     return {
       /** The least it must hold to play, in chips. */
       minToPlay: MIN_FUNDING_CHIPS,
-      // A house agent never stakes, so nothing is asked of its balance - usually nothing.
-      // inPlay where the row carries it (every public view does): it knows a
-      // holder's conviction amount, which the balance alone does not.
-      canPlay: row.house === true || (row.inPlay ?? holdsEnoughToPlay(row.balance, rateOf(row))),
+      // A house agent holds nothing and is never asked to. A player's is
+      // inPlaySql: it knows the conviction amount, which the balance alone does not.
+      canPlay: row.house === true || row.inPlay,
     };
   }
 
@@ -609,36 +613,14 @@ export function createApp(options: AppOptions): Server {
     const enabled = ctx.body["enabled"];
     if (typeof enabled !== "boolean") throw new HttpError(400, "enabled must be true or false");
 
-    // A floor is optional; null removes it. It is rejected rather than clamped:
-    // a floor the server quietly changed would not be the owner's floor.
-    let floor = row.autoplayFloor;
-    if ("floor" in ctx.body) {
-      const value = ctx.body["floor"];
-      if (value === null) floor = null;
-      else if (typeof value === "number" && Number.isInteger(value) && value >= 0) floor = value;
-      else throw new HttpError(400, "floor must be a whole number of chips, or null");
-    }
+    await setAutoplay(db, row, enabled);
 
-    await setAutoplay(db, row, enabled, floor);
-
-    // Say now whether it can actually play, so turning it on does not look
-    // like it worked when the balance says otherwise.
     const [updated] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
     // The same block the panel reads, so turning it on shows at once whether
     // it can actually play - not a success that the next tick contradicts.
     return { autoplay: await autoplayStatus(db, updated!, { intervalMs: autoplayIntervalMs }) };
   }
 
-  /** The season in play: what the rent screen counts down to. Public. */
-  /**
-   * A season's prize standing: the order prizes would pay in, as things stand.
-   *
-   * Deliberately its own endpoint rather than a tab on /ladder. The ladder
-   * ranks net won; this ranks net per chip staked over ranked matches, with a
-   * minimum match count. They are different questions and they give different
-   * answers, and serving them from one route invites a client to relabel one
-   * as the other.
-   */
   /**
    * Holder scores (docs/holder-agents.md, Scoring). `?day=YYYY-MM-DD` for one
    * UTC day, `?season=` a Monday for a season; with neither, today and this
@@ -670,20 +652,11 @@ export function createApp(options: AppOptions): Server {
   }
 
   /**
-   * A season's statement: what the season did, and what it would pay.
-   *
-   * The prize side is empty on purpose and says so - `funded` is false and
-   * every amount is null rather than zero, because "nothing was paid" and "we
-   * do not know yet" must not look alike. What it does carry is the order the
-   * places would pay in.
-   */
-  /**
    * Operational health, for the wallets in `adminWallets`.
    *
-   * A reader, not a measurer. The settlement lag, the reconciler, the solvency
-   * line and the season statement each already know their piece; this puts
-   * them in one response so one page can show them together. The only thing it
-   * decides is who may see it.
+   * A reader, not a measurer: src/db/admin.ts reads the wallet readings and the
+   * score freeze from where they already live. The only thing this decides is
+   * who may see it.
    *
    * Signed out, or signed in as anyone else, it is a 404 rather than a 403:
    * there is no reason to confirm to a stranger that the page exists.
@@ -697,6 +670,10 @@ export function createApp(options: AppOptions): Server {
     return options.health();
   }
 
+  /**
+   * A season's statement: what the season did, and the scores it would pay
+   * on. Nothing is paid yet; the scores say who would be, and what share.
+   */
   async function getStatement(ctx: Ctx) {
     const now = new Date();
     let season;

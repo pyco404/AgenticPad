@@ -12,14 +12,6 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const SEASON_MS = 7 * DAY_MS;
-/**
- * How long an agent that was not renewed stays expired - unable to play, but
- * renewable with its record intact - before it lapses and retires. On mainnet
- * the auction window takes this place.
- */
-export const GRACE_MS = DAY_MS;
-/** How long before the end the owner is reminded to renew. */
-export const RENEWAL_REMINDER_MS = 3 * DAY_MS;
 /** The first season. Matches before it belong to no season and count only all-time. */
 export const FIRST_SEASON = "2026-09-21";
 

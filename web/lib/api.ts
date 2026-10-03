@@ -183,10 +183,10 @@ export type PlayResult = {
 export type AutoplayState = "off" | "on" | "waiting" | "held" | "paused";
 export type AutoplayStatus = {
   enabled: boolean;
-  floor: number | null;
   state: AutoplayState;
   message: string | null;
   action: string | null;
+  /** insolvent and retired are made now; the rest are from before holding was the entry, still in old rows. */
   stop: { reason: "floor" | "insolvent" | "retired" | "withdrawal" | "season" | "exit"; hold: boolean } | null;
   lastMatchAt: string | null;
   nextMatchAt: string | null;
@@ -346,7 +346,7 @@ export const api = {
       `/agents/${id}`,
       { token },
     ),
-  setAutoplay: (token: string | null, id: string, input: { enabled: boolean; floor?: number | null }) =>
+  setAutoplay: (token: string | null, id: string, input: { enabled: boolean }) =>
     request<{ autoplay: AutoplayStatus }>(`/agents/${id}/autoplay`, { method: "POST", token, body: JSON.stringify(input) }),
   markSeen: (token: string | null, id: string) => request<{ ok: true }>(`/agents/${id}/seen`, { method: "POST", token }),
   play: (token: string | null, id: string) => request<PlayResult>(`/agents/${id}/play`, { method: "POST", token }),

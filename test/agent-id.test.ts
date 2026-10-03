@@ -3,7 +3,7 @@ import { Keypair } from "@solana/web3.js";
 import { agentIdFor, newAgentId } from "../src/agent-id.js";
 import { connect, migrate } from "../src/db/client.js";
 import { createAgent } from "../src/db/runner.js";
-import { someWallet } from "./helpers.js";
+import { someWallet, createPlayer } from "./helpers.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -43,7 +43,7 @@ describe("creating an agent", () => {
     const { db, close } = await connect();
     await migrate(db);
     const owner = someWallet();
-    const mine = await createAgent(db, { name: "Mine", presetName: "Anchor", ownerId: owner });
+    const mine = await createPlayer(db, { name: "Mine", presetName: "Anchor", ownerId: owner });
     const house = await createAgent(db, { name: "House", presetName: "Bully" });
     expect(agentIdFor(owner, mine.salt)).toBe(mine.id);
     // A house agent has no owner, and its id says so.

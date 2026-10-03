@@ -5,7 +5,7 @@ import { agents, characters } from "../src/db/schema.js";
 import { createAgent, snapshotPreset } from "../src/db/runner.js";
 import { agentsWithoutCharacter, characterOf, createCharacter, isDefaultName, ownerCharacter, portraitSvg, publicCharacter, recheckNames, type CharacterDeps } from "../src/character/store.js";
 import type { TextCheck } from "../src/character/moderation.js";
-import { someWallet } from "./helpers.js";
+import { someWallet, createPlayer } from "./helpers.js";
 
 const fresh = async () => {
   const c = await connect();
@@ -17,7 +17,7 @@ const nameOf = async (db: Db, id: string) => (await db.select({ n: agents.name }
 describe("creating a character", () => {
   it("does it once: a second call returns the same character", async () => {
     const { db, close } = await fresh();
-    const a = await createAgent(db, { name: "Mirage rental", presetName: "Mirage", ownerId: someWallet() });
+    const a = await createPlayer(db, { name: "Mirage rental", presetName: "Mirage", ownerId: someWallet() });
     const first = await createCharacter(db, a.id);
     const second = await createCharacter(db, a.id);
     expect(second).toEqual(first);
@@ -27,8 +27,8 @@ describe("creating a character", () => {
 
   it("replaces a name nobody chose, keeps one the owner did, and names house agents", async () => {
     const { db, close } = await fresh();
-    const defaulted = await createAgent(db, { name: "Mirage rental", presetName: "Mirage", ownerId: someWallet() });
-    const chosen = await createAgent(db, { name: "Lanternjaw", presetName: "Anchor", ownerId: someWallet() });
+    const defaulted = await createPlayer(db, { name: "Mirage rental", presetName: "Mirage", ownerId: someWallet() });
+    const chosen = await createPlayer(db, { name: "Lanternjaw", presetName: "Anchor", ownerId: someWallet() });
     const house = await createAgent(db, { name: "Longshadow-7774", presetName: "Bully" });
     await createCharacter(db, defaulted.id);
     await createCharacter(db, chosen.id, { nameVerdict: { ok: true, reason: null, checked: true } });
@@ -62,17 +62,17 @@ describe("creating a character", () => {
       writeBio: async () => bio,
       check: async () => (verdict ? { ok: true, reason: null } : { ok: false, reason: "no" }),
     });
-    const good = await createAgent(db, { name: "Briefed", brief: "bluff a lot", policyTable: snapshotPreset("Mirage"), ownerId: someWallet() });
+    const good = await createPlayer(db, { name: "Briefed", brief: "bluff a lot", policyTable: snapshotPreset("Mirage"), ownerId: someWallet() });
     const c1 = await createCharacter(db, good.id, { deps: deps("It smiles at every raise and means none of them.", true) });
     expect(c1).toMatchObject({ bioSource: "model", bio: "It smiles at every raise and means none of them.", moderation: "ok" });
 
-    const bad = await createAgent(db, { name: "Briefed", brief: "bluff a lot", policyTable: snapshotPreset("Mirage"), ownerId: someWallet() });
+    const bad = await createPlayer(db, { name: "Briefed", brief: "bluff a lot", policyTable: snapshotPreset("Mirage"), ownerId: someWallet() });
     const c2 = await createCharacter(db, bad.id, { deps: deps("A bio that fails the check for some reason.", false) });
     expect(c2.bioSource).toBe("template");
 
     // A preset agent never costs a model call.
     let called = 0;
-    const preset = await createAgent(db, { name: "P", presetName: "Anchor", ownerId: someWallet() });
+    const preset = await createPlayer(db, { name: "P", presetName: "Anchor", ownerId: someWallet() });
     await createCharacter(db, preset.id, { deps: { check: null, writeBio: async () => (called++, "unused bio text here") } });
     expect(called).toBe(0);
     await close();
@@ -80,7 +80,7 @@ describe("creating a character", () => {
 
   it("shows a generated name in public while a chosen name waits for its check", async () => {
     const { db, close } = await fresh();
-    const a = await createAgent(db, { name: "Unverified", presetName: "Hammer", ownerId: someWallet() });
+    const a = await createPlayer(db, { name: "Unverified", presetName: "Hammer", ownerId: someWallet() });
     const c = await createCharacter(db, a.id, { nameVerdict: { ok: true, reason: null, checked: false } });
     expect(await nameOf(db, a.id)).not.toBe("Unverified");
     expect(c).toMatchObject({ nameSource: "generated", pendingName: "Unverified", moderation: "pending" });
@@ -93,7 +93,7 @@ describe("creating a character", () => {
   it("switches to the chosen name once it passes, flags it if it fails, and waits while the check is down", async () => {
     const { db, close } = await fresh();
     const mk = async (name: string) => {
-      const a = await createAgent(db, { name, presetName: "Anchor", ownerId: someWallet() });
+      const a = await createPlayer(db, { name, presetName: "Anchor", ownerId: someWallet() });
       await createCharacter(db, a.id, { nameVerdict: { ok: true, reason: null, checked: false } });
       return a.id;
     };
@@ -119,7 +119,7 @@ describe("creating a character", () => {
 
   it("keeps an owner's name that fails its check in the backfill, flagged for a person to decide", async () => {
     const { db, close } = await fresh();
-    const a = await createAgent(db, { name: "Questionable", presetName: "Anchor", ownerId: someWallet() });
+    const a = await createPlayer(db, { name: "Questionable", presetName: "Anchor", ownerId: someWallet() });
     const c = await createCharacter(db, a.id, { nameVerdict: { ok: false, reason: "it names a real person", checked: true } });
     expect(await nameOf(db, a.id)).toBe("Questionable");
     expect(c).toMatchObject({ nameSource: "owner", moderation: "flagged", moderationNote: "name failed its check: it names a real person" });

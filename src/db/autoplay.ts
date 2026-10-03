@@ -5,12 +5,10 @@ import { pickOpponent, runMatch } from "./runner.js";
 import { balanceOf, inPlayOf, StakeError } from "./ledger.js";
 import { chips, rateOf } from "../chips.js";
 import { recordEvent } from "./events.js";
-import { rentalOpen, rentalOpenSql } from "./rental.js";
 import { headlineFor } from "../transcript.js";
 import {
   agents,
   matches,
-  WORST_MATCH,
   MIN_FUNDING_CHIPS,
   AUTOPLAY_INTERVAL_MS,
   AUTOPLAY_SELF_CLEARING,
@@ -19,16 +17,14 @@ import {
 } from "./schema.js";
 
 /**
- * Autoplay: the server plays a rented agent on a timer.
+ * Autoplay: the server plays a player's agent on a timer.
  *
- * The owner turns it on, sets a floor, and closes the tab. Nothing here needs
- * the site open and nothing here is signed by an owner - a match settles the
- * same way it does when the button is pressed by hand, through the settler key
- * and the outbox.
+ * The owner turns it on and closes the tab. Nothing here needs the site open
+ * and nothing is signed: a match moves no money (docs/holder-agents.md), so
+ * there is nothing to guard but whether the agent is in play at all.
  *
- * Only player agents. House agents have their own loop in house.ts, which
- * stakes nothing and settles nothing; an agent with no owner is never selected
- * here.
+ * Only player agents. House agents have their own loop in house.ts; an agent
+ * with no owner is never selected here.
  */
 
 /** A stop that clears itself when the cause goes away, versus one the owner must undo. */
@@ -40,37 +36,19 @@ export type AutoplayCheck =
 
 /**
  * Whether this agent may play right now, and if not, which kind of stop it is.
- *
- * Order matters: retirement and a withdrawal are facts about the agent, while
- * the floor and solvency are facts about its balance, and an agent that is
- * both retired and broke should be told it is retired.
+ * Retirement first: an agent that is both retired and out of play should be
+ * told it is retired.
  */
 export async function checkAgent(db: Db, row: AgentRow): Promise<AutoplayCheck> {
   if (row.retiredAt !== null) return { play: false, reason: "retired", detail: "the agent is retired" };
-
-  // In chips from here down: the floor is the owner's figure and the widest
-  // net a match can produce is a chip figure, so the balance meets them in their own unit.
-  // Rounding down is the conservative direction - a balance a fraction of a
-  // chip short of covering a match is treated as short, which it is.
-  const balance = chips(await balanceOf(db, row.id), rateOf(row));
-  const worst = WORST_MATCH;
-  // inPlaySql rather than the balance against the minimum: a holder agent that
-  // keeps its conviction amount is in play even after a retune raised the minimum.
+  // inPlaySql: the wallet holds the minimum, or the conviction amount it
+  // qualified with, so a retune that raised the minimum stops nobody who has not sold.
   if (!(await inPlayOf(db, [row.id])).get(row.id)) {
+    const balance = chips(await balanceOf(db, row.id), rateOf(row));
     return {
       play: false,
       reason: "insolvent",
-      detail: `${balance} is below the ${MIN_FUNDING_CHIPS} an agent needs to play`,
-    };
-  }
-  // A floor is a floor: stop before a match that *could* go through it, not
-  // after one that did. The worst a match can take is `worst`, so anything
-  // below floor + worst is already too close.
-  if (row.autoplayFloor !== null && balance - worst < row.autoplayFloor) {
-    return {
-      play: false,
-      reason: "floor",
-      detail: `balance ${balance} is within one match of your floor (${row.autoplayFloor})`,
+      detail: `the wallet holds ${balance}, below the ${MIN_FUNDING_CHIPS} an agent needs to play`,
     };
   }
   return { play: true };
@@ -95,25 +73,16 @@ export async function stopAgent(db: Db, agentId: string, reason: AutoplayStop): 
 }
 
 /**
- * The owner switches autoplay on or off, or moves the floor. Recorded only
- * where something changed, so the record reads as what the owner did rather
- * than how often the panel was saved.
+ * The owner switches autoplay on or off. Recorded only where something
+ * changed, so the record reads as what the owner did rather than how often
+ * the panel was saved.
  */
-export async function setAutoplay(db: Db, row: AgentRow, enabled: boolean, floor: number | null): Promise<void> {
+export async function setAutoplay(db: Db, row: AgentRow, enabled: boolean): Promise<void> {
   await db
     .update(agents)
-    .set({
-      autoplay: enabled,
-      autoplayFloor: floor,
-      ...(enabled ? { autoplayStoppedReason: null, autoplayStoppedAt: null } : {}),
-    })
+    .set({ autoplay: enabled, ...(enabled ? { autoplayStoppedReason: null, autoplayStoppedAt: null } : {}) })
     .where(eq(agents.id, row.id));
-  const floorText = floor === null ? "no floor" : `floor ${floor}`;
-  if (enabled !== row.autoplay) {
-    await recordEvent(db, row.id, enabled ? "autoplay-on" : "autoplay-off", "owner", floorText);
-  } else if (floor !== row.autoplayFloor) {
-    await recordEvent(db, row.id, "floor", "owner", floorText);
-  }
+  if (enabled !== row.autoplay) await recordEvent(db, row.id, enabled ? "autoplay-on" : "autoplay-off", "owner", null);
 }
 
 /** Clears a stop once the agent has played again. */
@@ -144,8 +113,6 @@ export async function dueAgents(db: Db, intervalMs: number, now = new Date()): P
         eq(agents.autoplay, true),
         isNotNull(agents.ownerId),
         isNull(agents.retiredAt),
-        // Expired: nothing to play until the owner renews, so not due.
-        rentalOpenSql(now),
         or(isNull(agents.autoplayLastMatchAt), lte(agents.autoplayLastMatchAt, due)),
       ),
     )
@@ -290,9 +257,8 @@ export type AutoplayState = "off" | "on" | "waiting" | "held" | "paused";
 
 export type AutoplayStatus = {
   enabled: boolean;
-  floor: number | null;
   state: AutoplayState;
-  /** The headline, with the numbers: "Paused: one match from your floor (300)." */
+  /** The headline, with the numbers: "Held: your wallet holds 1,800, below the 3,600 an agent needs." */
   message: string | null;
   /** What, if anything, the owner has to do about it. */
   action: string | null;
@@ -307,58 +273,31 @@ export type AutoplayStatus = {
   intervalMs: number;
 };
 
-/** The words for a stop, with its numbers filled in from the agent as it stands. */
-function describeStop(
-  reason: AutoplayStop,
-  row: AgentRow,
-  balance: number,
-): { message: string; action: string } {
-  const worst = WORST_MATCH;
+/**
+ * The words for a stop, with its numbers filled in from the agent as it
+ * stands. Withdrawal, floor, season and exit stops are from the models before
+ * holding was the entry: none is made any more, but rows from then still say
+ * so, and the panel must still have words for them.
+ */
+function describeStop(reason: AutoplayStop, balance: number): { message: string; action: string } {
   switch (reason) {
-    case "withdrawal":
-      return {
-        message: "Held: withdrawal settling, resumes automatically.",
-        action: "Nothing to do - it picks up again once the withdrawal lands.",
-      };
-    case "floor":
-      return {
-        // Two cases, so the headline never contradicts the balance beside it:
-        // usually it is one match away, but an owner can set a floor above what
-        // the agent holds, and then it is already past it.
-        message:
-          balance <= (row.autoplayFloor ?? 0)
-            ? `Paused: balance is below your floor (${row.autoplayFloor ?? 0}).`
-            : `Paused: one match from your floor (${row.autoplayFloor ?? 0}).`,
-        action: `Balance is ${balance}, and a match can move ${worst}, so the next match could take it below your floor. You need to switch it back on - lower the floor first if you want it to keep playing.`,
-      };
     case "insolvent":
       return {
-        message: `Paused: balance ${balance} is below the ${MIN_FUNDING_CHIPS} an agent needs to play.`,
-        action:
-          row.funding === "holder"
-            ? `Hold at least ${MIN_FUNDING_CHIPS} chips' worth of $CLASH in your wallet again, then switch it back on.`
-            : `Add funds to bring it to at least ${MIN_FUNDING_CHIPS}, then switch it back on.`,
+        message: `Held: your wallet holds ${balance}, below the ${MIN_FUNDING_CHIPS} an agent needs to play.`,
+        action: `Nothing to switch on: hold ${MIN_FUNDING_CHIPS} chips' worth of $CLASH again and it plays again, within ten minutes.`,
       };
     case "retired":
       return {
         message: "Paused: this agent is retired.",
         action: "A retired agent can't play again.",
       };
+    case "withdrawal":
+    case "floor":
     case "season":
-      return rentalOpen(row)
-        ? {
-            message: "Paused: a new season started.",
-            action: "Autoplay stops at every season boundary. Switch it back on to play this season - the floor is as you left it.",
-          }
-        : {
-            message: "Paused: the season ended and this rental wasn't renewed.",
-            action: "Renew it within 24 hours of the boundary to keep it and its record; after that it retires, and its balance stays withdrawable.",
-          };
     case "exit":
       return {
-        message: "Paused: you asked to take this agent's money out on chain.",
-        action:
-          "It can't play while an exit is waiting - the money may be about to leave. Claim it once the window is up, or cancel the exit and switch autoplay back on.",
+        message: "Paused, from before holding was the entry.",
+        action: "Switch it back on to play.",
       };
   }
 }
@@ -380,8 +319,7 @@ export async function autoplayStatus(
 ): Promise<AutoplayStatus> {
   const intervalMs = options.intervalMs ?? AUTOPLAY_INTERVAL_MS;
   const now = options.now ?? new Date();
-  // Chips: this is what the owner's panel says, and it is read against the
-  // floor and the widest net a match can produce, both of which are chips.
+  // Chips: this is what the owner's panel says.
   const balance = chips(await balanceOf(db, row.id), rateOf(row));
 
   const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -413,7 +351,7 @@ export async function autoplayStatus(
     state = "off";
   }
 
-  const words = stop ? describeStop(stop.reason, row, balance) : null;
+  const words = stop ? describeStop(stop.reason, balance) : null;
   // A countdown only means something while the timer is actually running. A
   // waiting agent retries on every poll so that it plays the moment an
   // opponent appears, which is sooner than any countdown would claim.
@@ -424,7 +362,6 @@ export async function autoplayStatus(
 
   return {
     enabled: row.autoplay,
-    floor: row.autoplayFloor,
     state,
     message: words?.message ?? null,
     action: words?.action ?? null,

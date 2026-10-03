@@ -33,7 +33,7 @@ async function holder(db: Db, name: string, held: Map<string, number>, amount = 
   const owner = someWallet();
   held.set(owner, amount);
   await readHolding(db, holdingsOf(held), owner);
-  return createAgent(db, { name, presetName: "Anchor", ownerId: owner, funding: "holder" });
+  return createAgent(db, { name, presetName: "Anchor", ownerId: owner });
 }
 
 /** A recorded match with a chosen net and moment. Ranked when both sides are players. */

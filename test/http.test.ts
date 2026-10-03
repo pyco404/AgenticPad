@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
@@ -9,9 +9,10 @@ import { createAgent, snapshotPreset } from "../src/db/runner.js";
 import { refreshTrueRatings } from "../src/db/rating.js";
 import { seasonAt } from "../src/season.js";
 import { PRESET_NAMES } from "../src/index.js";
-import { agents, MIN_STAKE, STARTING_BALANCE, WORST_MATCH } from "../src/db/schema.js";
+import { agents, MIN_FUNDING_CHIPS, WORST_MATCH } from "../src/db/schema.js";
+import { holdingMinimum } from "../src/db/holdings.js";
 import { balanceOf } from "../src/db/ledger.js";
-import { someWallet } from "./helpers.js";
+import { someWallet, createPlayer, everyoneHolds, holdFor } from "./helpers.js";
 
 // Over real HTTP: the tests start a server and use fetch, so routing, headers,
 // status codes and JSON parsing are all exercised.
@@ -102,7 +103,7 @@ beforeAll(async () => {
   // They have to be players: a match against a house agent stakes nothing, so
   // the cover rule would not apply to it and the feed would not carry it.
   for (let i = 0; i < 8; i++) {
-    await createAgent(db, {
+    await createPlayer(db, {
       name: `Roster-${i}`,
       presetName: PRESET_NAMES[i % PRESET_NAMES.length]!,
       ownerId: someWallet(),
@@ -111,6 +112,7 @@ beforeAll(async () => {
   await refreshTrueRatings(db);
   ({ url, close: closeServer } = await listen({
     db,
+    holder: everyoneHolds(),
     elicit,
     rateLimit: { limit: 3, windowMs: 60_000 },
     nonceRateLimit: { limit: 1000, windowMs: 60_000 },
@@ -384,18 +386,18 @@ describe("CORS", () => {
 });
 
 describe("staking over HTTP", () => {
-  it("seeds a balance on renting and reports it, with no band anywhere", async () => {
+  it("reports the wallet's holding as the balance, with no band anywhere", async () => {
     const owner = someWallet();
     const created = await readBody(
       await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Banked", presetName: "Anchor" }) }),
     );
-    expect(created.agent.balance).toBe(STARTING_BALANCE);
+    expect(created.agent.balance).toBe(MIN_FUNDING_CHIPS);
     expect(created.agent.retired).toBe(false);
     expect(created.agent.canPlay).toBe(true);
     expect("band" in created.agent).toBe(false);
 
     const seen = await readBody(await api(`/agents/${created.agent.id}`, { owner: OTHER }));
-    expect(seen.agent.balance).toBe(STARTING_BALANCE);
+    expect(seen.agent.balance).toBe(MIN_FUNDING_CHIPS);
     expect("band" in seen.agent).toBe(false);
   });
 
@@ -405,12 +407,11 @@ describe("staking over HTTP", () => {
       await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Stakes", presetName: "Bully" }) }),
     );
     const played = await readBody(await api(`/agents/${created.agent.id}/play`, { method: "POST", owner }));
-    expect(played.stake).toBeGreaterThanOrEqual(MIN_STAKE);
     expect(played.stake).toBe(WORST_MATCH);
     expect(Math.abs(played.result.net)).toBeLessThanOrEqual(played.stake);
-    // Won or lost, nothing moved: a lost match costs nothing.
-    expect(played.balance).toBe(STARTING_BALANCE);
-    expect(played.balance).toBe(await balanceOf(db, created.agent.id));
+    // Won or lost, nothing moved: a lost match costs nothing, and the balance is the wallet's.
+    expect(played.balance).toBe(MIN_FUNDING_CHIPS);
+    expect(await balanceOf(db, created.agent.id)).toBe(holdingMinimum());
   });
 
   it("refuses to play an agent that holds too little to be in play", async () => {
@@ -418,10 +419,8 @@ describe("staking over HTTP", () => {
     const created = await readBody(
       await api("/agents", { method: "POST", owner, body: JSON.stringify({ name: "Skint", presetName: "Mirage" }) }),
     );
-    // Drain it to below the minimum to play.
-    await db.execute(
-      sql`insert into ledger (agent_id, amount, reason) values (${created.agent.id}::uuid, ${-(STARTING_BALANCE - 2)}, 'adjustment')`,
-    );
+    // Its owner sells below the minimum to play.
+    await holdFor(db, walletOf(owner), 2);
     const res = await api(`/agents/${created.agent.id}/play`, { method: "POST", owner });
     expect(res.status).toBe(409);
     expect((await readBody(res)).error).toMatch(/holds too little to play/);
@@ -729,7 +728,8 @@ describe("one agent at a time", () => {
       agentId: agent.id,
       name: "Only",
       presetName: "Anchor",
-      balance: STARTING_BALANCE,
+      // Base units: the wallet's holding as read.
+      balance: holdingMinimum(),
       retired: false,
       house: false,
     });
@@ -763,22 +763,22 @@ describe("autoplay over http", () => {
     expect(signedOut.autoplay).toBeUndefined();
   });
 
-  it("turns autoplay on with a floor, and reports at once whether it can play", async () => {
+  it("turns autoplay on, and reports at once whether it can play", async () => {
     const owner = someWallet();
     const agent = await create(owner, "Switch");
     const on = await readBody(
-      await api(`/agents/${agent.id}/autoplay`, { method: "POST", owner, body: JSON.stringify({ enabled: true, floor: 300 }) }),
+      await api(`/agents/${agent.id}/autoplay`, { method: "POST", owner, body: JSON.stringify({ enabled: true }) }),
     );
     expect(on.autoplay.enabled).toBe(true);
-    expect(on.autoplay.floor).toBe(300);
     expect(["on", "waiting"]).toContain(on.autoplay.state);
 
-    // A floor it cannot clear: the response says so now, not on the next tick.
-    const tooHigh = await readBody(
-      await api(`/agents/${agent.id}/autoplay`, { method: "POST", owner, body: JSON.stringify({ enabled: true, floor: 5000 }) }),
+    // Its owner sells below the minimum: the response says so now, not on the next tick.
+    await holdFor(db, walletOf(owner), 2);
+    const short = await readBody(
+      await api(`/agents/${agent.id}/autoplay`, { method: "POST", owner, body: JSON.stringify({ enabled: true }) }),
     );
-    expect(tooHigh.autoplay.state).toBe("paused");
-    expect(tooHigh.autoplay.message).toBe("Paused: balance is below your floor (5000).");
+    expect(short.autoplay.state).toBe("held");
+    expect(short.autoplay.message).toMatch(/^Held: your wallet holds 0, below the 3600/);
   });
 
   it("refuses to let anyone else switch it or mark it seen", async () => {
@@ -791,14 +791,6 @@ describe("autoplay over http", () => {
     expect(seen.status).toBe(403);
   });
 
-  it("rejects a floor that is not a whole number of chips", async () => {
-    const owner = someWallet();
-    const agent = await create(owner, "BadFloor");
-    for (const floor of [-1, 12.5, "300"]) {
-      const res = await api(`/agents/${agent.id}/autoplay`, { method: "POST", owner, body: JSON.stringify({ enabled: true, floor }) });
-      expect(res.status).toBe(400);
-    }
-  });
 });
 
 describe("characters over HTTP", () => {

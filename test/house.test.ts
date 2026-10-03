@@ -5,10 +5,10 @@ import { agents, chainOps, ledger, matches, MIN_FUNDING_CHIPS, ratings } from ".
 import { balanceOf } from "../src/db/ledger.js";
 import { createAgent, pickOpponent, runExhibition, runMatch } from "../src/db/runner.js";
 import { agentRecord, matchActivity, recentMatches } from "../src/db/feed.js";
-import { DEPOSIT_HOUSE, ensureDepositHouse, pickHousePair, retireSeedHouse, startHouseExhibitions } from "../src/db/house.js";
+import { pickHousePair, startHouseExhibitions } from "../src/db/house.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
-import { record, StakeError } from "../src/db/ledger.js";
-import { someWallet } from "./helpers.js";
+import { StakeError } from "../src/db/ledger.js";
+import { someWallet, createPlayer } from "./helpers.js";
 
 const fresh = async () => {
   const c = await connect();
@@ -48,8 +48,8 @@ describe("house exhibitions", () => {
     for (let seed = 1; seed <= 4; seed++) await runExhibition(db, a.id, b.id, { seed });
     // A real match needs two players: a house agent stakes nothing, so it would
     // be another exhibition and would count for nothing either.
-    const p1 = await createAgent(db, { name: "P1", presetName: "Anchor", ownerId: someWallet() });
-    const p2 = await createAgent(db, { name: "P2", presetName: "Hammer", ownerId: someWallet() });
+    const p1 = await createPlayer(db, { name: "P1", presetName: "Anchor", ownerId: someWallet() });
+    const p2 = await createPlayer(db, { name: "P2", presetName: "Hammer", ownerId: someWallet() });
     const { settled } = await runMatch(db, p1.id, p2.id, { seed: 99 });
 
     const [rating] = await db.select().from(ratings).where(eq(ratings.agentId, p1.id));
@@ -66,7 +66,7 @@ describe("house exhibitions", () => {
   it("refuses player agents: an exhibition only ever involves the house", async () => {
     const { db, close } = await fresh();
     const house = await createAgent(db, { name: "House", presetName: "Anchor" });
-    const mine = await createAgent(db, { name: "Mine", presetName: "Hammer", ownerId: someWallet() });
+    const mine = await createPlayer(db, { name: "Mine", presetName: "Hammer", ownerId: someWallet() });
     await expect(runExhibition(db, house.id, mine.id)).rejects.toThrow(StakeError);
     await expect(runExhibition(db, house.id, house.id)).rejects.toThrow(StakeError);
     expect((await db.select({ n: count() }).from(matches))[0]!.n).toBe(0);
@@ -76,7 +76,7 @@ describe("house exhibitions", () => {
   it("spreads pairings across the roster instead of repeating one matchup", async () => {
     const { db, close } = await fresh();
     for (let i = 0; i < 6; i++) await createAgent(db, { name: `H${i}`, presetName: (["Anchor", "Bully", "Mirage"] as const)[i % 3]! });
-    await createAgent(db, { name: "Player", presetName: "Hammer", ownerId: someWallet() });
+    await createPlayer(db, { name: "Player", presetName: "Hammer", ownerId: someWallet() });
     let state = 7;
     const random = (n: number) => (state = (state * 1103515245 + 12345) % 2 ** 31) % n;
 
@@ -125,9 +125,9 @@ describe("house exhibitions", () => {
   it("asks no balance of anyone", async () => {
     const { db, close } = await fresh();
     const b1 = await createAgent(db, { name: "B1", presetName: "Anchor" });
-    // Too little to cover a band B match - and it does not matter: an
-    // exhibition moves nothing, so a house agent needs no money to play one.
-    const poor = await createAgent(db, { name: "Poor", presetName: "Mirage", startingBalance: 39 });
+    // A house agent holds nothing, and it does not matter: an exhibition
+    // moves nothing, so it needs no money to play one.
+    const poor = await createAgent(db, { name: "Poor", presetName: "Mirage" });
 
     for (let k = 0; k < 20; k++) {
       const pair = await pickHousePair(db);
@@ -172,8 +172,8 @@ describe("house exhibitions", () => {
     // A staked match needs two players. Between house agents there is nothing at
     // stake, so it would be a fourth exhibition rather than the platform's first
     // pot.
-    const p1 = await createAgent(db, { name: "P1", presetName: "Anchor", ownerId: someWallet() });
-    const p2 = await createAgent(db, { name: "P2", presetName: "Hammer", ownerId: someWallet() });
+    const p1 = await createPlayer(db, { name: "P1", presetName: "Anchor", ownerId: someWallet() });
+    const p2 = await createPlayer(db, { name: "P2", presetName: "Hammer", ownerId: someWallet() });
     const played = await runMatch(db, p1.id, p2.id, { seed: 5 });
     const activity = await matchActivity(db);
     expect(activity.stakedMatches).toBe(1);
@@ -184,73 +184,12 @@ describe("house exhibitions", () => {
   });
 });
 
-describe("the house on the deposit program", () => {
-  let n = 0;
-  const nextName = () => `DepHouse${n++}`;
-
-  it("seeds nine of each preset at the one scale, each with a vault op the worker can send", async () => {
-    const { db, close } = await fresh();
-    const { created, roster } = await ensureDepositHouse(db, nextName);
-    expect(created).toHaveLength(36);
-    expect(roster).toHaveLength(36);
-    for (const preset of ["Anchor", "Hammer", "Mirage", "Bully"]) expect(roster.filter((r) => r.presetName === preset)).toHaveLength(9);
-    expect(new Set(roster.map((r) => r.chips))).toEqual(new Set([DEPOSIT_HOUSE.chips]));
-    // Each on the deposit program, with no owner, and a pending open_vault op
-    // carrying the salt - which is the only place that salt is kept.
-    const ops = await db.select().from(chainOps).where(eq(chainOps.kind, "open_vault"));
-    expect(ops).toHaveLength(36);
-    for (const op of ops) {
-      expect(op.status).toBe("pending");
-      expect(op.owner).toBeNull();
-      expect(op.salt).toMatch(/^[0-9a-f]{32}$/);
-    }
-    const rows = await db.select().from(agents);
-    expect(rows.every((r) => r.funding === "deposit" && r.ownerId === null && r.rentalEndsAt === null)).toBe(true);
-    // Nothing written to the ledger: the balance follows the treasury's deposit.
-    expect((await db.select({ n: count() }).from(ledger))[0]!.n).toBe(0);
-    await close();
-  });
-
-  it("creates only what is missing when run again", async () => {
-    const { db, close } = await fresh();
-    await ensureDepositHouse(db, nextName);
-    const again = await ensureDepositHouse(db, nextName);
-    expect(again.created).toHaveLength(0);
-    expect(again.roster).toHaveLength(36);
-    await close();
-  });
-
-  it("never pairs a house exhibition across programs", async () => {
-    const { db, close } = await fresh();
-    // Two seed-program house agents and two deposit-program ones, all in band B
-    // and all able to cover it: the picker must keep each program to itself.
-    for (let i = 0; i < 2; i++) await createAgent(db, { name: `Seed${i}`, presetName: "Anchor" });
-    for (let i = 0; i < 2; i++) {
-      const row = await createAgent(db, { name: `Dep${i}`, presetName: "Bully", funding: "deposit" });
-      await record(db, [{ agentId: row.id, amount: baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE), reason: "deposit" }]);
-    }
-    const funding = new Map((await db.select().from(agents)).map((r) => [r.id, r.funding]));
-    for (let i = 0; i < 30; i++) {
-      const pair = await pickHousePair(db);
-      expect(pair).not.toBeNull();
-      expect(funding.get(pair![0])).toBe(funding.get(pair![1]));
-      await runExhibition(db, pair![0], pair![1], { seed: i + 1 });
-    }
-    await close();
-  });
-});
-
 describe("house agents with no balance", () => {
-  // They never stake, so nothing may be asked of their balance: on mainnet
-  // they hold none (docs/mainnet.md, decision 5). A deposit-program house agent
-  // is written with no ledger rows at all, which is the case these cover.
+  // They never stake, so nothing may be asked of their balance: they hold none.
   const houseWithNothing = (db: Awaited<ReturnType<typeof fresh>>["db"], name: string) =>
-    createAgent(db, { name, presetName: "Bully", funding: "deposit" });
-  const player = async (db: Awaited<ReturnType<typeof fresh>>["db"], name: string) => {
-    const row = await createAgent(db, { name, presetName: "Anchor", ownerId: someWallet(), funding: "deposit" });
-    await record(db, [{ agentId: row.id, amount: baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE), reason: "deposit" }]);
-    return row;
-  };
+    createAgent(db, { name, presetName: "Bully" });
+  const player = (db: Awaited<ReturnType<typeof fresh>>["db"], name: string) =>
+    createPlayer(db, { name, presetName: "Anchor", ownerId: someWallet() });
 
   it("is offered to a player who asks for the house, and played, with nothing moving", async () => {
     const { db, close } = await fresh();
@@ -290,44 +229,12 @@ describe("house agents with no balance", () => {
   it("does not excuse a player: one holding less than the minimum is still never offered", async () => {
     const { db, close } = await fresh();
     const me = await player(db, "Me");
-    const skint = await createAgent(db, { name: "Skint", presetName: "Hammer", ownerId: someWallet(), funding: "deposit" });
-    await record(db, [{ agentId: skint.id, amount: baseUnits(MIN_FUNDING_CHIPS - 1, DEVNET_CHIP_RATE), reason: "deposit" }]);
+    await createPlayer(db, { name: "Skint", presetName: "Hammer", ownerId: someWallet(), holds: baseUnits(MIN_FUNDING_CHIPS - 1, DEVNET_CHIP_RATE) });
     const fine = await player(db, "Fine");
     for (let i = 0; i < 10; i++) {
       const pick = await pickOpponent(db, me.id, { minCandidates: 1 });
       expect(pick.opponentId).toBe(fine.id);
     }
-    await close();
-  });
-});
-
-describe("retiring the seed house", () => {
-  it("retires only seed-program house agents, reports first, and leaves every balance alone", async () => {
-    const { db, close } = await fresh();
-    const seedA = await createAgent(db, { name: "SeedA", presetName: "Mirage" });
-    const seedB = await createAgent(db, { name: "SeedB", presetName: "Bully" });
-    const depA = await createAgent(db, { name: "DepA", presetName: "Mirage", funding: "deposit" });
-    const depB = await createAgent(db, { name: "DepB", presetName: "Bully", funding: "deposit" });
-    const player = await createAgent(db, { name: "Player", presetName: "Anchor", ownerId: someWallet() });
-    const before = await balanceOf(db, seedA.id);
-
-    const report = await retireSeedHouse(db, { apply: false });
-    expect(report.map((r) => r.id).sort()).toEqual([seedA.id, seedB.id].sort());
-    expect((await db.select().from(agents).where(eq(agents.id, seedA.id)))[0]!.retiredAt).toBeNull();
-
-    const retired = await retireSeedHouse(db, { apply: true });
-    expect(retired.map((r) => r.id).sort()).toEqual([seedA.id, seedB.id].sort());
-    const [row] = await db.select().from(agents).where(eq(agents.id, seedA.id));
-    expect(row!.retiredReason).toBe("closed");
-    // The ledger still matches the vault, so a drain still shows as a shortfall.
-    expect(await balanceOf(db, seedA.id)).toBe(before);
-    expect((await db.select().from(agents).where(eq(agents.id, player.id)))[0]!.retiredAt).toBeNull();
-
-    // Exhibitions carry on, on the deposit program only.
-    for (let i = 0; i < 10; i++) {
-      expect((await pickHousePair(db))!.sort()).toEqual([depA.id, depB.id].sort());
-    }
-    expect(await retireSeedHouse(db, { apply: true })).toEqual([]);
     await close();
   });
 });

@@ -1,68 +1,52 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { agents, elicitations, ledger, FREE_ELICITATIONS, MIN_FUNDING_CHIPS, MIN_STAKE, type LedgerReason } from "./schema.js";
-import { baseUnits, seasonRate, SEED_CHIP_RATE } from "../chips.js";
+import { agents, elicitations, FREE_ELICITATIONS, MIN_FUNDING_CHIPS } from "./schema.js";
+import { baseUnits, seasonRate } from "../chips.js";
 
 /**
- * Money. Balances are derived from the ledger, never accumulated in a column,
- * so a balance is always the sum of movements that actually happened.
+ * What an agent holds, and whether it is in play.
+ *
+ * Holding is the agent (docs/holder-agents.md): its owner keeps their tokens
+ * in their own wallet, and an agent's balance is that wallet's last reading,
+ * kept in `holdings` (src/db/holdings.ts). Nothing is deposited, staked or
+ * moved, so there is no ledger of movements any more; the `ledger` table
+ * stays as the history of the models before.
+ *
+ * Every balance read and every in-play check goes through here, so "the
+ * balance" and "holds enough to play" mean one thing everywhere.
  */
-
-export type Movement = { agentId: string; amount: number; reason: LedgerReason; matchId?: string; withdrawalId?: string };
 
 type Writable = Pick<Db, "insert" | "select" | "update">;
 
-export async function record(db: Writable, movements: Movement[]): Promise<void> {
-  if (movements.length === 0) return;
-  await db.insert(ledger).values(
-    movements.map((m) => ({
-      agentId: m.agentId,
-      amount: m.amount,
-      reason: m.reason,
-      ...(m.matchId ? { matchId: m.matchId } : {}),
-      ...(m.withdrawalId ? { withdrawalId: m.withdrawalId } : {}),
-    })),
-  );
-}
-
 /**
- * An agent's balance in base units, as SQL, for a row of `agents`.
- *
- * Two kinds of agent hold money in two different places. A seed or deposit
- * agent's balance is the sum of its ledger movements. A holder agent has no
- * ledger and no vault: its balance is what its owner's wallet holds, as last
- * read off chain (src/db/holdings.ts). Every balance read goes through here,
- * so a check written against "the balance" - the minimum to play, the
- * matchmaker's candidates, an owner's card - means the right thing for both.
+ * An agent's balance in base units, as SQL, for a row of `agents`: its owner's
+ * wallet as last read, or nothing for a house agent and for agents from
+ * before holding was the entry, which are all retired.
  *
  * Written with every identifier qualified by hand, for any query that has
  * `agents` in its FROM. Drizzle leaves columns unqualified in a select from a
- * single table, and inside the ledger subquery an unqualified "id" is the
- * ledger row's own id - which read every balance as zero on node-postgres.
+ * single table, and inside a subquery an unqualified column can resolve to the
+ * subquery's own table - which once read every balance as zero on node-postgres.
  */
 export const balanceSql = () => sql<number>`(case when "agents"."funding" = 'holder'
     then coalesce((select h.amount from holdings h where h.wallet = "agents"."owner_id"), 0)
-    else coalesce((select sum(l.amount) from ledger l where l.agent_id = "agents"."id"), 0)
+    else 0
   end)::bigint`;
 
 /**
- * Whether an agent holds enough to be in play, as SQL, for a row of `agents`.
- *
- * Seed and deposit agents: a ledger balance of at least the minimum, at their
- * own rate. A holder agent: its wallet's last reading holds the minimum - or,
- * once its conviction clock runs, its own conviction amount if that is lower
- * (src/db/holdings.ts, keeps), so a retune that raises the minimum takes out
- * nobody who has not sold. Every in-play check goes through here.
+ * Whether an agent holds enough to be in play, as SQL, for a row of `agents`:
+ * its wallet's last reading holds the minimum - or, once its conviction clock
+ * runs, its own conviction amount if that is lower (src/db/holdings.ts,
+ * keeps), so a retune that raises the minimum takes out nobody who has not
+ * sold. House agents are never asked: they hold nothing and need nothing.
  */
 export const inPlaySql = () => {
   const minimum = baseUnits(MIN_FUNDING_CHIPS, seasonRate());
-  const seedMinimum = baseUnits(MIN_FUNDING_CHIPS, SEED_CHIP_RATE);
   return sql<boolean>`(case
     when "agents"."funding" = 'holder' then coalesce((
       select h.amount >= least(coalesce(h.conviction_amount, ${minimum}::bigint), ${minimum}::bigint)
       from holdings h where h.wallet = "agents"."owner_id"), false)
-    when "agents"."funding" = 'seed' then ${balanceSql()} >= ${seedMinimum}::bigint
-    else ${balanceSql()} >= ${minimum}::bigint
+    else false
   end)`;
 };
 
@@ -79,30 +63,12 @@ export async function balanceOf(db: Writable, agentId: string): Promise<number> 
 
 export async function balancesOf(db: Writable, agentIds: string[]): Promise<Map<string, number>> {
   if (agentIds.length === 0) return new Map();
-  const rows = await db
-    .select({ agentId: agents.id, balance: balanceSql() })
-    .from(agents)
-    .where(inArray(agents.id, agentIds));
+  const rows = await db.select({ agentId: agents.id, balance: balanceSql() }).from(agents).where(inArray(agents.id, agentIds));
   return new Map(rows.map((r) => [r.agentId, Number(r.balance)]));
 }
 
-/** An agent's whole history of movements, newest first. */
-export async function statement(db: Db, agentId: string, limit = 50) {
-  return db
-    .select({ amount: ledger.amount, reason: ledger.reason, matchId: ledger.matchId, at: ledger.createdAt })
-    .from(ledger)
-    .where(eq(ledger.agentId, agentId))
-    .orderBy(sql`${ledger.seq} desc`)
-    .limit(limit);
-}
-
+/** A match that cannot be played: an agent retired, out of play, or no opponent. */
 export class StakeError extends Error {}
-
-/**
- * A match's net in chips, as the match row records it. Nothing is clamped: the
- * engine cannot produce a net beyond the band's worst match. It moves no money.
- */
-export const settle = (net: number): number => net;
 
 /** How many model calls this owner has had, and whether the next one is free. */
 export async function elicitationCount(db: Writable, ownerId: string): Promise<number> {
@@ -123,5 +89,3 @@ export async function recordElicitation(
 ): Promise<void> {
   await db.insert(elicitations).values(input);
 }
-
-export { MIN_STAKE };

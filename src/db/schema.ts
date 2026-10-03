@@ -15,7 +15,7 @@ import {
 import type { MatchLog, Seat } from "../types.js";
 import type { Policy } from "../agents/policy.js";
 import type { Deal, Stakes, TurnOrder } from "../round.js";
-import { baseUnits, type Funding } from "../chips.js";
+import type { Funding } from "../chips.js";
 
 /**
  * Everything needed to replay a match: the rules it was played under, plus the
@@ -165,7 +165,9 @@ export type AutoplayStop = "floor" | "insolvent" | "retired" | "withdrawal" | "s
 export const AUTOPLAY_SELF_CLEARING: Record<AutoplayStop, boolean> = {
   withdrawal: true,
   floor: false,
-  insolvent: false,
+  // Holding too little clears itself: once the wallet holds the minimum again,
+  // the agent is back in play with nothing for its owner to switch on.
+  insolvent: true,
   retired: false,
   season: false,
   // An owner who asked to leave did not ask to start playing again thirty
@@ -223,8 +225,11 @@ export type AgentEventSource = "owner" | "autoplay" | "season" | "exit";
  * owner's one-agent slot for ever. "closed" is a house agent on the seed
  * program, retired when that program closed (docs/cutover.md): its balance
  * stays where it is, so a drain of its vault still reads as a shortfall.
+ * "replaced" is every seed or deposit player agent, retired when holding
+ * became the only way to an agent (drizzle/0032_holders_only.sql): its record
+ * stays, and its vault, on a program no longer served, is left as it was.
  */
-export type RetiredReason = "broke" | "withdrawn" | "lapsed" | "unpaid" | "closed";
+export type RetiredReason = "broke" | "withdrawn" | "lapsed" | "unpaid" | "closed" | "replaced";
 
 /**
  * An agent's character: its portrait, its name's origin, its bio. Kept in a
@@ -764,56 +769,12 @@ export const RATING_WINDOW = 50;
 export const MIN_FUNDING_CHIPS = 3_600;
 
 /**
- * Balance a seed-flow agent starts with when rented: the minimum to play and
- * 900 over it. The seed flow hands a balance out rather than taking a deposit,
- * and cannot be topped up, so an agent started at exactly the minimum could
- * never take part of it out and keep playing.
- */
-export const STARTING_BALANCE = MIN_FUNDING_CHIPS + 900;
-/**
- * The least a vault may hold and still be worth keeping open. The chain
- * enforces the same floor on withdrawals, so this must not drop below the
- * program's MIN_STAKE. Whether an agent can play is a question of the minimum
- * to play, not this: see MIN_FUNDING_CHIPS.
- */
-export const MIN_STAKE = 10;
-/**
  * How often autoplay plays one agent. Ten minutes is the figure every survival
  * number is measured at (src/survival.ts), so changing it invalidates the
  * table the rent screen quotes. Overridable for testing on devnet through
  * AUTOPLAY_INTERVAL_MS.
  */
 export const AUTOPLAY_INTERVAL_MS = 10 * 60 * 1000;
-
-/**
- * How much of a vault's balance the ledger will commit inside one chain window.
- *
- * The program caps what a vault pays out per window of 1,500 slots at
- * `max(120, balance / 4)`, re-read from the balance before every transfer - so
- * the cap falls as the vault pays, and a window really closes at about a fifth
- * of the balance it opened with. We budget against the fifth, not the quarter,
- * because the fifth is what actually happens.
- */
-export const OUTFLOW_BUDGET_DIVISOR = 5;
-/** The program's floor, mirrored: a small vault may always pay out this much. */
-export const OUTFLOW_BUDGET_FLOOR = 120;
-/**
- * The trailing window the ledger measures against. Longer than the chain's ten
- * minutes on purpose: the chain's window is fixed and restarts whenever a
- * settlement lands past its end, so no rolling window can line up with it.
- * Overshooting costs a skipped pairing; undershooting costs a settlement the
- * program refuses and a reconciler disagreement.
- */
-export const OUTFLOW_WINDOW_MS = 15 * 60 * 1000;
-
-/**
- * The most this vault should be asked to pay out inside one window, in base
- * units. `rate` converts the chip floor; the proportional part is already in
- * whatever unit the balance is.
- */
-export function outflowBudget(balance: number, rate: number): number {
-  return Math.max(baseUnits(OUTFLOW_BUDGET_FLOOR, rate), Math.floor(balance / OUTFLOW_BUDGET_DIVISOR));
-}
 
 /** Each owner's first elicitation costs them nothing. */
 export const FREE_ELICITATIONS = 1;

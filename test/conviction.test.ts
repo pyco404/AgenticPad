@@ -67,7 +67,7 @@ describe("the clock through readings", () => {
     const held = new Map<string, number>();
     const chain = holdingsOf(held);
     const wallet = someWallet();
-    await createAgent(db, { name: "Clock", presetName: "Anchor", ownerId: wallet, funding: "holder" });
+    await createAgent(db, { name: "Clock", presetName: "Anchor", ownerId: wallet });
 
     held.set(wallet, 3 * MIN);
     await readHolding(db, chain, wallet, T0);
@@ -96,8 +96,8 @@ describe("the clock through readings", () => {
     const { db, close } = await fresh();
     const held = new Map<string, number>();
     const chain = holdingsOf(held);
-    const a = await createAgent(db, { name: "Kept", presetName: "Anchor", ownerId: someWallet(), funding: "holder" });
-    const b = await createAgent(db, { name: "Also", presetName: "Hammer", ownerId: someWallet(), funding: "holder" });
+    const a = await createAgent(db, { name: "Kept", presetName: "Anchor", ownerId: someWallet() });
+    const b = await createAgent(db, { name: "Also", presetName: "Hammer", ownerId: someWallet() });
     held.set(a.ownerId!, MIN);
     held.set(b.ownerId!, MIN);
     await refreshHolders(db, chain);
@@ -106,7 +106,7 @@ describe("the clock through readings", () => {
       await refreshHolders(db, chain);
       expect((await runMatch(db, a.id, b.id, { seed: 3 })).match.ranked).toBe(true);
       // A wallet that never qualified needs the new minimum.
-      const c = await createAgent(db, { name: "New", presetName: "Bully", ownerId: someWallet(), funding: "holder" });
+      const c = await createAgent(db, { name: "New", presetName: "Bully", ownerId: someWallet() });
       held.set(c.ownerId!, MIN);
       await refreshHolders(db, chain);
       await expect(runMatch(db, a.id, c.id, { seed: 4 })).rejects.toThrow(/holds too little/);
@@ -120,8 +120,8 @@ describe("the clock through readings", () => {
     const { db, close } = await fresh();
     const held = new Map<string, number>();
     const chain = holdingsOf(held);
-    const a = await createAgent(db, { name: "Ninety", presetName: "Anchor", ownerId: someWallet(), funding: "holder" });
-    const b = await createAgent(db, { name: "Fresh", presetName: "Hammer", ownerId: someWallet(), funding: "holder" });
+    const a = await createAgent(db, { name: "Ninety", presetName: "Anchor", ownerId: someWallet() });
+    const b = await createAgent(db, { name: "Fresh", presetName: "Hammer", ownerId: someWallet() });
     held.set(a.ownerId!, MIN);
     held.set(b.ownerId!, MIN);
     const today = dayOf(new Date());

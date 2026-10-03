@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
-import { agents, ledger, matches, ratings, RATING_WINDOW, STARTING_BALANCE } from "../src/db/schema.js";
+import { agents, matches, ratings, RATING_WINDOW } from "../src/db/schema.js";
+import { holdingMinimum } from "../src/db/holdings.js";
 import {
   assertStakesMatch,
   createAgent,
@@ -29,7 +30,7 @@ import {
   seatAveragedNet,
   type View,
 } from "../src/index.js";
-import { someWallet } from "./helpers.js";
+import { someWallet, createPlayer, holdFor } from "./helpers.js";
 
 let db: Db;
 let close: () => Promise<void>;
@@ -56,11 +57,13 @@ const addAgent = async (values: Partial<typeof agents.$inferInsert> & { name: st
     .values({
       presetName: preset,
       policyTable: values.policyTable ?? (preset ? snapshotPreset(preset as "Anchor") : undefined),
+      funding: "holder",
       ...values,
     })
     .returning();
   await db.insert(ratings).values({ agentId: row!.id });
-  await db.insert(ledger).values({ agentId: row!.id, amount: STARTING_BALANCE, reason: "rental-seed" });
+  // A player's agent is in play while its wallet holds the minimum.
+  if (row!.ownerId) await holdFor(db, row!.ownerId, holdingMinimum());
   return row!;
 };
 
@@ -198,8 +201,8 @@ describe("matchmaking", () => {
   it("falls back to a preset agent when the pool is thin, and logs which path it took", async () => {
     const { db: fresh, close: closeFresh } = await connect();
     await migrate(fresh);
-    const lonely = await createAgent(fresh, { name: "Lonely", presetName: "Anchor", ownerId: someWallet() });
-    const preset = await createAgent(fresh, { name: "Roster", presetName: "Mirage", ownerId: someWallet() });
+    const lonely = await createPlayer(fresh, { name: "Lonely", presetName: "Anchor", ownerId: someWallet() });
+    const preset = await createPlayer(fresh, { name: "Roster", presetName: "Mirage", ownerId: someWallet() });
 
     const picks: OpponentPick[] = [];
     const pick = await pickOpponent(fresh, lonely.id, { onLog: (p) => picks.push(p) });
@@ -229,13 +232,11 @@ describe("ladder", () => {
         })
         .returning();
       await fresh.insert(ratings).values({ agentId: row!.id });
-      await fresh.insert(ledger).values({ agentId: row!.id, amount: STARTING_BALANCE, reason: "rental-seed" });
       const [opp] = await fresh
         .insert(agents)
         .values({ name: `${name}-opp`, presetName: "Bully", policyTable: snapshotPreset("Bully"), ownerId: someWallet() })
         .returning();
       await fresh.insert(ratings).values({ agentId: opp!.id });
-      await fresh.insert(ledger).values({ agentId: opp!.id, amount: STARTING_BALANCE, reason: "rental-seed" });
       for (const [i, net] of nets.entries()) {
         await fresh.insert(matches).values({
           agentA: row!.id,
@@ -285,10 +286,6 @@ describe("ladder", () => {
     const a = (await fresh.insert(agents).values({ name: "A", presetName: "Anchor", policyTable: snapshotPreset("Anchor") }).returning())[0]!;
     const b = (await fresh.insert(agents).values({ name: "B", presetName: "Bully", policyTable: snapshotPreset("Bully") }).returning())[0]!;
     await fresh.insert(ratings).values([{ agentId: a.id }, { agentId: b.id }]);
-    await fresh.insert(ledger).values([
-      { agentId: a.id, amount: STARTING_BALANCE, reason: "rental-seed" as const },
-      { agentId: b.id, amount: STARTING_BALANCE, reason: "rental-seed" as const },
-    ]);
     const stamp = new Date("2026-01-01T00:00:00Z");
     // 60 matches sharing one timestamp: only seq distinguishes them.
     for (let i = 0; i < 60; i++) {
@@ -362,7 +359,7 @@ describe("true rating", () => {
     // Four Anchors and four Bullys, all in one pool: a Mirage meets both.
     for (let i = 0; i < 4; i++) await createAgent(fresh, { name: `A${i}`, presetName: "Anchor" });
     for (let i = 0; i < 4; i++) await createAgent(fresh, { name: `C${i}`, presetName: "Bully" });
-    const me = await createAgent(fresh, { name: "Mirage", presetName: "Mirage", ownerId: someWallet() });
+    const me = await createPlayer(fresh, { name: "Mirage", presetName: "Mirage", ownerId: someWallet() });
     await refreshTrueRatings(fresh);
 
     const mirage = policyAgent(snapshotPreset("Mirage"));
@@ -387,7 +384,7 @@ describe("true rating", () => {
     expect(houseOnly.basis).toMatch(/whole roster, as no other player's agent is in play yet/);
 
     // A player's agent arrives: the preview rates against players' agents only, which is what scores.
-    await createAgent(fresh, { name: "Player", presetName: "Bully", ownerId: someWallet() });
+    await createPlayer(fresh, { name: "Player", presetName: "Bully", ownerId: someWallet() });
     const players = previewPolicy(snapshotPreset("Mirage"), await scoringProfile(fresh));
     expect(players.scoring).toBe(true);
     expect(players.roster).toBe(1);
@@ -408,19 +405,19 @@ describe("true rating", () => {
     // Three rentals of one preset: two dormant for eight days, one that played yesterday.
     const dormant: string[] = [];
     for (let i = 0; i < 2; i++) {
-      const d = await createAgent(fresh, { name: `Dormant${i}`, presetName: "Mirage", ownerId: someWallet() });
+      const d = await createPlayer(fresh, { name: `Dormant${i}`, presetName: "Mirage", ownerId: someWallet() });
       await fresh.update(agents).set({ createdAt: longAgo }).where(eq(agents.id, d.id));
       dormant.push(d.id);
     }
-    const busy = await createAgent(fresh, { name: "Busy", presetName: "Mirage", ownerId: someWallet() });
+    const busy = await createPlayer(fresh, { name: "Busy", presetName: "Mirage", ownerId: someWallet() });
     await fresh.update(agents).set({ createdAt: longAgo }).where(eq(agents.id, busy.id));
     // A real opponent, because a house match is an exhibition now and says
     // nothing about whether an agent has been active.
-    const sparring = await createAgent(fresh, { name: "Sparring", presetName: "Anchor", ownerId: someWallet() });
+    const sparring = await createPlayer(fresh, { name: "Sparring", presetName: "Anchor", ownerId: someWallet() });
     await fresh.update(agents).set({ createdAt: longAgo }).where(eq(agents.id, sparring.id));
     await runMatch(fresh, busy.id, sparring.id, { seed: 1 });
     // And one rented today, which has had no chance to play yet.
-    const fresher = await createAgent(fresh, { name: "New", presetName: "Bully", ownerId: someWallet() });
+    const fresher = await createPlayer(fresh, { name: "New", presetName: "Bully", ownerId: someWallet() });
 
     const profile = await rosterProfile(fresh);
     expect(profile.agentCount).toBe(7); // 4 house, Busy, Sparring, New
@@ -462,7 +459,7 @@ describe("true rating", () => {
 
   it("is private: absent from the public view of an agent, and owner-gated", async () => {
     const owner = someWallet();
-    const mine = await createAgent(db, { name: "Private", ownerId: owner, brief: "secret sauce", presetName: "Hammer" });
+    const mine = await createPlayer(db, { name: "Private", ownerId: owner, brief: "secret sauce", presetName: "Hammer" });
     await refreshTrueRatings(db, { force: true });
 
     const seen = await publicAgent(db, mine.id);
@@ -516,8 +513,8 @@ describe("ladder tabs", () => {
     const { db: fresh, close: closeFresh } = await connect();
     await migrate(fresh);
     const make = async (name: string, nets: number[]) => {
-      const row = await createAgent(fresh, { name, presetName: "Anchor", ownerId: someWallet() });
-      const opp = await createAgent(fresh, { name: `${name}-opp`, presetName: "Bully", ownerId: someWallet() });
+      const row = await createPlayer(fresh, { name, presetName: "Anchor", ownerId: someWallet() });
+      const opp = await createPlayer(fresh, { name: `${name}-opp`, presetName: "Bully", ownerId: someWallet() });
       for (const [i, net] of nets.entries()) {
         await fresh.insert(matches).values({
           agentA: row.id,
@@ -540,7 +537,7 @@ describe("ladder tabs", () => {
     await make("Grinder", Array.from({ length: 40 }, () => 5));
     // Sharp: fewer matches, far better per match.
     await make("Sharp", [30, 30, 30]);
-    const idle = await createAgent(fresh, { name: "Idle", presetName: "Mirage", ownerId: someWallet() });
+    const idle = await createPlayer(fresh, { name: "Idle", presetName: "Mirage", ownerId: someWallet() });
 
     const winnings = await leaderboard(fresh, 50, "winnings");
     expect(winnings[0]!.name).toBe("Grinder");

@@ -893,7 +893,6 @@ function AgentCard({
           <AutoplayPanel
             agentId={(agent.id ?? agent.agentId)!}
             retired={retired}
-            holder={isHolder}
             refreshKey={`${agent.balance ?? ""}-${agent.matchesPlayed ?? ""}`}
             onChanged={onChanged}
           />

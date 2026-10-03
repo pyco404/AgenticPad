@@ -5,7 +5,7 @@ import { AGENTCLASH_RULES } from "../round.js";
 import type { Agent } from "../types.js";
 import type { Db } from "./client.js";
 import { agents, matches } from "./schema.js";
-import { rentalOpenSql } from "./rental.js";
+
 
 /**
  * Exact ratings. A decision table's expected net against the roster is
@@ -62,7 +62,7 @@ export async function rosterProfile(db: Db, now = new Date(), options: { players
     .select({ id: agents.id, table: agents.policyTable })
     .from(agents)
     // Expired agents are left out too: they cannot be matched until renewed.
-    .where(and(isNull(agents.retiredAt), rentalOpenSql(now), active, options.playersOnly ? isNotNull(agents.ownerId) : undefined));
+    .where(and(isNull(agents.retiredAt), active, options.playersOnly ? isNotNull(agents.ownerId) : undefined));
 
   const members = new Set<string>();
   const byTable = new Map<string, { table: Policy; weight: number }>();

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
-import { agentEvents, agents, matches, MIN_FUNDING_CHIPS, WORST_MATCH, STARTING_BALANCE } from "../src/db/schema.js";
-import { record } from "../src/db/ledger.js";
+import { agentEvents, agents, matches } from "../src/db/schema.js";
+import { holdingMinimum } from "../src/db/holdings.js";
+import { baseUnits, seasonRate } from "../src/chips.js";
 import { createAgent } from "../src/db/runner.js";
 import { autoplayStatus, checkAgent, dueAgents, isHold, markSeen, setAutoplay, sinceYouLeft, stopAgent, tick } from "../src/db/autoplay.js";
-import { someWallet } from "./helpers.js";
+import { someWallet, createPlayer, holdFor } from "./helpers.js";
 
 const fresh = async () => {
   const c = await connect();
@@ -17,10 +18,13 @@ const fresh = async () => {
 type Overrides = Partial<Parameters<typeof createAgent>[1]>;
 
 const playerOn = async (db: Awaited<ReturnType<typeof fresh>>["db"], opts: Overrides = {}) => {
-  const row = await createAgent(db, { name: `P${Math.random().toString(36).slice(2, 7)}`, presetName: "Anchor", ownerId: someWallet(), ...opts });
+  const row = await createPlayer(db, { name: `P${Math.random().toString(36).slice(2, 7)}`, presetName: "Anchor", ownerId: someWallet(), ...opts });
   await db.update(agents).set({ autoplay: true }).where(eq(agents.id, row.id));
   return row;
 };
+
+const rowOf = async (db: Awaited<ReturnType<typeof fresh>>["db"], id: string) =>
+  (await db.select().from(agents).where(eq(agents.id, id)))[0]!;
 
 /**
  * Opponents for a player agent to meet, each owned by a wallet of its own.
@@ -31,7 +35,7 @@ const playerOn = async (db: Awaited<ReturnType<typeof fresh>>["db"], opts: Overr
  */
 const opponents = async (db: Awaited<ReturnType<typeof fresh>>["db"], n: number) => {
   for (let i = 0; i < n; i++) {
-    await createAgent(db, {
+    await createPlayer(db, {
       name: `O${i}-${Math.random().toString(36).slice(2, 6)}`,
       presetName: (["Anchor", "Hammer", "Mirage", "Bully"] as const)[i % 4]!,
       ownerId: someWallet(),
@@ -58,7 +62,7 @@ describe("autoplay: who is due", () => {
 
   it("starts paused: a freshly rented agent is not due until its owner turns it on", async () => {
     const { db, close } = await fresh();
-    const row = await createAgent(db, { name: "Fresh", presetName: "Anchor", ownerId: someWallet() });
+    const row = await createPlayer(db, { name: "Fresh", presetName: "Anchor", ownerId: someWallet() });
     expect(row.autoplay).toBe(false);
     expect(await dueAgents(db, 0)).toHaveLength(0);
     await close();
@@ -79,46 +83,30 @@ describe("autoplay: who is due", () => {
 });
 
 describe("autoplay: safety", () => {
-  it("pauses before a match that could breach the floor, not after one that did", async () => {
+  it("holds when the wallet drops below the minimum to play, and the hold leaves autoplay on", async () => {
     const { db, close } = await fresh();
     const row = await playerOn(db);
-    const worst = WORST_MATCH;
-    const balance = STARTING_BALANCE;
-    // A floor one chip above (balance - worst) must stop it, even though the
-    // balance is still comfortably above the floor itself.
-    await db.update(agents).set({ autoplayFloor: balance - worst + 1 }).where(eq(agents.id, row.id));
-    const stop = await checkAgent(db, (await db.select().from(agents).where(eq(agents.id, row.id)))[0]!);
-    expect(stop.play).toBe(false);
-    if (!stop.play) {
-      expect(stop.reason).toBe("floor");
-      expect(stop.detail).toContain("within one match of your floor");
-    }
-
-    // One chip lower and the worst case still clears it, so it plays.
-    await db.update(agents).set({ autoplayFloor: balance - worst }).where(eq(agents.id, row.id));
-    const ok = await checkAgent(db, (await db.select().from(agents).where(eq(agents.id, row.id)))[0]!);
-    expect(ok.play).toBe(true);
-    await close();
-  });
-
-  it("pauses when the balance drops below the minimum to play", async () => {
-    const { db, close } = await fresh();
-    const row = await playerOn(db);
-    await record(db, [{ agentId: row.id, amount: -(STARTING_BALANCE - MIN_FUNDING_CHIPS + 1), reason: "adjustment" }]);
-    const stop = await checkAgent(db, (await db.select().from(agents).where(eq(agents.id, row.id)))[0]!);
+    await holdFor(db, row.ownerId!, holdingMinimum() - 1);
+    const stop = await checkAgent(db, await rowOf(db, row.id));
     expect(stop.play).toBe(false);
     if (!stop.play) expect(stop.reason).toBe("insolvent");
+    // Buying back puts it in play again with nothing for the owner to switch on.
+    expect(isHold("insolvent")).toBe(true);
+    await stopAgent(db, row.id, "insolvent");
+    expect((await rowOf(db, row.id)).autoplay).toBe(true);
+    await holdFor(db, row.ownerId!, holdingMinimum());
+    expect((await checkAgent(db, await rowOf(db, row.id))).play).toBe(true);
     await close();
   });
 
   it("a pause turns autoplay off, so only the owner restarts it", async () => {
     const { db, close } = await fresh();
     const row = await playerOn(db);
-    await stopAgent(db, row.id, "floor");
+    await stopAgent(db, row.id, "retired");
     const [after] = await db.select().from(agents).where(eq(agents.id, row.id));
     expect(after!.autoplay).toBe(false);
-    expect(after!.autoplayStoppedReason).toBe("floor");
-    expect(isHold("floor")).toBe(false);
+    expect(after!.autoplayStoppedReason).toBe("retired");
+    expect(isHold("retired")).toBe(false);
     await close();
   });
 
@@ -201,11 +189,11 @@ describe("autoplay: the tick", () => {
     const { db, close } = await fresh();
     await opponents(db, 4);
     const row = await playerOn(db);
-    await db.update(agents).set({ autoplayFloor: 5_000 }).where(eq(agents.id, row.id));
+    await holdFor(db, row.ownerId!, holdingMinimum() - 1);
     const lines: string[] = [];
     await tick(db, { intervalMs: 0, onLog: (line) => lines.push(line) });
     expect(lines).toEqual([
-      expect.stringMatching(/paused \(floor\): balance \d+ is within one match of your floor \(5000\)$/),
+      expect.stringMatching(/held \(insolvent\): the wallet holds \d+, below the 3600 an agent needs to play$/),
       "autoplay: tick played 0, stopped 1, waiting 0",
     ]);
     await close();
@@ -215,9 +203,9 @@ describe("autoplay: the tick", () => {
     const { db, close } = await fresh();
     await opponents(db, 4);
     const row = await playerOn(db);
-    await db.update(agents).set({ autoplayFloor: 5_000 }).where(eq(agents.id, row.id));
+    await holdFor(db, row.ownerId!, holdingMinimum() - 1);
     const result = await tick(db, { intervalMs: 0 });
-    expect(result.stopped).toEqual([{ agentId: row.id, reason: "floor" }]);
+    expect(result.stopped).toEqual([{ agentId: row.id, reason: "insolvent" }]);
     expect(result.played).toEqual([]);
     expect((await db.select().from(matches))).toHaveLength(0);
     await close();
@@ -251,12 +239,10 @@ describe("autoplay: the tick", () => {
 });
 
 describe("autoplay: what the panel says", () => {
-  const rowOf = async (db: Awaited<ReturnType<typeof fresh>>["db"], id: string) =>
-    (await db.select().from(agents).where(eq(agents.id, id)))[0]!;
 
   it("is off until switched on, with no countdown", async () => {
     const { db, close } = await fresh();
-    const row = await createAgent(db, { name: "Off", presetName: "Anchor", ownerId: someWallet() });
+    const row = await createPlayer(db, { name: "Off", presetName: "Anchor", ownerId: someWallet() });
     const status = await autoplayStatus(db, await rowOf(db, row.id));
     expect(status.state).toBe("off");
     expect(status.nextMatchAt).toBeNull();
@@ -275,28 +261,15 @@ describe("autoplay: what the panel says", () => {
     await close();
   });
 
-  it("says a pause needs the owner, in those words", async () => {
-    const { db, close } = await fresh();
-    const paused = await playerOn(db);
-    await db.update(agents).set({ autoplayFloor: 300 }).where(eq(agents.id, paused.id));
-    await stopAgent(db, paused.id, "floor");
-    const p = await autoplayStatus(db, await rowOf(db, paused.id));
-    expect(p.state).toBe("paused");
-    expect(p.enabled).toBe(false);
-    // The reason with its number, and what the owner has to do.
-    expect(p.message).toBe("Paused: one match from your floor (300).");
-    expect(p.action).toContain("You need to switch it back on");
-    await close();
-  });
-
-  it("names the balance and the minimum when it holds too little to play", async () => {
+  it("says a hold needs nothing and names the holding and the minimum", async () => {
     const { db, close } = await fresh();
     const row = await playerOn(db);
-    await record(db, [{ agentId: row.id, amount: -(STARTING_BALANCE - 25), reason: "adjustment" }]);
+    await holdFor(db, row.ownerId!, baseUnits(25, seasonRate()));
     await stopAgent(db, row.id, "insolvent");
     const status = await autoplayStatus(db, await rowOf(db, row.id));
-    expect(status.message).toBe("Paused: balance 25 is below the 3600 an agent needs to play.");
-    expect(status.action).toContain("Add funds");
+    expect(status.state).toBe("held");
+    expect(status.message).toBe("Held: your wallet holds 25, below the 3600 an agent needs to play.");
+    expect(status.action).toContain("Nothing to switch on");
     await close();
   });
 
@@ -337,7 +310,7 @@ describe("autoplay: what the panel says", () => {
 describe("since you left", () => {
   it("is empty until the owner has been seen once", async () => {
     const { db, close } = await fresh();
-    const row = await createAgent(db, { name: "New", presetName: "Anchor", ownerId: someWallet() });
+    const row = await createPlayer(db, { name: "New", presetName: "Anchor", ownerId: someWallet() });
     expect(await sinceYouLeft(db, (await db.select().from(agents).where(eq(agents.id, row.id)))[0]!)).toBeNull();
     await close();
   });
@@ -384,18 +357,13 @@ describe("agent events", () => {
   const reload = async (db: Awaited<ReturnType<typeof fresh>>["db"], id: string) =>
     (await db.select().from(agents).where(eq(agents.id, id)))[0]!;
 
-  it("records the owner switching autoplay on and off, and a floor change, but not a save that changed nothing", async () => {
+  it("records the owner switching autoplay on and off, but not a save that changed nothing", async () => {
     const { db, close } = await fresh();
-    const row = await createAgent(db, { name: "Owned", presetName: "Anchor", ownerId: someWallet() });
-    await setAutoplay(db, await reload(db, row.id), true, 80);
-    await setAutoplay(db, await reload(db, row.id), true, 80);
-    await setAutoplay(db, await reload(db, row.id), true, 120);
-    await setAutoplay(db, await reload(db, row.id), false, 120);
-    expect(await eventsOf(db, row.id)).toEqual([
-      "owner autoplay-on floor 80",
-      "owner floor floor 120",
-      "owner autoplay-off floor 120",
-    ]);
+    const row = await createPlayer(db, { name: "Owned", presetName: "Anchor", ownerId: someWallet() });
+    await setAutoplay(db, await reload(db, row.id), true);
+    await setAutoplay(db, await reload(db, row.id), true);
+    await setAutoplay(db, await reload(db, row.id), false);
+    expect(await eventsOf(db, row.id)).toEqual(["owner autoplay-on null", "owner autoplay-off null"]);
     await close();
   });
 

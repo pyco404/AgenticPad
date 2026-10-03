@@ -5,7 +5,7 @@ import { agentTraits, matches } from "../src/db/schema.js";
 import { createAgent, runExhibition, runMatch } from "../src/db/runner.js";
 import { addCounts, countMatch, EMPTY_COUNTS } from "../src/character/traits.js";
 import { traitsOf, updateTraits } from "../src/character/trait-store.js";
-import { someWallet } from "./helpers.js";
+import { someWallet, createPlayer } from "./helpers.js";
 
 const fresh = async () => {
   const c = await connect();
@@ -15,7 +15,7 @@ const fresh = async () => {
 
 /** A player agent, a house agent it plays for money, and two house agents playing exhibitions. */
 async function played(db: Db) {
-  const me = await createAgent(db, { name: "Me", presetName: "Mirage", ownerId: someWallet() });
+  const me = await createPlayer(db, { name: "Me", presetName: "Mirage", ownerId: someWallet() });
   const h1 = await createAgent(db, { name: "H1", presetName: "Bully" });
   const h2 = await createAgent(db, { name: "H2", presetName: "Anchor" });
   for (let seed = 1; seed <= 6; seed++) await runMatch(db, me.id, h1.id, { seed });
@@ -65,7 +65,7 @@ describe("keeping traits current", () => {
   it("says not enough hands yet for an agent that has barely played", async () => {
     const { db, close } = await fresh();
     const { me } = await played(db);
-    const fresh1 = await createAgent(db, { name: "New", presetName: "Anchor", ownerId: someWallet() });
+    const fresh1 = await createPlayer(db, { name: "New", presetName: "Anchor", ownerId: someWallet() });
     await updateTraits(db);
     expect((await traitsOf(db, fresh1.id)).note).toBe("not enough hands yet");
     expect((await traitsOf(db, me.id)).decisions).toBeGreaterThan(0);

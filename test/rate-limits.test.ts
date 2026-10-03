@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
 import { agents } from "../src/db/schema.js";
+import { everyoneHolds } from "./helpers.js";
 
 // Renting and the faucet are charged against the wallet *and* the address a
 // request came from. The older limiter used one or the other - the wallet when
@@ -52,6 +53,7 @@ beforeAll(async () => {
   await migrate(db);
   ({ url, close: closeServer } = await listen({
     db,
+    holder: everyoneHolds(),
     // Reachable in a test: a generous per-wallet rule and a tight per-address
     // one, which is the shape the real defaults have.
     rentRateLimit: { limit: 50, windowMs: 3_600_000 },

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
 import { chainOps, ledger, matches, ratings } from "../src/db/schema.js";
 import { createAgent, leaderboard, runMatch, runExhibition } from "../src/db/runner.js";
-import { someWallet } from "./helpers.js";
+import { someWallet, createPlayer } from "./helpers.js";
 import { balanceOf } from "../src/db/ledger.js";
 
 const fresh = async () => {
@@ -18,7 +18,7 @@ const ratingOf = async (db: Awaited<ReturnType<typeof fresh>>["db"], agentId: st
 describe("only player-versus-player matches are ranked", () => {
   it("plays a match against a house agent for nothing: no stake, no ladder, no money", async () => {
     const { db, close } = await fresh();
-    const mine = await createAgent(db, { name: "Mine", presetName: "Anchor", ownerId: someWallet() });
+    const mine = await createPlayer(db, { name: "Mine", presetName: "Anchor", ownerId: someWallet() });
     const houseAgent = await createAgent(db, { name: "House", presetName: "Hammer" });
     const mineBefore = await balanceOf(db, mine.id);
     const houseBefore = await balanceOf(db, houseAgent.id);
@@ -45,8 +45,8 @@ describe("only player-versus-player matches are ranked", () => {
 
   it("marks a match between two rented agents ranked, and counts it in both", async () => {
     const { db, close } = await fresh();
-    const a = await createAgent(db, { name: "A", presetName: "Anchor", ownerId: someWallet() });
-    const b = await createAgent(db, { name: "B", presetName: "Bully", ownerId: someWallet() });
+    const a = await createPlayer(db, { name: "A", presetName: "Anchor", ownerId: someWallet() });
+    const b = await createPlayer(db, { name: "B", presetName: "Bully", ownerId: someWallet() });
 
     const { match, stake, settled } = await runMatch(db, a.id, b.id, { seed: 11 });
     const [row] = await db.select().from(matches).where(eq(matches.id, match.id));
@@ -75,9 +75,9 @@ describe("only player-versus-player matches are ranked", () => {
 
   it("leaves nothing to farm: playing the house earns nothing at all", async () => {
     const { db, close } = await fresh();
-    const farmer = await createAgent(db, { name: "Farmer", presetName: "Hammer", ownerId: someWallet() });
-    const honest = await createAgent(db, { name: "Honest", presetName: "Anchor", ownerId: someWallet() });
-    const rival = await createAgent(db, { name: "Rival", presetName: "Bully", ownerId: someWallet() });
+    const farmer = await createPlayer(db, { name: "Farmer", presetName: "Hammer", ownerId: someWallet() });
+    const honest = await createPlayer(db, { name: "Honest", presetName: "Anchor", ownerId: someWallet() });
+    const rival = await createPlayer(db, { name: "Rival", presetName: "Bully", ownerId: someWallet() });
     const houseA = await createAgent(db, { name: "HouseA", presetName: "Mirage" });
     const farmerBefore = await balanceOf(db, farmer.id);
 
@@ -110,7 +110,7 @@ describe("only player-versus-player matches are ranked", () => {
 
   it("per-match needs a ranked match to divide by, not merely a staked one", async () => {
     const { db, close } = await fresh();
-    const farmer = await createAgent(db, { name: "Farmer", presetName: "Hammer", ownerId: someWallet() });
+    const farmer = await createPlayer(db, { name: "Farmer", presetName: "Hammer", ownerId: someWallet() });
     const houseA = await createAgent(db, { name: "HouseA", presetName: "Mirage" });
     for (let seed = 1; seed <= 4; seed++) await runMatch(db, farmer.id, houseA.id, { seed });
 
@@ -122,8 +122,8 @@ describe("only player-versus-player matches are ranked", () => {
 
   it("counts only when both sides belong to players, and moves money in neither case", async () => {
     const { db, close } = await fresh();
-    const p1 = await createAgent(db, { name: "P1", presetName: "Anchor", ownerId: someWallet() });
-    const p2 = await createAgent(db, { name: "P2", presetName: "Bully", ownerId: someWallet() });
+    const p1 = await createPlayer(db, { name: "P1", presetName: "Anchor", ownerId: someWallet() });
+    const p2 = await createPlayer(db, { name: "P2", presetName: "Bully", ownerId: someWallet() });
     const houseAgent = await createAgent(db, { name: "House", presetName: "Mirage" });
 
     // Every combination: ranked exactly when both sides are players' agents.

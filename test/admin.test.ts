@@ -125,7 +125,7 @@ describe("what it reports", () => {
       expect(empty.holdings).toMatchObject({ wallets: 0, oldestReadAt: null, stale: false });
 
       const owner = someWallet();
-      await createAgent(db, { name: "Read", presetName: "Anchor", ownerId: owner, funding: "holder" });
+      await createAgent(db, { name: "Read", presetName: "Anchor", ownerId: owner });
       const readAt = new Date("2026-05-01T12:00:00Z");
       await readHolding(db, chainHolding(baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE)), owner, readAt);
 

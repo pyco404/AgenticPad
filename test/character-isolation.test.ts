@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { agents, characters, ledger, matches } from "../src/db/schema.js";
-import { createAgent, pickOpponent, replayMatch, resolveAgent, runMatch } from "../src/db/runner.js";
+import { pickOpponent, replayMatch, resolveAgent, runMatch } from "../src/db/runner.js";
 import { portrait } from "../src/character/portrait.js";
-import { someWallet } from "./helpers.js";
+import { someWallet, createPlayer } from "./helpers.js";
 
 /**
  * The rule: a character is identity and presentation only. Nothing about it
@@ -45,8 +45,8 @@ describe("a character cannot affect a match", () => {
     for (const look of ["first", "second"]) {
       const { db, close } = await fresh();
       // Fresh agents each time: a match is decided by the two tables and the seed, nothing else.
-      const a = await createAgent(db, { name: "A", presetName: "Mirage", ownerId: someWallet() });
-      const b = await createAgent(db, { name: "B", presetName: "Hammer", ownerId: someWallet() });
+      const a = await createPlayer(db, { name: "A", presetName: "Mirage", ownerId: someWallet() });
+      const b = await createPlayer(db, { name: "B", presetName: "Hammer", ownerId: someWallet() });
       await giveCharacter(db, a.id, look);
       await giveCharacter(db, b.id, look);
       // Even the displayed name, the one thing a character shares with the agent row.
@@ -61,8 +61,8 @@ describe("a character cannot affect a match", () => {
 
   it("replays a stored match exactly after the character changes", async () => {
     const { db, close } = await fresh();
-    const a = await createAgent(db, { name: "A", presetName: "Bully", ownerId: someWallet() });
-    const b = await createAgent(db, { name: "B", presetName: "Anchor", ownerId: someWallet() });
+    const a = await createPlayer(db, { name: "A", presetName: "Bully", ownerId: someWallet() });
+    const b = await createPlayer(db, { name: "B", presetName: "Anchor", ownerId: someWallet() });
     await giveCharacter(db, a.id, "before");
     const { match } = await runMatch(db, a.id, b.id, { seed: 99 });
     await giveCharacter(db, a.id, "after");
@@ -79,12 +79,12 @@ describe("a character cannot affect a match", () => {
     // Players: matchmaking will not offer a house agent, since a match against
     // one stakes nothing.
     for (let i = 0; i < 6; i++)
-      await createAgent(db, {
+      await createPlayer(db, {
         name: `H${i}`,
         presetName: (["Anchor", "Hammer", "Mirage"] as const)[i % 3]!,
         ownerId: someWallet(),
       });
-    const me = await createAgent(db, { name: "Me", presetName: "Anchor", ownerId: someWallet() });
+    const me = await createPlayer(db, { name: "Me", presetName: "Anchor", ownerId: someWallet() });
     const before = await pickOpponent(db, me.id);
     for (const row of await db.select().from(agents)) await giveCharacter(db, row.id, "changed");
     const after = await pickOpponent(db, me.id);

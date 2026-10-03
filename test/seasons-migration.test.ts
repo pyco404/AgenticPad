@@ -50,7 +50,9 @@ describe("migration 0014: seasons", () => {
     expect((await reload(broke)).rentalEndsAt).toBeNull();
     expect((await reload(broke)).retiredReason).toBe("broke");
     expect((await reload(withdrawn)).retiredReason).toBe("withdrawn");
-    expect((await reload(playing)).retiredReason).toBeNull();
+    // Still playing after 0014; a seed player, so 0032 retired it when holding
+    // became the only way to an agent.
+    expect((await reload(playing)).retiredReason).toBe("replaced");
 
     const seasonOf = async (id: string) => (await db.select({ s: matches.season }).from(matches).where(eq(matches.id, id)))[0]!.s;
     expect(await seasonOf(before)).toBeNull();

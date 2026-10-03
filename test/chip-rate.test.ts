@@ -99,7 +99,7 @@ describe("the season's rate", () => {
 describe("a match at the season's rate", () => {
   const holder = async (db: Db, name: string, presetName: "Anchor" | "Bully", amount: number) => {
     const owner = someWallet();
-    const agent = await createAgent(db, { name, presetName, ownerId: owner, funding: "holder" });
+    const agent = await createAgent(db, { name, presetName, ownerId: owner });
     await readHolding(db, { balanceOf: async () => amount, supply: async () => 1e15 }, owner, new Date(), holdingMinimum());
     return agent;
   };

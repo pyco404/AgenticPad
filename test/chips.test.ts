@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { connect, migrate } from "../src/db/client.js";
-import { balanceOf, record } from "../src/db/ledger.js";
+import { balanceOf } from "../src/db/ledger.js";
 import { createAgent } from "../src/db/runner.js";
 import { baseUnits, chipRate, chips, DEVNET_CHIP_RATE, SEED_CHIP_RATE } from "../src/chips.js";
-import { STARTING_BALANCE, WORST_MATCH } from "../src/db/schema.js";
+import { WORST_MATCH } from "../src/db/schema.js";
+import { holdFor, someWallet } from "./helpers.js";
 import { AGENTCLASH_RULES } from "../src/round.js";
 
-// Chips against base units: the conversion, and that the ledger is wide enough
-// to hold the second of them.
+// Chips against base units: the conversion, and that a holding is read wide
+// enough to hold the second of them.
 
 describe("chips and base units", () => {
   it("converts a chip figure exactly, in both directions", () => {
@@ -39,22 +40,23 @@ describe("chips and base units", () => {
     expect(chipRate("deposit", 500_000)).toBe(500_000);
   });
 
-  it("holds a six-decimal balance in the ledger, which a 32-bit column could not", async () => {
+  it("holds a six-decimal holding, which a 32-bit column could not", async () => {
     const { db } = await connect();
     await migrate(db);
-    const agent = await createAgent(db, { name: "Wide", presetName: "Anchor" });
+    const owner = someWallet();
+    const agent = await createAgent(db, { name: "Wide", presetName: "Anchor", ownerId: owner });
 
     // 2,147 chips is where a 32-bit column runs out at six decimals; this is
-    // well past it, and is an ordinary balance for a funded agent.
+    // well past it, and an ordinary holding.
     const big = baseUnits(50_000, DEVNET_CHIP_RATE);
     expect(big).toBeGreaterThan(2_147_483_647);
-    await record(db, [{ agentId: agent.id, amount: big, reason: "adjustment" }]);
-    expect(await balanceOf(db, agent.id)).toBe(big + STARTING_BALANCE);
+    await holdFor(db, owner, big);
+    expect(await balanceOf(db, agent.id)).toBe(big);
 
-    // And the whole devnet supply, which is the most any one vault could hold.
+    // And the whole devnet supply, the most any one wallet could hold.
     const supply = baseUnits(1_000_000_000, DEVNET_CHIP_RATE);
     expect(Number.isSafeInteger(supply)).toBe(true);
-    await record(db, [{ agentId: agent.id, amount: supply, reason: "adjustment" }]);
-    expect(await balanceOf(db, agent.id)).toBe(big + STARTING_BALANCE + supply);
+    await holdFor(db, owner, supply);
+    expect(await balanceOf(db, agent.id)).toBe(supply);
   });
 });

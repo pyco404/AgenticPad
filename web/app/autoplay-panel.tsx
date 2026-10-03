@@ -48,15 +48,9 @@ export function AutoplayPanel({
   retired,
   refreshKey,
   onChanged,
-  holder = false,
 }: {
   agentId: string;
   retired: boolean;
-  /**
-   * A holder agent: nothing it holds can fall in a match, so a balance floor
-   * has nothing to guard. Its owner only switches autoplay on and off.
-   */
-  holder?: boolean;
   /** Anything that changes when the agent might have played. */
   refreshKey: string;
   /** After autoplay played or stopped: the card's balance may be stale. */
@@ -66,19 +60,15 @@ export function AutoplayPanel({
   const token = session?.token ?? null;
   const [status, setStatus] = useState<AutoplayStatus | null>(null);
   const [summary, setSummary] = useState<SinceYouLeft | null>(null);
-  const [floor, setFloor] = useState("");
-  const [floorDirty, setFloorDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
-  // Refs, so that `load` stays the same function across renders: otherwise a
-  // new onChanged from the parent, or every keystroke in the floor box, would
-  // restart the refresh timer and fire an extra request.
+  // A ref, so that `load` stays the same function across renders: otherwise a
+  // new onChanged from the parent would restart the refresh timer and fire an
+  // extra request.
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
-  const floorDirtyRef = useRef(false);
-  floorDirtyRef.current = floorDirty;
   const lastMatchRef = useRef<string | null | undefined>(undefined);
 
   const load = useCallback(async () => {
@@ -91,7 +81,6 @@ export function AutoplayPanel({
       if (lastMatchRef.current !== undefined && lastMatchRef.current !== last) onChangedRef.current();
       lastMatchRef.current = last;
       setStatus(res.autoplay);
-      if (!floorDirtyRef.current) setFloor(res.autoplay.floor === null ? "" : String(res.autoplay.floor));
       if (res.sinceYouLeft === null) {
         // Never seen before: start the clock now, so the next visit has something to report.
         void api.markSeen(token, agentId).catch(() => undefined);
@@ -115,17 +104,13 @@ export function AutoplayPanel({
     return () => clearInterval(id);
   }, []);
 
-  const parsedFloor = floor.trim() === "" ? null : Number(floor);
-  const floorValid = parsedFloor === null || (Number.isInteger(parsedFloor) && parsedFloor >= 0);
-
   const save = async (enabled: boolean) => {
-    if (!token || !floorValid) return;
+    if (!token) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await api.setAutoplay(token, agentId, { enabled, floor: parsedFloor });
+      const res = await api.setAutoplay(token, agentId, { enabled });
       setStatus(res.autoplay);
-      setFloorDirty(false);
       onChangedRef.current();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't reach the server. Try again in a moment.");
@@ -219,7 +204,7 @@ export function AutoplayPanel({
           </dd>
         </dl>
 
-        {!retired && holder ? (
+        {!retired ? (
           <button
             onClick={() => void save(!on)}
             disabled={busy}
@@ -229,51 +214,6 @@ export function AutoplayPanel({
           >
             {busy ? "Saving…" : on ? "Turn off" : state === "paused" ? "Switch back on" : "Turn on"}
           </button>
-        ) : null}
-
-        {!retired && !holder ? (
-          <>
-            <label className="mt-3 block text-[12px] uppercase tracking-wider text-muted" htmlFor={`floor-${agentId}`}>
-              Balance floor
-            </label>
-            <input
-              id={`floor-${agentId}`}
-              inputMode="numeric"
-              value={floor}
-              onChange={(e) => {
-                setFloor(e.target.value);
-                setFloorDirty(true);
-              }}
-              placeholder="none"
-              className={`rounded-panel mt-1 w-full border bg-ink px-2 py-1.5 font-mono text-[13px] text-gold ${
-                floorValid ? "border-line" : "border-loss"
-              }`}
-            />
-            <p className="mt-1 text-[12px] leading-5 text-muted">
-              Pauses before any match that could take you below this. Leave it empty to play until the balance drops
-              below the minimum to play.
-            </p>
-            {!floorValid ? <p className="mt-1 text-[11px] text-loss">A whole number of chips, or empty.</p> : null}
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => void save(!on)}
-                disabled={busy || !floorValid}
-                className={`px-3 py-2 text-[13px] font-medium disabled:bg-line disabled:text-muted ${
-                  on ? "border border-line text-text" : "bg-accent text-ink"
-                }`}
-              >
-                {busy ? "Saving…" : on ? "Turn off" : state === "paused" ? "Switch back on" : "Turn on"}
-              </button>
-              <button
-                onClick={() => void save(on)}
-                disabled={busy || !floorValid || !floorDirty}
-                className="rounded-panel border border-line px-3 py-2 text-[13px] disabled:opacity-40"
-              >
-                Save floor
-              </button>
-            </div>
-          </>
         ) : null}
 
         {error ? <p className="mt-2 text-[12px] text-loss">{error}</p> : null}

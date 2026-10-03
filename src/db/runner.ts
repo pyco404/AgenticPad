@@ -18,17 +18,14 @@ import {
   seasons,
   seasonStandings,
   MIN_FUNDING_CHIPS,
-  MIN_STAKE,
   RATING_WINDOW,
-  STARTING_BALANCE,
   WORST_MATCH,
   type AgentRow,
   type MatchRow,
   type RulesConfig,
 } from "./schema.js";
-import { balanceOf, balanceSql, balancesOf, inPlayOf, inPlaySql, record, settle, StakeError } from "./ledger.js";
-import { baseUnits, chips, rateOf, type Funding } from "../chips.js";
-import { rentalEndFor, rentalOpen, rentalOpenSql } from "./rental.js";
+import { balanceOf, balanceSql, balancesOf, inPlayOf, inPlaySql, StakeError } from "./ledger.js";
+import { chips, rateOf, type Funding } from "../chips.js";
 import { seasonAt } from "../season.js";
 import { standings, type Standing } from "./standings.js";
 
@@ -95,60 +92,17 @@ export type CreateAgentInput = {
   policyTable?: Policy;
   /** Defaults to the shipped stakes; must match the stakes matches are played at. */
   policyStakes?: Stakes;
-  /** Balance to seed. Defaults to STARTING_BALANCE. Ignored on the deposit flow. */
-  startingBalance?: number;
-  /**
-   * Which funding flow this rental is on. "seed" mints a starting balance and
-   * queues the vault for the worker, which is how every agent worked before
-   * deposits. "deposit" does neither: the owner's own transaction opens the
-   * vault and puts the money in, so there is nothing to seed and nothing for
-   * the worker to send. Its ledger row and its vault record are written when
-   * that transaction lands (src/db/rentals.ts).
-   */
-  funding?: Funding;
-  /** When the rental is taken out, which decides the season it ends with. Defaults to now. */
-  now?: Date;
 };
-
-/**
- * Two agents can only stake against each other if their vaults are under the
- * same program. They are not interchangeable: each vault is a token account for
- * one mint under one program, and no instruction exists that moves tokens from
- * a vault under one to a vault under the other. A match across them would be
- * recorded, would move both ledgers, and could never settle - which is exactly
- * what happened on 2026-09-25 before this check existed.
- */
-export function assertSameFlow(a: Pick<AgentRow, "name" | "funding">, b: Pick<AgentRow, "name" | "funding">): void {
-  if (a.funding !== b.funding) {
-    throw new StakeError(
-      `${a.name} is funded by ${a.funding} and ${b.name} by ${b.funding}; their vaults are under different programs and cannot settle against each other`,
-    );
-  }
-}
-
-/**
- * Whether a balance in base units is enough to be in play: the $20 minimum
- * (MIN_FUNDING_CHIPS). `rate` is the agent's, from the flow it was rented
- * under, and required so a deposit-funded balance is never read as chips.
- */
-export function holdsEnoughToPlay(balance: number, rate: number): boolean {
-  return balance >= baseUnits(MIN_FUNDING_CHIPS, rate);
-}
 
 /**
  * Refuses a match whose result is larger than the engine says it can produce.
  *
- * Every piece of money safety downstream rests on this bound: both vaults were
- * checked against the widest net a match can produce before it was played, the
- * settlement program refuses anything above `max_settlement`, and the outflow
- * cap is sized from it. All of that was written against a comment saying the
- * engine cannot produce more. This asks the engine instead, every time.
- *
- * It should never fire. If it does, the rules have changed under the money
- * code, and refusing to record the match is the only safe answer: recording it
- * would move more than either vault was checked to cover, and queue a
- * settlement the chain would then refuse, leaving the ledger and the vaults
- * disagreeing for good.
+ * The score caps what counts against one opponent at one match's widest net
+ * (src/score.ts), and every match row records that net; both were written
+ * against a comment saying the engine cannot produce more. This asks the
+ * engine instead, every time. It should never fire. If it does, the rules have
+ * changed under the scoring, and refusing to record the match is the only safe
+ * answer.
  */
 export function assertNetWithinBound(net: number, stakes: Stakes, what: string): void {
   const bound = maxNet(stakes);
@@ -163,15 +117,16 @@ export function assertNetWithinBound(net: number, stakes: Stakes, what: string):
 /** The rules every match is played under: the shipped rules, at the one scale there is. */
 export const MATCH_RULES: RulesConfig = DEFAULT_RULES;
 
-/** Writes an agent with its table snapshotted, a ratings row, and a seeded balance. */
+/**
+ * Writes an agent with its table snapshotted and a ratings row. Every agent is
+ * written on the holder flow (docs/holder-agents.md): a player's is in play
+ * while its owner's wallet holds the minimum, and a house agent holds nothing
+ * and is never asked to. Nothing is rented, so nothing ends with the season.
+ */
 export async function createAgent(db: Db, input: CreateAgentInput) {
   const table = input.policyTable ?? (input.presetName ? snapshotPreset(input.presetName) : undefined);
   if (!table) throw new Error(`agent ${input.name} needs a preset name or a policy table`);
-  const funding = input.funding ?? "seed";
-  const seed = input.startingBalance ?? STARTING_BALANCE;
-  // The agent, its seeded balance and the chain op that funds its vault land
-  // together, so a vault can never be owed without an agent or vice versa.
-  // Its id is bound to its owner (src/agent-id.ts): the chain records that owner and no other.
+  // Its id is bound to its owner (src/agent-id.ts).
   const { id, salt } = newAgentId(input.ownerId ?? null);
   return db.transaction(async (tx) => {
   const [row] = await tx
@@ -184,21 +139,12 @@ export async function createAgent(db: Db, input: CreateAgentInput) {
       ownerId: input.ownerId ?? null,
       policyTable: table,
       policyStakes: input.policyStakes ?? DEFAULT_RULES.stakes,
-      funding,
-      // A player's rental ends at the season boundary, however far into the
-      // season it starts. House agents are not rented and never end, and
-      // neither do holder agents: nothing is rented, holding is the entry.
-      rentalEndsAt: input.ownerId && funding !== "holder" ? rentalEndFor(input.now) : null,
+      funding: "holder",
     })
     .returning();
   await tx.insert(ratings).values({ agentId: row!.id });
-  if (funding === "seed") {
-    // Renting seeds the balance: the first movement in this agent's ledger.
-    await record(tx, [{ agentId: row!.id, amount: seed, reason: "rental-seed" }]);
-  }
-  // Its emoji, unique across all agents, chosen with the agent.
-  // The salt travels back because a deposit-funded rental needs it to build the
-  // transaction that opens the vault under this id.
+  // Its emoji, unique across all agents, chosen with the agent. The salt
+  // travels back so the id can be shown to derive from the owner.
   return { ...row!, salt, mark: await assignMark(tx as unknown as Db, row!.id) };
   });
 }
@@ -279,7 +225,6 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
   assertStakesMatch(rowB, rules.stakes);
   for (const row of [rowA, rowB]) {
     if (row.retiredAt !== null) throw new StakeError(`${row.name} is retired`);
-    if (!rentalOpen(row)) throw new StakeError(`${row.name}'s rental ended with the season; renew it to play`);
   }
 
   /**
@@ -302,7 +247,7 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
     const balance = balances.get(row.id) ?? 0;
     if (!inPlay.get(row.id)) {
       throw new StakeError(
-        `${row.name} holds too little to play: balance ${chips(balance, rateOf(row))}, needs ${MIN_FUNDING_CHIPS}`,
+        `${row.name} holds too little to play: its wallet holds ${chips(balance, rateOf(row))}, and an agent needs ${MIN_FUNDING_CHIPS}`,
       );
     }
   }
@@ -318,7 +263,7 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
   assertNetWithinBound(log.nets.A, rules.stakes, `${rowA.name} against ${rowB.name}`);
 
   // One transaction: a recorded match and the ratings derived from it move together.
-  const settledA = settle(log.nets.A);
+  const settledA = log.nets.A;
   const match = await db.transaction(async (tx) => {
     // Lock both agents, so the checks below and the record are one decision.
     await tx.execute(sql`select id from ${agents} where ${agents.id} in (${rowA.id}, ${rowB.id}) for update`);
@@ -330,7 +275,6 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
     const now = new Date();
     for (const locked of await tx.select().from(agents).where(inArray(agents.id, [rowA.id, rowB.id]))) {
       if (locked.retiredAt !== null) throw new StakeError(`${locked.name} is retired`);
-      if (!rentalOpen(locked, now)) throw new StakeError(`${locked.name}'s rental ended with the season; renew it to play`);
     }
     const [inserted] = await tx
       .insert(matches)
@@ -380,13 +324,12 @@ export async function runExhibition(db: Db, agentAId: string, agentBId: string, 
   // house agents need none. The stake is the widest net a match can produce,
   // which is what the match row shows so it reads like any other.
   const stake = WORST_MATCH;
-  assertSameFlow(rowA, rowB);
   const seed = options.seed ?? newSeed();
   const log = playMatch(resolveAgent(rowA), resolveAgent(rowB), { seed, ...rules });
   // The engine's own bound, asked of the engine rather than assumed by the
   // code that spends the answer. Before anything is recorded or moved.
   assertNetWithinBound(log.nets.A, rules.stakes, `${rowA.name} against ${rowB.name}`);
-  const settledA = settle(log.nets.A);
+  const settledA = log.nets.A;
   const [match] = await db
     .insert(matches)
     .values({
@@ -528,7 +471,6 @@ async function recentOpponents(db: Db, agentId: string, limit: number): Promise<
 export async function pickOpponent(db: Db, agentId: string, options: PickOpponentOptions = {}): Promise<OpponentPick> {
   const minCandidates = options.minCandidates ?? 4;
   const me = await loadAgent(db, agentId);
-  if (!rentalOpen(me)) throw new StakeError(`${me.name}'s rental ended with the season; renew it to play`);
   const mine = me.trueRating ?? 0;
 
   // Paired on true rating: the only signal here that is not noise. No recency
@@ -560,13 +502,8 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
         // Players still hold the minimum to be in play.
         or(isNull(agents.ownerId), solvent),
         isNull(agents.retiredAt),
-        // An expired agent is not matchable: it could not be recorded anyway.
-        rentalOpenSql(),
         // Two agents with no owner are not the same owner.
         me.ownerId === null ? sql`true` : or(isNull(agents.ownerId), ne(agents.ownerId, me.ownerId)),
-        // Only agents whose vault is under the same program. Different programs
-        // hold different mints, so a match across them could never settle.
-        eq(agents.funding, me.funding),
         // House agents only when the caller asked for one: a match against one
         // stakes nothing and counts for nothing.
         houseAllowed ? sql`true` : isNotNull(agents.ownerId),
@@ -609,9 +546,7 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
     throw new StakeError(
       !houseAllowed
         ? `no opponent right now: no other player's agent is ready. ${me.name} only meets other players' agents here - press Play to take on a house agent, or wait.`
-        : me.funding === "deposit"
-          ? `no opponent for ${me.name} yet: it plays only other agents you fund yourself, and no other one is ready. Try again later.`
-          : `no opponent right now. Try again later.`,
+        : `no opponent right now. Try again later.`,
     );
   }
   const pick: OpponentPick = {
@@ -853,7 +788,7 @@ export async function roster(db: Db, options: { limit?: number } = {}) {
     })
     .from(agents)
     .innerJoin(ratings, eq(ratings.agentId, agents.id))
-    .where(and(isNull(agents.retiredAt), rentalOpenSql()))
+    .where(isNull(agents.retiredAt))
     .orderBy(desc(ratings.matchesPlayed))
     .limit(options.limit ?? 24);
   return rows.map(listedInChips);
@@ -881,9 +816,9 @@ export async function field(db: Db, now: Date = new Date()) {
       retiredAt: agents.retiredAt,
     })
     .from(agents)
-    .where(or(and(isNull(agents.retiredAt), rentalOpenSql()), gt(agents.retiredAt, since)))
+    .where(or(isNull(agents.retiredAt), gt(agents.retiredAt, since)))
     .orderBy(agents.createdAt, agents.id);
   return rows.map((r) => ({ ...r, retiredAt: r.retiredAt?.toISOString() ?? null }));
 }
 
-export { balanceOf, connect, MIN_STAKE, RATING_WINDOW, StakeError, WORST_MATCH };
+export { balanceOf, connect, RATING_WINDOW, StakeError, WORST_MATCH };
