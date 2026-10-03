@@ -113,8 +113,6 @@ describe("holder agents", () => {
     chain.held.set(walletOf("holds"), MIN);
     const out = await api("/agents", { method: "POST", body: { presetName: "Anchor" }, as: "holds" });
     expect(out.status).toBe(201);
-    expect(out.body.funding).toBe("holder");
-    expect(out.body.rental).toBeNull();
     expect(out.body.agent.canPlay).toBe(true);
     const id = out.body.agent.id as string;
     const [row] = await db.select().from(agents).where(eq(agents.id, id));
@@ -129,7 +127,6 @@ describe("holder agents", () => {
     // Its owner sees the wallet, the clock and the weight they earn; nothing about a rental.
     const own = await api(`/agents/${id}`, { as: "holds" });
     expect(own.body.view).toBe("owner");
-    expect(own.body.rental.state).toBe("house");
     expect(own.body.holder.holding.eligible).toBe(true);
     expect(own.body.holder.holding.conviction.chips).toBe(MIN_FUNDING_CHIPS);
     expect(own.body.holder.power.convictionDays).toBe(0);
@@ -141,13 +138,10 @@ describe("holder agents", () => {
     chain.held.set(walletOf("asks"), MIN + 5 * DEVNET_CHIP_RATE);
     await api("/holding", { method: "POST", as: "asks" });
     const me = await api("/auth/me", { as: "asks" });
-    expect(me.body.funding.mode).toBe("holder");
-    expect(me.body.funding.feeChips).toBe(0);
     expect(me.body.holding.chips).toBe(MIN_FUNDING_CHIPS + 5);
     expect(me.body.holding.eligible).toBe(true);
     // Off the flow there is no holding to show.
     const other = await api("/auth/me", { as: OUTSIDER });
-    expect(other.body.funding.mode).toBe("seed");
     expect(other.body.holding).toBeNull();
     expect((await api("/holding", { as: OUTSIDER })).status).toBe(404);
   });

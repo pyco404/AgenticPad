@@ -374,69 +374,11 @@ export const api = {
   scores: () => request<Scores>("/scores"),
 };
 
-
-
-/** An op the operator should look at: one given up on, or one still being retried. */
-export type OpTrouble = {
-  id: string;
-  seq: number;
-  kind: string;
-  status: string;
-  agentId: string | null;
-  agentName: string | null;
-  amount: number;
-  amountChips: number;
-  attempts: number;
-  lastError: string | null;
-  ageMs: number;
-};
-
-/**
- * Operational health. Every figure here is read from somewhere that already
- * measured it; nothing on the page is a number this page invented.
- */
+/** What /admin reports: wallet readings and the score freeze (src/db/admin.ts). */
 export type AdminHealth = {
   at: string;
-  settlement: {
-    lagMs: number | null;
-    alarmAfterMs: number;
-    stalled: boolean;
-    oldest: OpTrouble | null;
-  };
-  settlers: { flow: string; address: string; sol: number; floorSol: number; low: boolean }[];
-  /** Null when no settlement program is reachable: not zero, which would read as healthy. */
-  books: {
-    reconcile: {
-      checked: number;
-      /** A vault that genuinely disagrees with the ledger. */
-      mismatches: { agentId: string; name: string; ledgerChips: number; chainChips: number | null; funding: string }[];
-      surpluses: { agentId: string; name: string; surplusChips: number; funding: string }[];
-      explained: { agentId: string; name: string; claimedChips: number; claimedSlot: number }[];
-      /**
-       * Vaults this pass could not read. Reported apart from disagreements on
-       * purpose: an RPC that throttled says nothing about the money.
-       */
-      unverified: { agentId: string; name: string; ledgerChips: number; why: string; funding: string }[];
-    };
-    /**
-     * Per funding flow, and never summed: the seed and deposit programs hold
-     * different mints, so one total across both would add two currencies.
-     */
-    solvency: {
-      counted: number;
-      unreachable: number;
-      /** Settlements queued and not yet on chain, per flow, in that flow's chips. */
-      inFlightChips: Record<string, number>;
-      byFlow: Record<string, { ledgerChips: number; chainChips: number; differenceChips: number; counted: number }>;
-    };
-  } | null;
-  ops: { failed: OpTrouble[]; stuck: OpTrouble[] };
-  volume: {
-    agents: { active: number; retired: number; house: number };
-    /** Both routes money arrives by: at rent time, and as a later top-up. */
-    deposits: { confirmed: number; chips: number; pending: number; atRentChips: number; topUpChips: number };
-    withdrawals: { confirmed: number; chips: number; pending: number };
-    rentals: { confirmed: number; burnedChips: number; pending: number };
-    matches: { staked: number; ranked: number; exhibitions: number; last24h: number };
-  };
+  holders: number;
+  holdings: { wallets: number; oldestReadAt: string | null; oldestAgeMs: number | null; staleAfterMs: number; stale: boolean };
+  scores: { lastFrozen: string | null; behind: number };
+  matches: { today: number; rankedToday: number };
 };

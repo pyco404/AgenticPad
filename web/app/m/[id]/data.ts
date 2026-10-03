@@ -33,7 +33,6 @@ export type MatchPayload = {
    * transaction is the loser's net for that hour and moved a different amount.
    * Optional because an api from before netting does not send it.
    */
-  settlement: { status: "pending" | "confirmed" | "failed"; signature: string | null; amount: number; netted?: boolean } | null;
 };
 
 export type MatchLookup =

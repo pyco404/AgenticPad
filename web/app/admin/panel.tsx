@@ -1,30 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, type AdminHealth, type OpTrouble } from "@/lib/api";
+import { api, ApiError, type AdminHealth } from "@/lib/api";
 import { useWallet } from "@/app/wallet-context";
 
 /**
  * Operational health, for the operator.
  *
- * The order on this page is the order things go wrong in, not the order they
- * are interesting in: settlement first, then the money, then the keys that pay
- * for it, then the ops to go and look at. Volume is at the bottom because it
- * is what you read when nothing is wrong.
+ * Under holder agents nothing here watches money move: there is no program and
+ * no vault (docs/holder-agents.md). What can go quietly wrong is the reading of
+ * wallets - every holder left on an old figure - and the freezing of each
+ * day's scores, which payouts are made from. Those come first; activity is at
+ * the bottom because it is what you read when nothing is wrong.
  *
- * Every figure comes from the API, which reads them from where they already
- * live. Nothing here computes anything, on purpose: a dashboard that does its
- * own arithmetic is a second implementation that can disagree with the first.
+ * Every figure comes from the API. Nothing here computes anything, on purpose:
+ * a dashboard that does its own arithmetic is a second implementation that can
+ * disagree with the first.
  */
 
-/**
- * Figures arrive in chips already, converted per flow by the server.
- *
- * They used to arrive in base units and this divided by a million, which is
- * right for a deposit agent and wrong for a seed one - whose chip is one base
- * unit. A seed balance of 186 rendered as "0", which read as an empty vault
- * rather than as this function being wrong.
- */
 const num = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
 function duration(ms: number): string {
@@ -61,45 +54,6 @@ function Card({ title, state, children }: { title: string; state?: "ok" | "warn"
       </h2>
       <div className="px-4 py-2">{children}</div>
     </section>
-  );
-}
-
-function Ops({ title, ops, empty }: { title: string; ops: OpTrouble[]; empty: string }) {
-  if (ops.length === 0) return <Row label={title} value="none" tone="good" sub={empty} />;
-  return (
-    <div className="py-2">
-      <p className="mb-1 text-[12px] text-loss">
-        {title}: {ops.length}
-      </p>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[520px] text-left text-[12px]">
-          <thead className="text-[11px] uppercase tracking-wider text-muted">
-            <tr className="border-b border-line">
-              <th className="py-1 pr-3 font-normal">Seq</th>
-              <th className="py-1 pr-3 font-normal">Kind</th>
-              <th className="py-1 pr-3 font-normal">Agent</th>
-              <th className="py-1 pr-3 text-right font-normal">Chips</th>
-              <th className="py-1 pr-3 text-right font-normal">Tries</th>
-              <th className="py-1 pr-3 text-right font-normal">Age</th>
-              <th className="py-1 font-normal">Last error</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ops.slice(0, 25).map((o) => (
-              <tr key={o.id} className="border-b border-line last:border-b-0 align-top">
-                <td className="py-1 pr-3 font-mono text-muted">{o.seq}</td>
-                <td className="py-1 pr-3">{o.kind}</td>
-                <td className="py-1 pr-3">{o.agentName ?? o.agentId?.slice(0, 8) ?? "—"}</td>
-                <td className="py-1 pr-3 text-right font-mono">{num(o.amountChips)}</td>
-                <td className="py-1 pr-3 text-right font-mono">{o.attempts}</td>
-                <td className="py-1 pr-3 text-right font-mono text-muted">{duration(o.ageMs)}</td>
-                <td className="py-1 text-muted">{o.lastError ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
   );
 }
 
@@ -147,10 +101,7 @@ export function AdminPanel() {
   }
   if (!health) return <p className="text-[13px] text-muted">Reading…</p>;
 
-  const { settlement, settlers, books, ops, volume } = health;
-  const lagBad = settlement.stalled;
-  const short = books !== null && Object.values(books.solvency.byFlow).some((f) => f.differenceChips < 0);
-  const mism = books?.reconcile.mismatches ?? [];
+  const { holdings, scores, matches } = health;
 
   return (
     <div className="flex flex-col gap-4">
@@ -159,142 +110,30 @@ export function AdminPanel() {
         {loading ? " · reading…" : ""}
       </p>
 
-      <Card title="Solvency" state={books === null ? "unknown" : short ? "warn" : "ok"}>
-        {books === null ? (
-          <Row label="Vaults" value="not reachable" sub="no settlement program is configured on this server" />
-        ) : (
-          <>
-            {/*
-              Per flow, never added together: the seed and deposit programs hold
-              different mints, so a combined figure would be two currencies in
-              one number.
-            */}
-            {Object.entries(books.solvency.byFlow).map(([flow, f]) => (
-              <Row
-                key={flow}
-                label={`${flow}: ledger ${num(f.ledgerChips)} · vaults ${num(f.chainChips)}`}
-                value={`${f.differenceChips >= 0 ? "+" : "−"}${num(Math.abs(f.differenceChips))}`}
-                tone={f.differenceChips === 0 ? "good" : "bad"}
-                sub={f.differenceChips === 0 ? `${f.counted} vaults, they add up` : "vaults hold less than the ledger says"}
-              />
-            ))}
-            {Object.keys(books.solvency.byFlow).length === 0 ? (
-              <Row label="Vaults" value="none counted" />
-            ) : null}
-            <Row
-              label="Counted"
-              value={`${books.solvency.counted} vaults`}
-              sub={books.solvency.unreachable > 0 ? `${books.solvency.unreachable} could not be read` : undefined}
-            />
-            {/* One row per flow, in its own chips: a figure across both would add two mints. */}
-            {Object.keys(books.solvency.inFlightChips).length === 0 ? (
-              <Row label="Queued, not yet on chain" value="nothing" />
-            ) : (
-              Object.entries(books.solvency.inFlightChips).map(([flow, amount]) => (
-                <Row
-                  key={flow}
-                  label={`${flow}: queued, not yet on chain`}
-                  value={`${num(amount)} chips`}
-                  sub="moves no total: taken from one balance, given to another"
-                />
-              ))
-            )}
-          </>
-        )}
-      </Card>
-
-      <Card title="Settlement" state={lagBad ? "warn" : "ok"}>
+      <Card title="Wallet readings" state={holdings.stale ? "warn" : holdings.wallets === 0 ? "unknown" : "ok"}>
+        <Row label="Holders in play" value={num(health.holders)} />
+        <Row label="Wallets read" value={num(holdings.wallets)} />
         <Row
-          label="Oldest op waiting"
-          value={settlement.lagMs === null ? "nothing waiting" : duration(settlement.lagMs)}
-          tone={lagBad ? "bad" : "good"}
-          sub={`alarm at ${duration(settlement.alarmAfterMs)}`}
+          label="Oldest reading"
+          value={holdings.oldestAgeMs === null ? "none yet" : duration(holdings.oldestAgeMs)}
+          tone={holdings.stale ? "bad" : "plain"}
+          sub={`stale past ${duration(holdings.staleAfterMs)}`}
         />
-        {settlement.oldest ? (
-          <Row
-            label={`#${settlement.oldest.seq} ${settlement.oldest.kind}`}
-            value={settlement.oldest.agentName ?? settlement.oldest.agentId?.slice(0, 8) ?? "—"}
-            sub={settlement.oldest.lastError ?? `${settlement.oldest.attempts} tries`}
-          />
+        {holdings.stale ? (
+          <p className="py-2 text-[12px] leading-5 text-loss">
+            Wallets have not been read for three passes. Holders are being judged on old figures: check the RPC.
+          </p>
         ) : null}
       </Card>
 
-      <Card title="Reconcile" state={books === null ? "unknown" : mism.length > 0 ? "warn" : "ok"}>
-        {books === null ? (
-          <Row label="Vaults" value="not reachable" />
-        ) : (
-          <>
-            <Row label="Vaults checked" value={num(books.reconcile.checked)} />
-            {mism.length === 0 ? (
-              <Row label="Disagreements" value="none" tone="good" sub="every vault matches its ledger balance" />
-            ) : (
-              mism.map((m) => (
-                <Row
-                  key={m.agentId}
-                  label={m.name}
-                  value={`ledger ${num(m.ledgerChips)} · vault ${m.chainChips === null ? "does not exist" : num(m.chainChips)}`}
-                  tone="bad"
-                  sub={m.agentId.slice(0, 8)}
-                />
-              ))
-            )}
-            {books.reconcile.explained.length > 0 ? (
-              <Row
-                label="Explained by an owner's exit"
-                value={num(books.reconcile.explained.length)}
-                sub="claimed on chain, ledger not caught up yet"
-              />
-            ) : null}
-            {books.reconcile.surpluses.length > 0 ? (
-              <Row label="Holding more than the ledger says" value={num(books.reconcile.surpluses.length)} />
-            ) : null}
-            {/*
-              Vaults this pass could not read. Kept apart from disagreements on
-              purpose: a throttled RPC says nothing about the money, and
-              counting it as a shortfall is how the alarm above stops meaning
-              anything.
-            */}
-            {books.reconcile.unverified.length > 0
-              ? books.reconcile.unverified.map((u) => (
-                  <Row
-                    key={u.agentId}
-                    label={`${u.name} — could not read its vault`}
-                    value={`ledger ${num(u.ledgerChips)}`}
-                    sub={u.why}
-                  />
-                ))
-              : null}
-          </>
-        )}
+      <Card title="Score freeze" state={scores.behind > 0 ? "warn" : "ok"}>
+        <Row label="Last day frozen" value={scores.lastFrozen ?? "none yet"} />
+        <Row label="Days over, not frozen" value={num(scores.behind)} tone={scores.behind > 0 ? "bad" : "good"} />
       </Card>
 
-      <Card title="Settler keys" state={settlers.some((s) => s.low) ? "warn" : settlers.length > 0 ? "ok" : "unknown"}>
-        {settlers.length === 0 ? (
-          <Row label="Keys" value="none configured" />
-        ) : (
-          settlers.map((s) => (
-            <Row
-              key={s.address}
-              label={`${s.flow} settler`}
-              value={`${s.sol.toFixed(4)} SOL`}
-              tone={s.low ? "bad" : "good"}
-              sub={`${s.low ? `under ${s.floorSol} · ` : ""}${s.address.slice(0, 4)}…${s.address.slice(-4)}`}
-            />
-          ))
-        )}
-      </Card>
-
-      <Card title="Chain ops" state={ops.failed.length > 0 || ops.stuck.length > 0 ? "warn" : "ok"}>
-        <Ops title="Given up on" ops={ops.failed} empty="nothing has been abandoned" />
-        <Ops title="Still retrying" ops={ops.stuck} empty="nothing has been waiting long" />
-      </Card>
-
-      <Card title="Volume">
-        <Row label="Agents in play" value={num(volume.agents.active)} sub={`${volume.agents.retired} retired · ${volume.agents.house} house`} />
-        <Row label="Matches" value={num(volume.matches.staked)} sub={`${num(volume.matches.ranked)} ranked · ${num(volume.matches.exhibitions)} exhibitions · ${num(volume.matches.last24h)} in 24h`} />
-        <Row label="Deposits" value={`${num(volume.deposits.chips)} chips`} sub={`${volume.deposits.confirmed} landed${volume.deposits.pending ? ` · ${volume.deposits.pending} in flight` : ""}`} />
-        <Row label="Withdrawals" value={`${num(volume.withdrawals.chips)} chips`} sub={`${volume.withdrawals.confirmed} landed${volume.withdrawals.pending ? ` · ${volume.withdrawals.pending} in flight` : ""}`} />
-        <Row label="Rent burned" value={`${num(volume.rentals.burnedChips)} chips`} sub={`${volume.rentals.confirmed} rentals`} />
+      <Card title="Today">
+        <Row label="Matches" value={num(matches.today)} />
+        <Row label="Ranked" value={num(matches.rankedToday)} />
       </Card>
     </div>
   );

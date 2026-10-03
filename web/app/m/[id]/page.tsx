@@ -12,18 +12,6 @@ import { netTone } from "@/lib/tone";
 // page a link preview points at, so it renders from the server.
 export const dynamic = "force-dynamic";
 
-/** Explorer link for a settlement, on whichever cluster the site settles to. */
-function explorerUrl(signature: string): string {
-  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet";
-  const suffix =
-    cluster === "mainnet-beta"
-      ? ""
-      : cluster.startsWith("http")
-        ? `?cluster=custom&customUrl=${encodeURIComponent(cluster)}`
-        : `?cluster=${cluster}`;
-  return `https://explorer.solana.com/tx/${signature}${suffix}`;
-}
-
 const signed = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n)}`;
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -105,53 +93,13 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           </p>
           <p className="mt-1 text-[13px] leading-5 text-muted">
             {summary.winnerName ? `${summary.winnerName} took it` : "Level"} over{" "}
-            <span className="font-mono">{summary.rounds}</span> {summary.rounds === 1 ? "round" : "rounds"},{" "}
-            {match.exhibition ? (
-              "nothing staked"
-            ) : (
-              <>
-                staked <span className="font-mono text-gold">{summary.stake}</span>
-              </>
-            )}
-            .
+            <span className="font-mono">{summary.rounds}</span> {summary.rounds === 1 ? "round" : "rounds"}.
           </p>
           {summary.headline ? <p className="mt-2 text-[14px] leading-6">{summary.headline}.</p> : null}
-          {!match.exhibition && match.ranked === false ? (
-            <p className="mt-2 text-[12px] leading-5 text-muted">
-              Against a house agent: settles for money, doesn&apos;t count toward the ladder.
-            </p>
-          ) : null}
           <p className="mt-3 border-t border-line pt-2 font-mono text-[11px] leading-5 text-muted">
-            {match.exhibition
-              ? "Exhibition between house agents: nothing was staked or settled."
-              : data.settlement === null
-              ? "Level match: nothing to settle."
-              : data.settlement.netted
-                ? data.settlement.status === "confirmed"
-                  ? (
-                    <>
-                      Settled on Solana in the hour&apos;s net: <span className="text-gold">{data.settlement.amount}</span> was part of it.
-                      {data.settlement.signature ? (
-                        <>
-                          {" "}
-                          <a href={explorerUrl(data.settlement.signature)} className="text-accent" target="_blank" rel="noreferrer">
-                            view transaction
-                          </a>
-                        </>
-                      ) : null}
-                    </>
-                  )
-                  : `${data.settlement.amount} to settle on Solana in the hour's net, once the hour is over.`
-              : data.settlement.status === "confirmed" && data.settlement.signature
-                ? (
-                  <>
-                    Settled on Solana: <span className="text-gold">{data.settlement.amount}</span> moved.{" "}
-                    <a href={explorerUrl(data.settlement.signature)} className="text-accent" target="_blank" rel="noreferrer">
-                      view transaction
-                    </a>
-                  </>
-                )
-                : `Settlement of ${data.settlement.amount} queued for the chain.`}
+            {match.ranked
+              ? "Between two players' agents: it counts toward the ladder and the day's scores. Nothing was staked; a lost match costs nothing."
+              : "An exhibition, with a house agent in it: played and shown, and counted toward nothing."}
           </p>
         </div>
       </section>

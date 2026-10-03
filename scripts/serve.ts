@@ -1,10 +1,8 @@
 import "./env.js";
-import { existsSync } from "node:fs";
 import { connect, migrate } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
 import { assignMissingMarks, createAgent } from "../src/db/runner.js";
 import { refreshTrueRatings } from "../src/db/rating.js";
-import { ensureDepositHouse } from "../src/db/house.js";
 import { agents, AUTOPLAY_INTERVAL_MS } from "../src/db/schema.js";
 import { mulberry32, PRESET_NAMES } from "../src/index.js";
 import { nameFactory } from "./names.js";
@@ -14,8 +12,8 @@ const arg = (name: string, fallback: number) => {
   const i = process.argv.indexOf(name);
   return i >= 0 ? Number(process.argv[i + 1]) : fallback;
 };
-// Matches are linked from share pages and the chain, so they must outlive the
-// process. In-memory PGlite only on request, for a throwaway run.
+// Matches are linked from share pages, so they must outlive the process.
+// In-memory PGlite only on request, for a throwaway run.
 if (!process.env["DATABASE_URL"] && !process.argv.includes("--memory")) {
   console.error("DATABASE_URL is not set. Point it at Postgres (see docker-compose.yml), or pass --memory for a throwaway in-memory run.");
   process.exit(1);
@@ -23,28 +21,14 @@ if (!process.env["DATABASE_URL"] && !process.argv.includes("--memory")) {
 const { db } = await connect();
 if (process.argv.includes("--migrate")) await migrate(db);
 
-// Which programs this server settles to. The seed program only where its
-// settler key is here: mainnet has none, and a server that assumed one would
-// crash looking for .keys/settler.json or, worse, run and settle nothing.
-const seedKeyPath = process.env["CHAIN_SETTLER_KEYPAIR"] ?? ".keys/settler.json";
-const seedProgram = Boolean(process.env["CHAIN_RPC_URL"]) && (Boolean(process.env["CHAIN_SETTLER_SECRET"]) || existsSync(seedKeyPath));
-const depositProgram = Boolean(process.env["CHAIN_RPC_URL"]) && Boolean(process.env["CHAIN_STAKE_MINT"]);
-
-// The house roster: unowned preset agents spread across the ceiling bands, so a
-// first player has someone to meet in every band. Only when the roster is empty.
-// On the deposit program alone (mainnet) that is the deposit house - never a
-// roster on a seed program that is not there.
+// The house roster: unowned preset agents, so a first player has someone to
+// practise against and the feed shows the platform running. Only when the
+// roster is empty.
 const rosterSize = arg("--roster", 24);
-if (rosterSize > 0 && depositProgram && !seedProgram && (await db.select({ id: agents.id }).from(agents).limit(1)).length === 0) {
-  const { roster } = await ensureDepositHouse(db, nameFactory(mulberry32(Date.now() % 1_000_000)));
-  console.log(`Seeded the deposit program's house roster: ${roster.length} agents, vaults opened by the worker`);
-} else if (rosterSize > 0 && (await db.select({ id: agents.id }).from(agents).limit(1)).length === 0) {
+if (rosterSize > 0 && (await db.select({ id: agents.id }).from(agents).limit(1)).length === 0) {
   const nextName = nameFactory(mulberry32(Date.now() % 1_000_000));
   for (let i = 0; i < rosterSize; i++) {
-    await createAgent(db, {
-      name: nextName(),
-      presetName: PRESET_NAMES[i % PRESET_NAMES.length]!,
-    });
+    await createAgent(db, { name: nextName(), presetName: PRESET_NAMES[i % PRESET_NAMES.length]! });
   }
   console.log(`Seeded a house roster of ${rosterSize} agents`);
 }
@@ -55,7 +39,7 @@ if (marked) console.log(`Gave ${marked} agents their marks`);
 const rerated = await refreshTrueRatings(db);
 if (rerated) console.log(`Re-rated ${rerated} agents`);
 // House exhibitions, when configured: house agents play each other so the feed
-// shows the platform running. They stake and settle nothing.
+// shows the platform running.
 const exhibitionMs = Number(process.env["HOUSE_EXHIBITION_MS"] ?? 0);
 if (exhibitionMs > 0) {
   const { startHouseExhibitions } = await import("../src/db/house.js");
@@ -63,106 +47,21 @@ if (exhibitionMs > 0) {
     intervalMs: exhibitionMs,
     onError: (error) => console.error(`house: exhibition failed: ${String(error).slice(0, 160)}`),
   });
-  console.log(`House exhibitions: about one every ${Math.round(exhibitionMs / 1000)}s, off-chain`);
-}
-// Settlement on chain, when configured. The ledger is authoritative either
-// way; without a chain the outbox simply waits, and withdrawals are unavailable.
-const rpc = process.env["CHAIN_RPC_URL"];
-let chain: import("../src/chain/seed-settlement.js").SeedChainClient | undefined;
-if (rpc && !seedProgram) console.log("Seed program: off - no seed settler key here (CHAIN_SETTLER_SECRET)");
-if (rpc && seedProgram) {
-  const { Connection, Keypair } = await import("@solana/web3.js");
-  const { SeedChainClient, loadKeypair } = await import("../src/chain/seed-settlement.js");
-  // A host has no key file: CHAIN_SETTLER_SECRET carries the same JSON byte array.
-  const secret = process.env["CHAIN_SETTLER_SECRET"];
-  const settler = secret
-    ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret) as number[]))
-    : loadKeypair(seedKeyPath);
-  chain = new SeedChainClient(new Connection(rpc, "confirmed"), settler);
+  console.log(`House exhibitions: about one every ${Math.round(exhibitionMs / 1000)}s`);
 }
 
-// The deposit-funded flow, when its program is deployed and configured. The
-// fee is read from the program's own config rather than set here, so a player
-// is never quoted a price the program will then refuse; the chip rate is the
-// season's, settled below before anything plays.
-//
-// FUNDING_MODE=deposit switches every new rental to it. FUNDING_DEPOSIT_WALLETS
-// is a comma-separated allowlist for trying it on the live site while everyone
-// else keeps the seed flow, which is what the cutover runs on until a season
-// boundary flips the default.
-let depositFlow: import("../src/http/server.js").AppOptions["deposit"];
-// The same client, kept at its full type. The http layer is handed only the
-// parts it uses; the worker needs the rest of it to settle and reconcile.
-let depositClient: import("../src/chain/settlement.js").ChainClient | undefined;
-if (rpc && process.env["CHAIN_STAKE_MINT"]) {
-  const { Connection, Keypair, PublicKey } = await import("@solana/web3.js");
-  const { ChainClient, tokenProgramOf } = await import("../src/chain/settlement.js");
-  const { loadKeypair, v2SettlerKeyPath } = await import("../src/chain/common.js");
-  try {
-    // The deposit program has a settler of its own. The seed program's cannot be
-    // rotated - the deployed bytecode has no set_settler - so its key is stuck
-    // with whatever history it has, and there is no reason to carry that into a
-    // program being deployed clean. v2SettlerKeyPath falls back to the seed key
-    // only when this program has no key file of its own, so a single-key setup
-    // still works without a rotated one silently picking up the wrong file and
-    // failing every settlement with NotSettler.
-    const secret = process.env["CHAIN_SETTLER_SECRET_V2"] ?? process.env["CHAIN_SETTLER_SECRET"];
-    const settler = secret
-      ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret) as number[]))
-      : loadKeypair(v2SettlerKeyPath());
-    const connection = new Connection(rpc, "confirmed");
-    const mint = new PublicKey(process.env["CHAIN_STAKE_MINT"]);
-    // Read from the mint, never assumed: the stake token may live under the
-    // original token program or Token-2022, and the wrong one reads every
-    // vault as absent.
-    const client = new ChainClient(connection, settler, mint, await tokenProgramOf(connection, mint));
-    const config = await client.config();
-    const mode = process.env["FUNDING_MODE"] === "deposit";
-    const allowed = new Set(
-      (process.env["FUNDING_DEPOSIT_WALLETS"] ?? "")
-        .split(",")
-        .map((w) => w.trim())
-        .filter(Boolean),
-    );
-    depositClient = client;
-    depositFlow = {
-      chain: client,
-      // Kept in step with the program on every season pass below, so a rent the admin changes is quoted
-      // at once instead of every rental failing with WrongRent until a restart.
-      fee: config.rent.toNumber(),
-      allow: (ownerId) => mode || allowed.has(ownerId),
-    };
-    const who = mode ? "every new rental" : allowed.size ? `${allowed.size} allowlisted wallet(s)` : "nobody yet";
-    console.log(`Deposits: on for ${who}; rent ${config.rent.toNumber() / config.chipRate.toNumber()} chips`);
-  } catch (error) {
-    console.log(`Deposits: off - ${String(error).slice(0, 140)}`);
-  }
-}
-
-// Seasons: close each one at its boundary, settle the season's chip rate, and
-// lapse agents whose grace is over. The first pass is awaited here, before
-// anything plays: a boundary missed while the api was down is closed first, and
-// no match stakes at any rate but the season's (src/db/chip-rate.ts). Then once
-// a minute, keeping the rent quoted in step with the program's.
+// Seasons: close each one at its boundary and settle the season's chip rate -
+// the minimum's dollar peg (docs/holder-agents.md). The first pass is awaited
+// here, before anything plays, so a boundary missed while the api was down is
+// closed first. Then once a minute.
 {
   const { startSeasons } = await import("../src/db/seasons.js");
   const { syncSeasonRate } = await import("../src/db/chip-rate.js");
-  const readRate = depositClient
-    ? async () => {
-        const c = await depositClient!.config();
-        return { chipRate: c.chipRate.toNumber(), rent: c.rent.toNumber() };
-      }
-    : null;
-  const first = await syncSeasonRate(db, readRate);
+  const first = await syncSeasonRate(db);
   console.log(`Chip rate: ${first.rate} base units a chip for season ${first.season} (${first.source})`);
-  if (first.drift) console.error(`season: chip rate drift - the program is at ${first.drift.chain}, the season plays at ${first.drift.season}`);
   startSeasons(db, {
     onLog: (line) => console.log(line),
     onError: (error) => console.error(`season: ${String(error).slice(0, 220)}`),
-    ...(readRate ? { readRate } : {}),
-    onRate: (r) => {
-      if (depositFlow && r.rent !== null) depositFlow.fee = r.rent;
-    },
   });
 }
 // Holder scores: each UTC day frozen once it is over (docs/holder-agents.md).
@@ -181,7 +80,7 @@ if (rpc && process.env["CHAIN_STAKE_MINT"]) {
     onError: (error) => console.error(`traits: ${String(error).slice(0, 160)}`),
   });
 }
-// Autoplay: rented agents play on a timer, without their owners present. On by
+// Autoplay: agents play on a timer, without their owners present. On by
 // default, because an agent only plays once its own owner has switched it on;
 // AUTOPLAY_INTERVAL_MS=0 turns the loop off entirely.
 const autoplayMs = Number(process.env["AUTOPLAY_INTERVAL_MS"] ?? AUTOPLAY_INTERVAL_MS);
@@ -198,48 +97,40 @@ if (autoplayMs > 0) {
   console.log("Autoplay: off (AUTOPLAY_INTERVAL_MS=0)");
 }
 
+const rpc = process.env["CHAIN_RPC_URL"];
+// The token holders hold: $CLASH on mainnet, the faucet's test token on devnet.
+const mint = process.env["HOLDER_MINT"] ?? process.env["CHAIN_STAKE_MINT"];
+
 // The devnet faucet, when there is a treasury to hand out from. It refuses any
 // cluster but devnet, and says so rather than starting quietly: a faucet is
 // only ever a devnet convenience, and the check is on the chain's own genesis
-// hash rather than on a variable naming it.
+// hash rather than on a variable naming it. FAUCET_ENABLED=true is the only
+// thing that turns it on; the devnet check applies on top and cannot be overridden.
 let faucet: import("../src/db/faucet.js").FaucetChain | undefined;
-// Off unless asked for. It used to follow CHAIN_STAKE_MINT, which meant the
-// variable that tells the api about the deposit programme also handed out free
-// tokens to everyone - two decisions on one switch, and the surprising one
-// silent. FAUCET_ENABLED=true is the only thing that turns it on now; the
-// devnet check still applies on top of it and cannot be overridden.
-if (rpc && process.env["CHAIN_STAKE_MINT"] && process.env["FAUCET_ENABLED"] === "true") {
+if (rpc && mint && process.env["FAUCET_ENABLED"] === "true") {
   const { Connection, Keypair, PublicKey } = await import("@solana/web3.js");
   const { devnetFaucet, NotDevnetError } = await import("../src/chain/faucet.js");
   const { loadKeypair } = await import("../src/chain/common.js");
   const secret = process.env["CHAIN_TREASURY_SECRET"];
   const treasuryPath = process.env["CHAIN_TREASURY_KEYPAIR"] ?? ".keys/treasury.json";
   try {
-    const treasury = secret
-      ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret) as number[]))
-      : loadKeypair(treasuryPath);
-    faucet = await devnetFaucet(
-      new Connection(rpc, "confirmed"),
-      new PublicKey(process.env["CHAIN_STAKE_MINT"]),
-      treasury,
-    );
+    const treasury = secret ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret) as number[])) : loadKeypair(treasuryPath);
+    faucet = await devnetFaucet(new Connection(rpc, "confirmed"), new PublicKey(mint), treasury);
     console.log(`Faucet: on, from treasury ${treasury.publicKey.toBase58()}`);
   } catch (error) {
     if (error instanceof NotDevnetError) console.log(`Faucet: off - ${error.message}`);
     else console.log(`Faucet: off - no treasury key (${String(error).slice(0, 120)})`);
   }
-} else if (rpc && process.env["CHAIN_STAKE_MINT"]) {
+} else if (rpc && mint) {
   console.log("Faucet: off (set FAUCET_ENABLED=true to hand out test tokens)");
 }
 
 // Holder agents (docs/holder-agents.md): a wallet holding the token above the
-// minimum has an agent, with nothing rented or deposited. HOLDER_MINT names the
-// token, defaulting to the stake mint, which on devnet is the faucet's test
-// token standing in for $CLASH. FUNDING_MODE=holder puts every new agent on
-// this flow; HOLDER_WALLETS is a comma-separated allowlist for trying it first.
+// minimum has an agent, with nothing rented or deposited. FUNDING_MODE=holder
+// puts every new agent on this flow; HOLDER_WALLETS is a comma-separated
+// allowlist for trying it first.
 let holderFlow: import("../src/http/server.js").AppOptions["holder"];
-const holderMint = process.env["HOLDER_MINT"] ?? process.env["CHAIN_STAKE_MINT"];
-if (rpc && holderMint) {
+if (rpc && mint) {
   const { Connection, PublicKey } = await import("@solana/web3.js");
   const { rpcHoldings } = await import("../src/chain/holdings.js");
   const { startHoldings } = await import("../src/db/holdings.js");
@@ -251,163 +142,39 @@ if (rpc && holderMint) {
       .filter(Boolean),
   );
   if (mode || allowed.size) {
-    const holdingsChain = rpcHoldings(new Connection(rpc, "confirmed"), new PublicKey(holderMint));
+    const holdingsChain = rpcHoldings(new Connection(rpc, "confirmed"), new PublicKey(mint));
     holderFlow = { chain: holdingsChain, allow: (ownerId) => mode || allowed.has(ownerId) };
     startHoldings(db, holdingsChain, {
       ...(Number(process.env["HOLDINGS_INTERVAL_MS"]) > 0 ? { intervalMs: Number(process.env["HOLDINGS_INTERVAL_MS"]) } : {}),
       onLog: (line) => console.log(line),
       onError: (error) => console.error(`holdings: ${String(error).slice(0, 160)}`),
     });
-    console.log(`Holders: on for ${mode ? "every new agent" : `${allowed.size} allowlisted wallet(s)`}, token ${holderMint}`);
+    console.log(`Holders: on for ${mode ? "every new agent" : `${allowed.size} allowlisted wallet(s)`}, token ${mint}`);
   } else {
     console.log("Holders: off (set FUNDING_MODE=holder or HOLDER_WALLETS to turn them on)");
   }
 }
 
-// A host sets PORT and needs every interface; locally, loopback only.
 // Characters check chosen names and write bios for brief-written agents with
 // a small model, when there is a key to call one with.
 const characterModel = process.env["ANTHROPIC_API_KEY"]
   ? await import("../src/character/model.js").then(({ textCheck, bioWriter }) => ({ check: textCheck(), writeBio: bioWriter() }))
   : undefined;
-/**
- * What /admin reports, assembled here because this is where the chain clients
- * are. The http layer has no settler and no connection, and should not acquire
- * either just to draw a page.
- *
- * Read fresh each request rather than cached: the page is opened when
- * something looks wrong, which is exactly when a stale figure is worst.
- */
-const health = rpc
-  ? async () => {
-      const { LAMPORTS_PER_SOL } = await import("@solana/web3.js");
-      const { reconcile, settlementLag, solvency, SETTLEMENT_LAG_ALARM_MS, SETTLER_SOL_FLOOR } = await import(
-        "../src/chain/worker.js"
-      );
-      const { troubledOps, oldestPending, volume } = await import("../src/db/admin.js");
-      const ports = { ...(chain ? { seed: chain } : {}), ...(depositClient ? { deposit: depositClient } : {}) };
-      const anyPort = depositClient ?? chain;
-      const now = new Date();
 
-      const lagMs = await settlementLag(db, now);
-      const [ops, oldest, vol] = await Promise.all([troubledOps(db, SETTLEMENT_LAG_ALARM_MS, now), oldestPending(db, now), volume(db, now)]);
+/** What /admin reports: holdings and scores, read fresh each request (src/db/admin.ts). */
+const health = async () => (await import("../src/db/admin.js")).health(db);
 
-      // The reconciler and the solvency line both read every vault, so they
-      // are the slow part. Skipped entirely when no program is reachable,
-      // rather than reported as zeroes that would read as "all is well".
-      const books = anyPort
-        ? await (async () => {
-            const [check, sums] = await Promise.all([
-              reconcile(db, ports as never),
-              solvency(db, ports as never),
-            ]);
-            return { reconcile: check, solvency: sums };
-          })()
-        : null;
-
-      const settlers = [];
-      for (const [name, client] of [
-        ["seed", chain],
-        ["deposit", depositClient],
-      ] as const) {
-        if (!client) continue;
-        const address = client.signer.publicKey;
-        const lamports = await client.connection.getBalance(address, "confirmed");
-        const sol = lamports / LAMPORTS_PER_SOL;
-        settlers.push({ flow: name, address: address.toBase58(), sol, floorSol: SETTLER_SOL_FLOOR, low: sol < SETTLER_SOL_FLOOR });
-      }
-
-      // Chips, per flow, computed here because the server knows each agent's
-      // rate and a page cannot. A seed agent's chip is one base unit and a
-      // deposit agent's is a million; dividing everything by a million turned
-      // a seed balance of 186 into "0" on the page, which read as an empty
-      // vault rather than a display bug.
-      const { chipRate } = await import("../src/chips.js");
-      const inChips = (amount: number, funding: import("../src/chips.js").Funding) => amount / chipRate(funding);
-
-      return {
-        at: now,
-        settlement: {
-          lagMs,
-          alarmAfterMs: SETTLEMENT_LAG_ALARM_MS,
-          stalled: lagMs !== null && lagMs >= SETTLEMENT_LAG_ALARM_MS,
-          oldest,
-        },
-        settlers,
-        books: books
-          ? {
-              reconcile: {
-                checked: books.reconcile.checked,
-                mismatches: books.reconcile.mismatches.map((m) => ({
-                  ...m,
-                  ledgerChips: inChips(m.ledger, m.funding),
-                  // Null now means the vault genuinely is not there, not that
-                  // it could not be read: unreadable has its own bucket.
-                  chainChips: m.chain === null ? null : inChips(m.chain, m.funding),
-                })),
-                surpluses: books.reconcile.surpluses.map((x) => ({
-                  ...x,
-                  ledgerChips: inChips(x.ledger, x.funding),
-                  chainChips: inChips(x.chain, x.funding),
-                  surplusChips: inChips(x.surplus, x.funding),
-                })),
-                explained: books.reconcile.explained.map((x) => ({
-                  ...x,
-                  claimedChips: inChips(x.claimed, x.funding),
-                })),
-                // Vaults this pass could not read. Not disagreements: an RPC
-                // that throttled says nothing about the money either way.
-                unverified: books.reconcile.unverified.map((x) => ({
-                  ...x,
-                  ledgerChips: inChips(x.ledger, x.funding),
-                })),
-              },
-              solvency: {
-                counted: books.solvency.counted,
-                unreachable: books.solvency.unreachable,
-                // Per flow, in that flow's chips: summing across flows would add two mints.
-                inFlightChips: Object.fromEntries(
-                  Object.entries(books.solvency.inFlight).map(([flow, amount]) => [
-                    flow,
-                    inChips(amount!, flow as "seed" | "deposit"),
-                  ]),
-                ),
-                byFlow: Object.fromEntries(
-                  Object.entries(books.solvency.byFlow).map(([flow, f]) => [
-                    flow,
-                    {
-                      ...f,
-                      ledgerChips: f!.ledger / f!.chipRate,
-                      chainChips: f!.chain / f!.chipRate,
-                      differenceChips: f!.difference / f!.chipRate,
-                    },
-                  ]),
-                ),
-              },
-            }
-          : null,
-        ops,
-        volume: vol,
-      };
-    }
-  : undefined;
-
+// A host sets PORT and needs every interface; locally, loopback only.
 const { url } = await listen({
   db,
   port: Number(process.env["PORT"] ?? arg("--port", 8787)),
   host: process.env["HOST"],
-  ...(chain ? { chain } : {}),
   ...(faucet ? { faucet } : {}),
-  ...(depositFlow ? { deposit: depositFlow } : {}),
   ...(holderFlow ? { holder: holderFlow } : {}),
-  // SEED_CUTOVER=closed stops new seed rentals and seed renewals. Nothing else
-  // is needed: every rental already ends at a season boundary, so one that
-  // cannot be renewed runs out there and lapses with its balance withdrawable.
-  ...(process.env["SEED_CUTOVER"] === "closed" ? { seedCutover: { closed: true } } : {}),
   ...(characterModel ? { character: characterModel } : {}),
-  ...(health ? { health } : {}),
+  health,
 });
-// Chosen names that could not be checked at rent: checked again until the model answers.
+// Chosen names that could not be checked at creation: checked again until the model answers.
 if (characterModel) {
   const { startNameChecks } = await import("../src/character/store.js");
   startNameChecks(db, characterModel.check, {
@@ -416,168 +183,6 @@ if (characterModel) {
   });
 }
 
-// Rentals whose transaction never landed: the agent is retired and its owner's
-// one-agent slot comes back. Runs on a timer because the failure it clears up
-// is a browser that closed mid-signature, which nothing else will ever report.
-if (depositFlow) {
-  const { sweepRentals } = await import("../src/db/rentals.js");
-  const { sweepDeposits } = await import("../src/db/deposits.js");
-  const { creditSurplus } = await import("../src/chain/worker.js");
-  const sweepMs = Number(process.env["RENTAL_SWEEP_MS"] ?? 60_000);
-  const sweep = async () => {
-    try {
-      const { confirmed, expired, unread } = await sweepRentals(db, depositFlow!.chain);
-      if (confirmed.length) console.log(`rentals: ${confirmed.length} landed after a lost confirmation`);
-      if (expired.length) console.log(`rentals: ${expired.length} never landed, agents retired`);
-      // Left as they were for the next pass. Said, so that one which never
-      // becomes readable is visible rather than silently waiting forever.
-      for (const u of unread) console.warn(`rentals: ${u.id.slice(0, 8)} not decided this pass: ${u.why}`);
-      const tops = await sweepDeposits(db, depositFlow!.chain);
-      if (tops.confirmed.length) console.log(`deposits: ${tops.confirmed.length} landed after a lost confirmation`);
-      if (tops.expired.length) console.log(`deposits: ${tops.expired.length} never landed`);
-      for (const u of tops.unread) console.warn(`deposits: ${u.id.slice(0, 8)} not decided this pass: ${u.why}`);
-      // Money that reached a vault by some other route than this server. It is
-      // the agent's either way, and refusing to count it would strand it.
-      if (depositClient) {
-        const { credited, refused } = await creditSurplus(db, { ...(chain ? { seed: chain } : {}), deposit: depositClient });
-        for (const c of credited) console.log(`chain: credited ${c.amount} that arrived in ${c.agentId.slice(0, 8)}'s vault`);
-        // Not credited, and worth saying out loud: the seed programme's settler
-        // can mint, and that key is exposed, so this may be invented money.
-        for (const r of refused) {
-          console.error(
-            `chain: ${r.name}'s seed vault holds ${r.surplus} more than the ledger credits it. Not counted - the seed programme can mint and its settler key is exposed.`,
-          );
-        }
-      }
-    } catch (error) {
-      console.error(`rentals: sweep failed: ${String(error).slice(0, 160)}`);
-    }
-    setTimeout(() => void sweep(), sweepMs);
-  };
-  setTimeout(() => void sweep(), sweepMs);
-}
-
-// The settler pays for every account this system opens, so it running dry stops
-// everything while nothing else looks wrong. It was down to 0.001 SOL on
-// 2026-09-25 and nothing had said so.
-// Every program this server has, whichever they are: seed, deposit, or both.
-const chainPorts = { ...(chain ? { seed: chain } : {}), ...(depositClient ? { deposit: depositClient } : {}) };
-const settlers = [...(chain ? [["seed", chain.signer] as const] : []), ...(depositClient ? [["deposit", depositClient.signer] as const] : [])];
-
-if (rpc && settlers.length) {
-  const { watchSettlerSol, SETTLER_SOL_FLOOR } = await import("../src/chain/worker.js");
-  const { Connection, LAMPORTS_PER_SOL } = await import("@solana/web3.js");
-  const conn = new Connection(rpc, "confirmed");
-  const keys: [string, import("@solana/web3.js").PublicKey][] = settlers.map(([which, k]) => [which, k.publicKey]);
-  for (const [which, key] of keys) {
-    watchSettlerSol(async () => (await conn.getBalance(key, "confirmed")) / LAMPORTS_PER_SOL, {
-      onLow: (sol) =>
-        console.error(
-          `chain: SETTLER LOW - the ${which} settler ${key.toBase58()} has ${sol.toFixed(4)} SOL, under ${SETTLER_SOL_FLOOR}. It pays the rent for every account this opens; below this, settlements start failing.`,
-        ),
-      onRecovered: (sol) => console.log(`chain: the ${which} settler is funded again (${sol.toFixed(3)} SOL)`),
-      onError: (error) => console.error(`chain: could not read the ${which} settler's balance: ${String(error).slice(0, 120)}`),
-    });
-  }
-}
-
-// Vaults holding less than the ledger says. Nothing looked at this before: a
-// stolen settler key can settle between any two vaults it likes, and would have
-// drained them without anything in the system noticing.
-if (rpc && settlers.length) {
-  const { watchDrift } = await import("../src/chain/worker.js");
-  watchDrift(db, chainPorts, {
-    onDrift: (mismatches) => {
-      const worst = mismatches.slice(0, 5).map((m) => `${m.name} ledger ${m.ledger} vs vault ${m.chain ?? "none"}`);
-      console.error(
-        `chain: VAULTS SHORT - ${mismatches.length} agent(s) hold less on chain than the ledger credits them: ${worst.join("; ")}${mismatches.length > 5 ? ", ..." : ""}. The ledger is authoritative, so this is money moved by something other than this server.`,
-      );
-    },
-    onCleared: () => console.log("chain: vaults and ledger agree again"),
-    onError: (error) => console.error(`chain: could not reconcile: ${String(error).slice(0, 160)}`),
-  });
-}
-
-if (rpc && settlers.length) {
-  const { startChainWorker } = await import("../src/chain/worker.js");
-  // web3.js confirms a transaction by racing a block-height poll it never
-  // awaits, so a flaky RPC can reject outside any of our try blocks and would
-  // otherwise kill the API. Nothing is lost by carrying on: every ledger write
-  // is one transaction, and the worker retries unconfirmed ops on its next pass.
-  process.on("unhandledRejection", (error) => {
-    console.error(`chain: unhandled rejection, continuing: ${String(error).slice(0, 160)}`);
-  });
-  // Both programs. Without the second, a deposit-funded agent's settlements are
-  // deferred for want of a client and wait for ever - which is what happened on
-  // 2026-09-25, and what the lag alarm caught.
-  const exitIntervalMs = Number(process.env["CHAIN_EXIT_INTERVAL_MS"] ?? 30_000);
-
-  // The invariant in docs/security.md: the program's close grace has to be
-  // much longer than this watcher's pass, or a claim could be closed before
-  // any pass saw it and would be read as a cancelled exit. Neither constant
-  // can see the problem alone; both are known here, so it is checked here, and
-  // refused rather than warned about - the failure is a silent one, and a
-  // warning in a startup log is how silent failures stay silent.
-  if (depositClient) {
-    const { checkExitWindow } = await import("../src/chain/worker.js");
-    const windowSlots = await depositClient.exitWindow();
-    if (windowSlots === null) {
-      console.log("exits:   off - no exit config on this program, so there is no window to check");
-    } else {
-      const check = checkExitWindow(windowSlots, exitIntervalMs);
-      if (!check.ok) {
-        console.error(`exits:   REFUSING TO START - ${check.reason}`);
-        process.exit(1);
-      }
-      console.log(`exits:   ${check.reason}`);
-    }
-  }
-
-  // Hourly net settlement lands through the clearing account. Without it every
-  // net settlement is refused, and the lag alarm would be the first to say so,
-  // an hour late: said here instead, where it is known at once.
-  //
-  // Opened here when it is missing: it is opened by the settler, and where the
-  // settler's secret lives only on this service (the mainnet way) this is the
-  // one place that can sign for it.
-  if (depositClient && (await depositClient.clearingBalance()) === null) {
-    try {
-      console.log(`netting: opened the clearing account (${await depositClient.openClearing()})`);
-    } catch (error) {
-      console.error(`netting: NO CLEARING ACCOUNT on the deposit program, and opening it failed - net settlements will be refused: ${String(error).slice(0, 160)}`);
-    }
-  }
-
-  startChainWorker(db, chainPorts, {
-    intervalMs: Number(process.env["CHAIN_INTERVAL_MS"] ?? 5000),
-    exitIntervalMs,
-    onCut: (c) => console.log(`chain: netted ${c.rows} matches from ${c.cuts} hour${c.cuts === 1 ? "" : "s"} into ${c.ops} settlements`),
-    onPass: (r) => {
-      if (r.confirmed || r.alreadyOnChain || r.error) {
-        const held = r.stoppedAt ? `, stopped: ${r.error!.slice(0, 160)}` : r.deferred ? `, ${r.deferred} refused for now: ${r.error!.slice(0, 160)}` : "";
-        console.log(`chain: ${r.confirmed} confirmed, ${r.alreadyOnChain} already on chain${held}`);
-      }
-    },
-    // The window can be moved under a running server by set_exit_window, and
-    // everything the watcher does assumes a claim cannot vanish between two
-    // passes. Said once on each crossing, and loudly: while this is wrong, an
-    // owner taking their money reads as an owner changing their mind.
-    onExitWindow: (state) => {
-      if (!state.ok) console.error(`exits:   EXIT WINDOW TOO SHORT - ${state.reason}`);
-      else if (!state.first) console.log(`exits:   window is long enough again - ${state.reason}`);
-    },
-    // Said once when the outbox stops moving and once when it starts again.
-    // Loud on purpose: the failure it names looks identical to a quiet hour.
-    onLag: ({ stalled, lagMs }) => {
-      const mins = Math.round(lagMs / 60_000);
-      if (stalled) console.error(`chain: SETTLEMENTS STALLED - the oldest movement has waited ${mins} minutes and has not landed`);
-      else console.log(`chain: settlements moving again`);
-    },
-  });
-  // Hosted RPC URLs carry an API key in the query string; keep it out of the logs.
-  const shown = new URL(rpc);
-  console.log(`Settling to ${shown.origin}${shown.pathname} as ${settlers.map(([which, k]) => `${which} ${k.publicKey.toBase58()}`).join(", ")}`);
-}
 console.log(`AgentClash on ${url}`);
 console.log(process.env["ANTHROPIC_API_KEY"] ? "Briefs: on" : "Briefs: off, no ANTHROPIC_API_KEY in the environment or .env; presets only");
 console.log(`  POST ${url}/agents         wallet session required; {name, presetName} or {name, brief}`);

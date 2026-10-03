@@ -13,15 +13,10 @@ import type { TablesRelationalConfig } from "drizzle-orm";
 import { connect, type Db } from "./client.js";
 import {
   agents,
-  chainOps,
-  ledger,
   matches,
-  withdrawals,
   ratings,
   seasons,
   seasonStandings,
-  outflowBudget,
-  OUTFLOW_WINDOW_MS,
   MIN_FUNDING_CHIPS,
   MIN_STAKE,
   RATING_WINDOW,
@@ -32,11 +27,8 @@ import {
   type RulesConfig,
 } from "./schema.js";
 import { balanceOf, balanceSql, balancesOf, inPlayOf, inPlaySql, record, settle, StakeError } from "./ledger.js";
-import { isExiting } from "./exits.js";
 import { baseUnits, chips, rateOf, type Funding } from "../chips.js";
-import { utcDay } from "../chain/common.js";
 import { rentalEndFor, rentalOpen, rentalOpenSql } from "./rental.js";
-import { periodOf, periodStart } from "./netting.js";
 import { seasonAt } from "../season.js";
 import { standings, type Standing } from "./standings.js";
 
@@ -203,8 +195,6 @@ export async function createAgent(db: Db, input: CreateAgentInput) {
   if (funding === "seed") {
     // Renting seeds the balance: the first movement in this agent's ledger.
     await record(tx, [{ agentId: row!.id, amount: seed, reason: "rental-seed" }]);
-    // Opening the vault records a player's agent's owner too: that's who can withdraw.
-    await tx.insert(chainOps).values({ kind: "open_vault", agentId: row!.id, owner: row!.ownerId, salt, amount: seed });
   }
   // Its emoji, unique across all agents, chosen with the agent.
   // The salt travels back because a deposit-funded rental needs it to build the
@@ -290,12 +280,6 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
   for (const row of [rowA, rowB]) {
     if (row.retiredAt !== null) throw new StakeError(`${row.name} is retired`);
     if (!rentalOpen(row)) throw new StakeError(`${row.name}'s rental ended with the season; renew it to play`);
-    // An exit is on chain for this agent and the money may be about to leave.
-    // Checked here as well as at the sources that pick opponents, because this
-    // is the one place every match passes through.
-    if (await isExiting(db, row.id)) {
-      throw new StakeError(`${row.name} has an exit waiting on chain, so it can't play until that resolves`);
-    }
   }
 
   /**
@@ -336,8 +320,7 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
   // One transaction: a recorded match and the ratings derived from it move together.
   const settledA = settle(log.nets.A);
   const match = await db.transaction(async (tx) => {
-    // Lock both agents, then make sure neither has a withdrawal on its way: while
-    // one is in flight the agent is on its way out, and plays again once it lands.
+    // Lock both agents, so the checks below and the record are one decision.
     await tx.execute(sql`select id from ${agents} where ${agents.id} in (${rowA.id}, ${rowB.id}) for update`);
     // Checked again under the lock, because the checks above ran before it: the
     // season may have ended, or the agent retired, while the match was played.
@@ -348,14 +331,6 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
     for (const locked of await tx.select().from(agents).where(inArray(agents.id, [rowA.id, rowB.id]))) {
       if (locked.retiredAt !== null) throw new StakeError(`${locked.name} is retired`);
       if (!rentalOpen(locked, now)) throw new StakeError(`${locked.name}'s rental ended with the season; renew it to play`);
-    }
-    const busy = await tx
-      .select({ agentId: withdrawals.agentId })
-      .from(withdrawals)
-      .where(and(inArray(withdrawals.agentId, [rowA.id, rowB.id]), eq(withdrawals.status, "submitted")));
-    if (busy.length > 0) {
-      const name = busy[0]!.agentId === rowA.id ? rowA.name : rowB.name;
-      throw new StakeError(`${name} has a withdrawal on its way; it can play again once that lands`);
     }
     const [inserted] = await tx
       .insert(matches)
@@ -547,138 +522,6 @@ async function recentOpponents(db: Db, agentId: string, limit: number): Promise<
 }
 
 /**
- * What a vault has already committed to pay out inside the chain's window, as
- * SQL. Matches whatever became of them: pending and netted are money the chain
- * will be asked for, and a failed one is money it refused, which is the
- * situation this is here to avoid rather than a reason to try again.
- *
- * On the deposit flow, this hour's **net** loss. The hour's matches settle as
- * one net payment, sent once the hour is over, so what the program's window
- * will be asked for is the net of this hour alone - wins count against losses,
- * and an earlier hour went out in a window of its own.
- *
- * On the seed flow, every loss in the trailing window: that program settles
- * match by match, in a window of ten minutes that no rolling one can line up
- * with (schema.ts, OUTFLOW_WINDOW_MS).
- */
-const committedOutflow = (agentId: unknown, funding: Funding) => {
-  if (funding === "deposit") {
-    const hour = periodStart(periodOf(new Date())).toISOString();
-    return sql<number>`greatest(0, coalesce((
-      select sum(case when ${chainOps.fromAgent} = ${agentId} then ${chainOps.amount} else -${chainOps.amount} end)::bigint
-      from ${chainOps}
-      where ${chainOps.kind} = 'settle'
-        and ${chainOps.status} <> 'failed'
-        and (${chainOps.fromAgent} = ${agentId} or ${chainOps.toAgent} = ${agentId})
-        and ${chainOps.createdAt} >= ${hour}
-    ), 0))`;
-  }
-  return sql<number>`coalesce((
-    select sum(${chainOps.amount})::bigint from ${chainOps}
-    where ${chainOps.kind} = 'settle'
-      and ${chainOps.fromAgent} = ${agentId}
-      and ${chainOps.status} <> 'failed'
-      and ${chainOps.createdAt} > now() - interval '${sql.raw(String(Math.round(OUTFLOW_WINDOW_MS / 1000)))} seconds'
-  ), 0)`;
-};
-
-/**
- * An agent's net loss on one UTC day, in base units, as SQL: what it has lost
- * in settlements dated that day less what it has won. Built from the settle
- * ops themselves - pending and confirmed, not failed - because those are
- * exactly what the program will charge to that day's bucket, whenever they land.
- */
-const netLossOn = (agentId: unknown, day: number) => {
-  const start = new Date(day * 86_400_000).toISOString();
-  const end = new Date((day + 1) * 86_400_000).toISOString();
-  return sql<number>`coalesce((
-    select sum(case when ${chainOps.fromAgent} = ${agentId} then ${chainOps.amount} else -${chainOps.amount} end)::bigint
-    from ${chainOps}
-    where ${chainOps.kind} = 'settle'
-      and ${chainOps.status} <> 'failed'
-      and (${chainOps.fromAgent} = ${agentId} or ${chainOps.toAgent} = ${agentId})
-      and ${chainOps.createdAt} >= ${start} and ${chainOps.createdAt} < ${end}
-  ), 0)`;
-};
-
-/**
- * The owner's loss budget that applies on `day`, in base units, or null when
- * the agent has none. Mirrors `limit_for` in the program: a cut applies from
- * its day, and before it the old limit stands.
- */
-export function lossBudgetOn(
-  row: Pick<AgentRow, "lossBudget" | "lossBudgetNext" | "lossBudgetNextFromDay">,
-  day: number,
-): number | null {
-  if (row.lossBudget === null) return null;
-  if (row.lossBudgetNextFromDay !== null && row.lossBudgetNext !== null && day >= row.lossBudgetNextFromDay) {
-    return row.lossBudgetNext;
-  }
-  return row.lossBudget;
-}
-
-/** Whether losing `worst` more base units today would stay inside the budget. Null budget: always. */
-const withinBudget = (budget: number | null, lostToday: number, worst: number) =>
-  budget === null || Number(lostToday) + worst <= budget;
-
-/**
- * Whether this agent can lose `worstMatch` today without passing its owner's
- * daily loss budget. The program refuses a settlement that would, so the ledger
- * declines the pairing first - otherwise a match the ledger had recorded would
- * be one the chain would never take.
- */
-export async function hasBudgetRoom(db: Db, agentId: string, worstMatch: number, now = new Date()): Promise<boolean> {
-  const today = utcDay(now);
-  const [row] = await db
-    .select({
-      funding: agents.funding,
-      lossBudget: agents.lossBudget,
-      lossBudgetNext: agents.lossBudgetNext,
-      lossBudgetNextFromDay: agents.lossBudgetNextFromDay,
-      lost: netLossOn(agentId, today),
-    })
-    .from(agents)
-    .where(eq(agents.id, agentId))
-    .limit(1);
-  if (!row) return false;
-  return withinBudget(lossBudgetOn(row, today), Number(row.lost), baseUnits(worstMatch, rateOf(row)));
-}
-
-/** What an agent has lost, net, today, in base units. For the owner's view. */
-export async function lostToday(db: Db, agentId: string, now = new Date()): Promise<number> {
-  const [row] = await db.select({ lost: netLossOn(agentId, utcDay(now)) }).from(agents).where(eq(agents.id, agentId)).limit(1);
-  return Number(row?.lost ?? 0);
-}
-
-/**
- * Whether this agent could lose `worstMatch` without pushing its vault past
- * what the chain will let it pay out in one window.
- *
- * The program caps a vault's outflow per window and re-reads the cap from the
- * balance before each transfer, so the cap falls as the vault pays. If several
- * autoplayers all pick the same popular opponent inside one window and it
- * loses, the ledger records every loss and the chain refuses the ones past the
- * cap: the money is still right, but the ledger and the chain stop agreeing
- * and the reconciler has to report it.
- *
- * So the ledger declines the pairing first. This is a smoothing measure, not a
- * safety one - the program's cap is the guarantee, and this only keeps us from
- * walking into it.
- */
-export async function hasOutflowRoom(db: Db, agentId: string, worstMatch: number): Promise<boolean> {
-  const [agent] = await db.select({ funding: agents.funding }).from(agents).where(eq(agents.id, agentId)).limit(1);
-  if (!agent) return false;
-  const rate = rateOf(agent);
-  const [row] = await db
-    .select({ balance: sql<number>`coalesce(sum(${ledger.amount})::bigint, 0)`, spent: committedOutflow(agentId, agent.funding) })
-    .from(ledger)
-    .where(eq(ledger.agentId, agentId));
-  const balance = Number(row?.balance ?? 0);
-  const spent = Number(row?.spent ?? 0);
-  return spent + baseUnits(worstMatch, rate) <= outflowBudget(balance, rate);
-}
-
-/**
  * Picks the closest-rated active opponent that has played recently and does not
  * share an owner. Falls back to a preset agent so a queue never stalls.
  */
@@ -727,8 +570,6 @@ export async function pickOpponent(db: Db, agentId: string, options: PickOpponen
         // House agents only when the caller asked for one: a match against one
         // stakes nothing and counts for nothing.
         houseAllowed ? sql`true` : isNotNull(agents.ownerId),
-        // Not one with a withdrawal on its way: it can't play until that lands.
-        sql`not exists (select 1 from ${withdrawals} where ${withdrawals.agentId} = ${agents.id} and ${withdrawals.status} = 'submitted')`,
       ),
     );
 

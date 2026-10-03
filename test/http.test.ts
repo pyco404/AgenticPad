@@ -411,10 +411,6 @@ describe("staking over HTTP", () => {
     // Won or lost, nothing moved: a lost match costs nothing.
     expect(played.balance).toBe(STARTING_BALANCE);
     expect(played.balance).toBe(await balanceOf(db, created.agent.id));
-
-    const ledgerView = await readBody(await api(`/agents/${created.agent.id}/ledger`, { owner: null }));
-    expect(ledgerView.movements[ledgerView.movements.length - 1].reason).toBe("rental-seed");
-    expect(ledgerView.balance).toBe(played.balance);
   });
 
   it("refuses to play an agent that holds too little to be in play", async () => {
@@ -872,27 +868,10 @@ describe("ladder periods over HTTP", () => {
 });
 
 describe("seasons over HTTP", () => {
-  it("serves the season, shows the owner where the rental stands, and renews it once", async () => {
+  it("serves the season in play", async () => {
     const season = await readBody(await api("/season", { owner: null }));
     expect(season.season.key).toBe(seasonAt(new Date()).key);
-    expect(season.graceHours).toBe(24);
-
-    const created = await readBody(
-      await api("/agents", { method: "POST", owner: "renewer", body: JSON.stringify({ name: "Renewer", presetName: "Anchor" }) }),
-    );
-    const id = created.agent.id as string;
-    const before = await readBody(await api(`/agents/${id}`, { owner: "renewer" }));
-    expect(before.rental).toMatchObject({ state: "active", canRenew: true });
-    expect(new Date(before.rental.endsAt).getTime()).toBe(seasonAt(new Date()).end.getTime());
-
-    expect((await api(`/agents/${id}/renew`, { method: "POST", owner: "someone-else" })).status).toBe(403);
-    const renewed = await api(`/agents/${id}/renew`, { method: "POST", owner: "renewer" });
-    expect(renewed.status).toBe(201);
-    expect((await readBody(renewed)).rental.state).toBe("renewed");
-    // Once per season.
-    const again = await api(`/agents/${id}/renew`, { method: "POST", owner: "renewer" });
-    expect(again.status).toBe(409);
-    expect((await readBody(again)).error).toMatch(/already renewed/);
+    expect(new Date(season.season.endsAt).getTime()).toBe(seasonAt(new Date()).end.getTime());
   });
 });
 

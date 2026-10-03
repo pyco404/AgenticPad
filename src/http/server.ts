@@ -5,8 +5,8 @@ import { validatePolicy, type Policy } from "../agents/policy.js";
 import { headlineFor, renderTranscript } from "../transcript.js";
 import { PRESET_DESCRIPTIONS, PRESET_NAMES, type PresetName } from "../presets.js";
 import type { Db } from "../db/client.js";
-import { agents, matches, withdrawals, AUTOPLAY_INTERVAL_MS } from "../db/schema.js";
-import { isFirstElicitationFree, recordElicitation, StakeError, statement } from "../db/ledger.js";
+import { agents, matches, AUTOPLAY_INTERVAL_MS } from "../db/schema.js";
+import { isFirstElicitationFree, recordElicitation, StakeError } from "../db/ledger.js";
 import {
   activeAgentsOf,
   agentsOf,
@@ -20,44 +20,26 @@ import {
   runMatch,
   type LadderTab,
   field,
-  lossBudgetOn,
-  lostToday,
   holdsEnoughToPlay,
 } from "../db/runner.js";
-import { utcDay } from "../chain/common.js";
-import type { LossBudgetState } from "../chain/settlement.js";
 import { autoplayStatus, markSeen, setAutoplay, sinceYouLeft } from "../db/autoplay.js";
-import { renewAgent, rentalStatus, RenewError } from "../db/seasons.js";
-import { prizeTable } from "../db/standings.js";
 import { dayFromDate, dayOf, dayScores, seasonScores } from "../db/scores.js";
 import { seasonStatement } from "../db/statement.js";
 import { characterOf, createCharacter, isDefaultName, NO_MODEL, ownerCharacter, portraitSvg, publicCharacter, type CharacterDeps } from "../character/store.js";
 import { moderate, type Verdict } from "../character/moderation.js";
 import { traitsOf } from "../character/trait-store.js";
-import { dayStart, seasonAt, seasonByKey, GRACE_MS, RENEWAL_REMINDER_MS } from "../season.js";
+import { dayStart, seasonAt, seasonByKey } from "../season.js";
 import { previewPolicy, refreshTrueRatings, scoringProfile } from "../db/rating.js";
 import { agentRecord, latestBluff, matchActivity, recentMatches } from "../db/feed.js";
-import {
-  prepareWithdrawal,
-  submitWithdrawal,
-  withdrawable,
-  WithdrawalError,
-  type WithdrawalChain,
-} from "../db/withdrawals.js";
 import { MIN_FUNDING_CHIPS } from "../db/schema.js";
 
 import { RateLimiter, type RateLimitRule } from "./rate-limit.js";
 import { LiveStream, resumeFrom, type LiveOptions } from "./live.js";
-import { settlementStatus, settlementLag, SETTLEMENT_LAG_ALARM_MS } from "../chain/worker.js";
 import { rateOf, seasonRate, type Funding } from "../chips.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../db/faucet.js";
 import { holdingOf, holdingView, keeps, readHolding, type Holding, type HoldingsChain } from "../db/holdings.js";
 import { conviction, CONVICTION_CAP_DAYS, position, power, weight } from "../score.js";
-import { prepareRental, rejectRental, submitRental, RentalError, type RentalChain } from "../db/rentals.js";
-import { checkDeposit, depositBlocked, prepareDeposit, submitDeposit, DepositError, type DepositChain } from "../db/deposits.js";
-import { prepareLossBudget, submitLossBudget, LossBudgetError, type LossBudgetChain } from "../db/loss-budget.js";
-import { rentals } from "../db/schema.js";
-import { baseUnits, chips as toChips } from "../chips.js";
+import { chips as toChips } from "../chips.js";
 import { AuthError, isPublicKey, issueNonce, ownerForToken, revokeSession, verifySignIn } from "../auth/wallet.js";
 
 /**
@@ -84,13 +66,6 @@ export type AppOptions = {
   /** Applies to nonce requests, which anyone can make. Default 20 a minute. */
   nonceRateLimit?: RateLimitRule;
   /**
-   * The seed flow is closing. No new seed rentals, and no renewals of the ones
-   * that exist - which is all it takes, because every rental already ends at a
-   * season boundary. They play to the end of the season they are in, then
-   * expire, then lapse after the usual grace with their balance withdrawable.
-   */
-  seedCutover?: { closed: boolean };
-  /**
    * Faucet grants per wallet, on top of the one-a-day rule in the ledger.
    * Default 3 an hour.
    */
@@ -114,8 +89,6 @@ export type AppOptions = {
    */
   corsOrigin?: string;
   now?: () => number;
-  /** The chain, for withdrawals: the settler builds and co-signs them. Without it they are unavailable. */
-  chain?: WithdrawalChain;
   /**
    * Wallets that may read /admin. Defaults to ADMIN_WALLETS, and to nothing at
    * all when that is unset - a deployment that forgets it gets no admin page,
@@ -123,9 +96,8 @@ export type AppOptions = {
    */
   adminWallets?: string[];
   /**
-   * What /admin reports. Built where the chain clients live (scripts/serve.ts),
-   * because the http layer has no settler, no connection and no business
-   * acquiring either. Without it /admin answers 503 for an allowed wallet.
+   * What /admin reports. Built in scripts/serve.ts, where the holdings reader
+   * and the loops live. Without it /admin answers 503 for an allowed wallet.
    */
   health?: () => Promise<unknown>;
   /**
@@ -134,22 +106,6 @@ export type AppOptions = {
    * it the faucet endpoints answer 503.
    */
   faucet?: FaucetChain;
-  /**
-   * The deposit-funded flow. Absent until its program is deployed and
-   * configured, and while it is absent every rental takes the seed flow.
-   *
-   * `fee` is read from the program's own config rather than set here, so the
-   * price a player is quoted is the price the program will insist on when their
-   * transaction arrives; serve.ts keeps it in step on every season pass. The
-   * rate is the season's (src/chips.ts, seasonRate), never a figure of its own.
-   */
-  deposit?: {
-    chain: RentalChain & DepositChain & WithdrawalChain & LossBudgetChain;
-    /** Base units burned per rental, as the program's config carries it. */
-    fee: number;
-    /** Whose rentals take this flow. */
-    allow: (ownerId: string) => boolean;
-  };
   /**
    * Holder agents (docs/holder-agents.md): a wallet holding the token above
    * the minimum has an agent, with nothing rented or deposited. When set and
@@ -283,33 +239,19 @@ export function createApp(options: AppOptions): Server {
     ["POST", /^\/agents\/([^/]+)\/play$/, postPlay],
     ["POST", /^\/agents\/([^/]+)\/autoplay$/, postAutoplay],
     ["POST", /^\/agents\/([^/]+)\/seen$/, postSeen],
-    ["POST", /^\/agents\/([^/]+)\/renew$/, postRenew],
-    ["GET", /^\/agents\/([^/]+)\/ledger$/, getLedger],
     ["GET", /^\/agents\/([^/]+)\/portrait\.svg$/, getPortrait],
     ["GET", /^\/matches$/, getFeed],
     ["GET", /^\/matches\/([^/]+)$/, getMatch],
     ["GET", /^\/agents\/([^/]+)\/matches$/, getAgentMatches],
-    ["GET", /^\/agents\/([^/]+)\/withdrawable$/, getWithdrawable],
-    ["POST", /^\/agents\/([^/]+)\/withdrawals$/, postWithdrawal],
-    ["POST", /^\/withdrawals\/([^/]+)\/submit$/, postWithdrawalSubmit],
-    ["GET", /^\/withdrawals\/([^/]+)$/, getWithdrawal],
     ["GET", /^\/ladder$/, getLadder],
     ["GET", /^\/stats$/, getStats],
     ["GET", /^\/presets$/, getPresets],
     ["GET", /^\/roster$/, getRoster],
     ["GET", /^\/field$/, getField],
     ["GET", /^\/season$/, getSeason],
-    ["GET", /^\/prizes$/, getPrizes],
     ["GET", /^\/scores$/, getScores],
     ["GET", /^\/statement$/, getStatement],
     ["GET", /^\/admin$/, getAdmin],
-    ["POST", /^\/agents\/([^/]+)\/deposits$/, postDeposit],
-    ["POST", /^\/deposits\/([^/]+)\/submit$/, postDepositSubmit],
-    ["POST", /^\/agents\/([^/]+)\/loss-budget$/, postLossBudget],
-    ["POST", /^\/agents\/([^/]+)\/loss-budget\/submit$/, postLossBudgetSubmit],
-    ["POST", /^\/rentals\/([^/]+)\/submit$/, postRentalSubmit],
-    ["POST", /^\/rentals\/([^/]+)\/reject$/, postRentalReject],
-    ["GET", /^\/rentals\/([^/]+)$/, getRental],
     ["GET", /^\/holding$/, getHolding],
     ["POST", /^\/holding$/, postHolding],
     ["GET", /^\/faucet$/, getFaucet],
@@ -373,47 +315,17 @@ export function createApp(options: AppOptions): Server {
   async function getMe(ctx: Ctx) {
     const ownerId = ctx.requireOwner();
     // Every agent this wallet owns, so a second device shows the same ones as the first.
-    const deposit = options.deposit;
-    const viaDeposit = Boolean(deposit?.allow(ownerId));
-    const viaHolder = Boolean(options.holder?.allow(ownerId));
     return {
       ownerId,
       agents: await agentsOf(db, ownerId),
-      /**
-       * What renting would cost this wallet, and how. The screen needs this
-       * before it can ask for anything: on the deposit flow it has to take an
-       * amount and warn that the agent cannot play until the transaction lands,
-       * and on the seed flow neither applies.
-       */
-      funding: {
-        mode: viaHolder ? ("holder" as const) : viaDeposit ? ("deposit" as const) : ("seed" as const),
-        // A holder pays nothing: holding is the entry.
-        feeChips: !viaHolder && viaDeposit ? toChips(deposit!.fee, seasonRate()) : 0,
-      },
-      /** On the holder flow, this wallet's last reading against the minimum; otherwise null. */
-      holding: viaHolder ? holdingView(await holdingOf(db, ownerId)) : null,
-      /** Set while the seed flow is closing, so the screen can say so. */
-      cutover: cutoverNotice(),
-    };
-  }
-
-  /** What to tell an owner about the seed flow closing, or null if it is not. */
-  function cutoverNotice(now = new Date()) {
-    if (!options.seedCutover?.closed) return null;
-    const season = seasonAt(now);
-    return {
-      closed: true as const,
-      /** Seed agents play to here and no further. */
-      endsAt: season.end,
-      /** And their balance can be taken until here. */
-      withdrawableUntil: new Date(season.end.getTime() + GRACE_MS),
+      /** This wallet's last reading against the minimum; null where the server reads no holdings. */
+      holding: options.holder?.allow(ownerId) ? holdingView(await holdingOf(db, ownerId)) : null,
     };
   }
 
   async function postAgent(ctx: Ctx) {
     const ownerId = ctx.requireOwner();
-    // Before anything is created or any model is called: renting writes rows,
-    // and on the deposit flow it also builds a transaction over an RPC.
+    // Before anything is created or any model is called: creating an agent writes rows.
     spendBoth(rentLimiter, rentByAddress, ownerId, ctx.clientKey, "rentals");
     const presetName = ctx.body["presetName"] as PresetName | undefined;
     const brief = typeof ctx.body["brief"] === "string" ? ctx.body["brief"].trim() : "";
@@ -470,41 +382,15 @@ export function createApp(options: AppOptions): Server {
       table = validatePolicy(result.table);
     }
 
-    // Which flow this rental takes. A deposit rental is paid for by its owner
-    // and cannot be created here and now: it needs a transaction signed in
-    // their wallet, so the answer is the agent plus that transaction.
-    const deposit = options.deposit;
-    const viaDeposit = !holder && Boolean(deposit?.allow(ownerId));
-    const cutover = cutoverNotice();
-    if (!holder && !viaDeposit && cutover) {
-      throw new HttpError(
-        503,
-        `Renting is paused while AgentClash moves to the new settlement program, where you fund an agent yourself instead of being handed a starting balance. Agents rented before the move play until ${cutover.endsAt.toISOString().slice(0, 16).replace("T", " ")} UTC.`,
-        { cutover },
-      );
-    }
-    let depositAmount = 0;
-    if (viaDeposit) {
-      const asked = ctx.body["deposit"];
-      if (typeof asked !== "number" || !Number.isFinite(asked) || asked <= 0) {
-        throw new HttpError(400, "deposit is required, in chips, and must be above zero");
-      }
-      // Funded with at least the minimum to play, or it could never play at all.
-      if (Math.floor(asked) < MIN_FUNDING_CHIPS) {
-        throw new HttpError(400, `fund it with at least ${MIN_FUNDING_CHIPS} chips ($20) - that is what it needs to play`);
-      }
-      depositAmount = baseUnits(Math.floor(asked), seasonRate());
-    }
-
     // One agent in play per wallet. The check and the rental share a transaction
     // and a lock on this wallet, so renting from two devices at once still
     // leaves one agent, not two.
-    const { row, rental } = await db.transaction(async (tx) => {
+    const row = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 0))`);
       const active = await activeAgentsOf(tx as unknown as Db, ownerId);
       if (active.length > 0) {
         const held = active.map((a) => a.name).join(", ");
-        throw new HttpError(409, `you already have an agent in play: ${held}. An agent retires when its balance is withdrawn in full or its rental lapses at the end of a season, and then you can rent another.`, {
+        throw new HttpError(409, `you already have an agent in play: ${held}. A wallet holds one agent at a time.`, {
           agents: active.map((a) => ({ id: a.id, name: a.name })),
         });
       }
@@ -516,19 +402,7 @@ export function createApp(options: AppOptions): Server {
         ...(brief ? { brief } : {}),
         ...(table ? { policyTable: table } : {}),
       };
-      if (holder) return { row: await createAgent(t, { ...wanted, funding: "holder" }), rental: null };
-      if (!viaDeposit) return { row: await createAgent(t, wanted), rental: null };
-      // Inside the lock on purpose. Building the transaction is a round trip to
-      // an RPC, but the lock is on this wallet alone, so the only thing it
-      // delays is the same wallet renting twice at once - which is the thing it
-      // is for.
-      try {
-        const prepared = await prepareRental(t, deposit!.chain, { ...wanted, fee: deposit!.fee, deposit: depositAmount });
-        return { row: prepared.agent, rental: prepared };
-      } catch (error) {
-        if (error instanceof RentalError) throw new HttpError(error.status, error.message);
-        throw error;
-      }
+      return createAgent(t, holder ? { ...wanted, funding: "holder" } : wanted);
     });
     await refreshTrueRatings(db);
     // Its character: a face, a name unless the owner gave one, an epithet and a
@@ -553,30 +427,6 @@ export function createApp(options: AppOptions): Server {
         ...playStatus(view!),
       },
       elicitation: presetName ? null : { free: freeCall, reusedRatedTable: reused },
-      /**
-       * Which flow this rental took. Read this rather than inferring it from
-       * which keys are present: a seed rental hands back an agent that can play
-       * at once, and a deposit rental hands back one that cannot play at all
-       * until the owner signs `rental.transaction` and it lands.
-       */
-      funding: rental ? ("deposit" as const) : holder ? ("holder" as const) : ("seed" as const),
-      rental: rental
-        ? {
-            rentalId: rental.rentalId,
-            /** Base64. The owner's wallet signs exactly this and sends it back. */
-            transaction: rental.transaction,
-            fee: rental.fee,
-            feeChips: toChips(rental.fee, seasonRate()),
-            deposit: rental.deposit,
-            depositChips: toChips(rental.deposit, seasonRate()),
-            /**
-             * False, always, in this answer. No fee has been paid and the vault
-             * does not exist yet; the agent is a placeholder for an address
-             * until the transaction lands.
-             */
-            playable: false,
-          }
-        : null,
     };
   }
 
@@ -673,18 +523,9 @@ export function createApp(options: AppOptions): Server {
           ...playStatus(row),
           character: ownCharacter,
           traits,
-          // On the agent, because that is the object the page holds and reads
-          // them from. They were once returned beside it, where nothing looked,
-          // and the panels built on them silently never appeared.
-          // Why it cannot be topped up, if so: a vault exists only once the rental has landed.
-          depositBlocked: await depositBlocked(db, full!),
-          // The owner's daily loss limit, in chips, and how much of it today has used.
-          lossBudget: await lossBudgetView(full!),
         },
         // Private to the owner: whether it is playing, and what it did while they were away.
         autoplay: await autoplayStatus(db, full!, { intervalMs: autoplayIntervalMs }),
-        // Where its rental stands: active, renewed, expired and renewable, or lapsed.
-        rental: rentalStatus(full!),
         // A holder agent's wallet and the power it earns (docs/holder-agents.md);
         // null for an agent on another flow.
         holder: full!.funding === "holder" && full!.ownerId ? holderView(await holdingOf(db, full!.ownerId)) : null,
@@ -788,32 +629,6 @@ export function createApp(options: AppOptions): Server {
     return { autoplay: await autoplayStatus(db, updated!, { intervalMs: autoplayIntervalMs }) };
   }
 
-  /** The owner has read "since you left": the next summary starts from now. */
-  /** Renews the rental into the next season, or out of expiry within the grace period. */
-  async function postRenew(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const id = requireUuid(ctx.params[0]);
-    const cutover = cutoverNotice();
-    if (cutover) {
-      const [row] = await db.select({ funding: agents.funding }).from(agents).where(eq(agents.id, id)).limit(1);
-      // Refusing the renewal is the whole cutover: a rental already ends at a
-      // season boundary, so one that cannot be renewed simply runs out.
-      if (row?.funding === "seed") {
-        throw new HttpError(
-          409,
-          `This agent is on the old settlement program, which closes at ${cutover.endsAt.toISOString().slice(0, 16).replace("T", " ")} UTC, so it can't be renewed. It keeps playing until then, and its balance can be withdrawn until ${cutover.withdrawableUntil.toISOString().slice(0, 16).replace("T", " ")} UTC. Rent again on the new program, where you fund the agent yourself.`,
-          { cutover },
-        );
-      }
-    }
-    try {
-      return { rental: await renewAgent(db, id, ownerId) };
-    } catch (error) {
-      if (error instanceof RenewError) throw new HttpError(error.status, error.message);
-      throw error;
-    }
-  }
-
   /** The season in play: what the rent screen counts down to. Public. */
   /**
    * A season's prize standing: the order prizes would pay in, as things stand.
@@ -852,34 +667,6 @@ export function createApp(options: AppOptions): Server {
       return { season: await seasonScores(db, key, now) };
     }
     return { day: await dayScores(db, dayOf(now)), season: await seasonScores(db, seasonAt(now).key, now) };
-  }
-
-  async function getPrizes(ctx: Ctx) {
-    const now = new Date();
-    let season;
-    try {
-      season = ctx.query.get("season") ? seasonByKey(ctx.query.get("season")!) : seasonAt(now);
-    } catch {
-      throw new HttpError(400, "season must be a Monday, as YYYY-MM-DD");
-    }
-    const limit = Math.min(Number(ctx.query.get("limit") ?? 50) || 50, 200);
-    const table = await prizeTable(db, season.key);
-    return {
-      season: {
-        key: season.key,
-        number: season.number,
-        startsAt: season.start,
-        endsAt: season.end,
-        current: season.key === seasonAt(now).key,
-      },
-      /** False while the season is open: this table will still move. */
-      frozen: table.frozen,
-      /** Ranked matches needed before an agent can be placed. */
-      minMatches: table.minMatches,
-      basis: "ranked net per chip staked",
-      placed: table.rows.filter((r) => r.prizeRank !== null).length,
-      rows: table.rows.slice(0, limit),
-    };
   }
 
   /**
@@ -943,11 +730,7 @@ export function createApp(options: AppOptions): Server {
 
   async function getSeason() {
     const season = seasonAt(new Date());
-    return {
-      season: { key: season.key, number: season.number, startsAt: season.start, endsAt: season.end },
-      graceHours: GRACE_MS / 3_600_000,
-      reminderHours: RENEWAL_REMINDER_MS / 3_600_000,
-    };
+    return { season: { key: season.key, number: season.number, startsAt: season.start, endsAt: season.end } };
   }
 
   async function postSeen(ctx: Ctx) {
@@ -958,18 +741,6 @@ export function createApp(options: AppOptions): Server {
     if (row.ownerId !== ownerId) throw new HttpError(403, "that agent belongs to someone else");
     await markSeen(db, id);
     return { ok: true };
-  }
-
-  /** An agent's money, movement by movement. Public: the ladder shows balances anyway. */
-  async function getLedger(ctx: Ctx) {
-    const id = requireUuid(ctx.params[0]);
-    const row = await publicAgent(db, id);
-    if (!row) throw new HttpError(404, "no such agent");
-    // Chips, like every other money figure a client sees. `statement` returns
-    // the ledger's own rows, which are base units.
-    const rate = rateOf(row);
-    const movements = (await statement(db, id)).map((m) => ({ ...m, amount: toChips(m.amount, rate) }));
-    return { balance: toChips(row.balance, rate), retired: row.retired, movements };
   }
 
   async function getMatch(ctx: Ctx) {
@@ -1021,8 +792,6 @@ export function createApp(options: AppOptions): Server {
         headline: headlineFor(row.log, displayNames),
       },
       transcript: renderTranscript(row.log, displayNames),
-      /** What the chain has recorded. Null for a level match, which moves nothing. */
-      settlement: await settlementStatus(db, row.id),
       log: row.log,
     };
   }
@@ -1059,216 +828,11 @@ export function createApp(options: AppOptions): Server {
     return { record: await agentRecord(db, id), matches: await recentMatches(db, { limit, agentId: id }) };
   }
 
-  /** Public: platform-wide activity in staked matches. */
-  /**
-   * Public, and deliberately so: how far behind the chain is, alongside the
-   * activity figures. It is here rather than only in the logs because the
-   * outage this measures was invisible for 28 hours in logs somebody had to
-   * think to read. Anything that can poll a URL can watch it.
-   */
+  /** Public: platform-wide match activity. */
   async function getStats() {
-    const lagMs = await settlementLag(db);
-    return {
-      activity: await matchActivity(db),
-      settlement: {
-        /** How long the oldest unsent movement has waited. Null when none is waiting. */
-        lagMs,
-        /** Past this, something is wrong rather than merely busy. */
-        alarmAfterMs: SETTLEMENT_LAG_ALARM_MS,
-        stalled: lagMs !== null && lagMs >= SETTLEMENT_LAG_ALARM_MS,
-      },
-    };
+    return { activity: await matchActivity(db) };
   }
 
-  /** A budget as the chain holds it, in chips. */
-  function budgetInChips(state: LossBudgetState | null, rate: number) {
-    if (!state) return { perDayChips: null, nextPerDayChips: null, nextFromDay: null };
-    return {
-      perDayChips: toChips(state.perDay, rate),
-      nextPerDayChips: toChips(state.nextPerDay, rate),
-      nextFromDay: state.nextFromDay === 0 ? null : state.nextFromDay,
-    };
-  }
-
-  /** The owner's view of an agent's loss budget, from the ledger's copy. Null when it has none. */
-  async function lossBudgetView(row: typeof agents.$inferSelect) {
-    if (row.lossBudget === null) return null;
-    const rate = rateOf(row);
-    const today = utcDay(new Date());
-    const cutPending = row.lossBudgetNextFromDay !== null && row.lossBudgetNextFromDay > today;
-    return {
-      perDayChips: toChips(lossBudgetOn(row, today)!, rate),
-      lostTodayChips: toChips(await lostToday(db, row.id), rate),
-      // A cut waiting for tomorrow, so the owner sees both numbers.
-      nextPerDayChips: cutPending ? toChips(row.lossBudgetNext!, rate) : null,
-      nextFromDay: cutPending ? row.lossBudgetNextFromDay : null,
-      resetsAt: new Date((today + 1) * 86_400_000).toISOString(),
-    };
-  }
-
-  /** Owner only: builds a top-up for the owner's wallet to sign. Amount in chips. */
-  async function postDeposit(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const agentId = requireUuid(ctx.params[0]);
-    const deposit = options.deposit;
-    if (!deposit) throw new HttpError(503, "deposits are unavailable on this server");
-    const asked = ctx.body["amount"];
-    if (typeof asked !== "number" || !Number.isFinite(asked) || asked <= 0) {
-      throw new HttpError(400, "amount is required, in chips, and must be above zero");
-    }
-    try {
-      // Refusals that attempt nothing on chain - no vault, not theirs, retired -
-      // come before the limit, so pressing a button that cannot work does not
-      // cost an hour's allowance. The limit is for building transactions.
-      await checkDeposit(db, { agentId, ownerId });
-      spendBoth(rentLimiter, rentByAddress, ownerId, ctx.clientKey, "deposits");
-      const out = await prepareDeposit(db, deposit.chain, {
-        agentId,
-        ownerId,
-        amount: baseUnits(Math.floor(asked), seasonRate()),
-      });
-      return { deposit: { ...out, chips: toChips(out.amount, seasonRate()) } };
-    } catch (error) {
-      if (error instanceof DepositError) throw new HttpError(error.status, error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Owner only: builds a change to the agent's daily loss budget, in chips,
-   * for the owner's wallet to sign. A raise applies at once; a cut from the
-   * next UTC day.
-   */
-  async function postLossBudget(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const agentId = requireUuid(ctx.params[0]);
-    const deposit = options.deposit;
-    if (!deposit) throw new HttpError(503, "loss budgets are unavailable on this server");
-    const asked = ctx.body["chips"];
-    if (typeof asked !== "number" || !Number.isFinite(asked) || asked < 0) {
-      throw new HttpError(400, "chips is required: the most the agent may lose in a day, zero or more");
-    }
-    spendBoth(rentLimiter, rentByAddress, ownerId, ctx.clientKey, "budget changes");
-    try {
-      return {
-        lossBudget: await prepareLossBudget(db, deposit.chain, {
-          agentId,
-          ownerId,
-          perDay: baseUnits(Math.floor(asked), seasonRate()),
-        }),
-      };
-    } catch (error) {
-      if (error instanceof LossBudgetError) throw new HttpError(error.status, error.message);
-      throw error;
-    }
-  }
-
-  /** Owner only: sends the wallet-signed budget change and reads the result back from the chain. */
-  async function postLossBudgetSubmit(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const agentId = requireUuid(ctx.params[0]);
-    const deposit = options.deposit;
-    if (!deposit) throw new HttpError(503, "loss budgets are unavailable on this server");
-    const signed = String(ctx.body["transaction"] ?? "");
-    if (!signed) throw new HttpError(400, "transaction is required");
-    const lastValidBlockHeight = Number(ctx.body["lastValidBlockHeight"] ?? 0);
-    try {
-      const out = await submitLossBudget(db, deposit.chain, { agentId, ownerId, signedTx: signed, lastValidBlockHeight });
-      return { lossBudget: { status: out.status, ...budgetInChips(out.budget, seasonRate()) } };
-    } catch (error) {
-      if (error instanceof LossBudgetError) throw new HttpError(error.status, error.message);
-      throw error;
-    }
-  }
-
-  /** Owner only: sends the wallet-signed top-up. */
-  async function postDepositSubmit(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const depositId = requireUuid(ctx.params[0]);
-    const deposit = options.deposit;
-    if (!deposit) throw new HttpError(503, "deposits are unavailable on this server");
-    const signed = String(ctx.body["transaction"] ?? "");
-    if (!signed) throw new HttpError(400, "transaction is required");
-    try {
-      return { deposit: await submitDeposit(db, deposit.chain, { depositId, ownerId, signedTx: signed }) };
-    } catch (error) {
-      if (error instanceof DepositError) throw new HttpError(error.status, error.message);
-      throw error;
-    }
-  }
-
-  /** Owner only: sends the wallet-signed rental transaction. */
-  async function postRentalSubmit(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const rentalId = requireUuid(ctx.params[0]);
-    const deposit = options.deposit;
-    if (!deposit) throw new HttpError(503, "deposit-funded rentals are unavailable on this server");
-    const signed = String(ctx.body["transaction"] ?? "");
-    if (!signed) throw new HttpError(400, "transaction is required");
-    try {
-      const out = await submitRental(db, deposit.chain, { rentalId, ownerId, signedTx: signed });
-      return { rental: { ...out, playable: out.status === "confirmed" } };
-    } catch (error) {
-      if (error instanceof RentalError) throw new HttpError(error.status, error.message);
-      throw error;
-    }
-  }
-
-  /** Owner only: where a rental's transaction has got to. */
-  /**
-   * The owner declined the wallet prompt, so this rental can stop waiting.
-   *
-   * Saves the fifteen minutes the sweep would otherwise take to work out that
-   * nobody is coming - during which a 0-balance agent sits on the owner's page
-   * holding their one-agent slot.
-   *
-   * The claim is not trusted with anything. It chooses whether to wait, and
-   * the chain decides what actually happened: a rental whose vault exists is
-   * confirmed here, not expired, however firmly the page believes otherwise.
-   */
-  async function postRentalReject(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const id = requireUuid(ctx.params[0]);
-    if (!options.deposit) throw new HttpError(503, "the deposit flow is not configured on this server");
-    const outcome = await rejectRental(db, options.deposit.chain, id, ownerId);
-    return {
-      rental: {
-        rentalId: id,
-        outcome,
-        /** What the owner should be told, since only one of these is the ordinary case. */
-        message:
-          outcome === "expired"
-            ? "nothing was charged, and the agent is gone"
-            : outcome === "confirmed"
-              ? "it had already landed, so the agent is yours after all"
-              : outcome === "in-flight"
-                ? "it was already sent, so we have to wait and see whether it lands"
-                : "it was already settled one way or the other",
-      },
-    };
-  }
-
-  async function getRental(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const id = requireUuid(ctx.params[0]);
-    const [r] = await db.select().from(rentals).where(eq(rentals.id, id)).limit(1);
-    if (!r || r.ownerId !== ownerId) throw new HttpError(404, "no such rental");
-    return {
-      rental: {
-        rentalId: r.id,
-        agentId: r.agentId,
-        status: r.status,
-        signature: r.signature,
-        error: r.error,
-        fee: r.fee,
-        deposit: r.deposit,
-        /** An agent is only a rental once its transaction has landed. */
-        playable: r.status === "confirmed",
-      },
-    };
-  }
-
-  /** Devnet only: whether this wallet can be topped up, and when it can next ask. */
   /** This wallet's last holding reading against the minimum. 404 off the holder flow. */
   async function getHolding(ctx: Ctx) {
     const ownerId = ctx.requireOwner();
@@ -1294,6 +858,7 @@ export function createApp(options: AppOptions): Server {
     }
   }
 
+  /** Devnet only: whether this wallet can be given test tokens, and when it can next ask. */
   async function getFaucet(ctx: Ctx) {
     const wallet = ctx.requireOwner();
     if (!options.faucet) throw new HttpError(503, "there is no faucet on this network");
@@ -1312,124 +877,6 @@ export function createApp(options: AppOptions): Server {
       if (error instanceof FaucetError) throw new HttpError(error.status, error.message);
       throw error;
     }
-  }
-
-  /**
-   * The program that holds this agent's vault, and the rate its money is in.
-   *
-   * A withdrawal has to reach the programme that actually holds the tokens: the
-   * two have different mints, so asking the wrong one about a vault is asking
-   * about an account it has never heard of.
-   */
-  async function vaultOf(agentId: string): Promise<{ chain: WithdrawalChain; rate: number }> {
-    const [row] = await db.select({ funding: agents.funding }).from(agents).where(eq(agents.id, agentId)).limit(1);
-    if (!row) throw new HttpError(404, "no such agent");
-    if (row.funding === "deposit") {
-      if (!options.deposit) throw new HttpError(503, "this server isn't connected to the deposit program");
-      return { chain: options.deposit.chain, rate: seasonRate() };
-    }
-    return { chain: needChain(), rate: rateOf(row) };
-  }
-
-  /** Runs a withdrawal step, turning its refusals into HTTP answers. */
-  async function withdrawalStep<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-      return await fn();
-    } catch (error) {
-      if (error instanceof WithdrawalError) throw new HttpError(error.status, error.message);
-      throw error;
-    }
-  }
-  const needChain = () => {
-    if (!options.chain) throw new HttpError(503, "withdrawals are unavailable: this server isn't connected to the chain");
-    return options.chain;
-  };
-  /** The owner's own agent, or a refusal. */
-  async function ownAgent(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const id = requireUuid(ctx.params[0]);
-    const [row] = await db.select({ ownerId: agents.ownerId }).from(agents).where(eq(agents.id, id)).limit(1);
-    if (!row) throw new HttpError(404, "no such agent");
-    if (row.ownerId !== ownerId) throw new HttpError(403, "that agent belongs to someone else");
-    return { id, ownerId };
-  }
-
-  /** Owner only: what can be withdrawn now, and what is locked while matches settle. */
-  async function getWithdrawable(ctx: Ctx) {
-    const { id } = await ownAgent(ctx);
-    const { rate } = await vaultOf(id);
-    const state = await withdrawalStep(() => withdrawable(db, id));
-    // Chips, like every other money figure a client sees. The module works in
-    // base units because those are what has to match a vault.
-    return {
-      withdrawable: {
-        ...state,
-        balance: toChips(state.balance, rate),
-        withdrawable: toChips(state.withdrawable, rate),
-        locked: toChips(state.locked, rate),
-        maxPartial: toChips(state.maxPartial, rate),
-        minStake: toChips(state.minStake, rate),
-        // The owner's own exit, in chips like everything else here. Sent even
-        // when the instant path is available, because an owner with one under
-        // way needs to see it wherever they look - and never sent as an
-        // alternative to that path, only as the state of a thing they started.
-        exit: state.exit
-          ? {
-              ...state.exit,
-              amount: toChips(state.exit.amount, rate),
-              claimedAmount: state.exit.claimedAmount === null ? null : toChips(state.exit.claimedAmount, rate),
-            }
-          : null,
-      },
-    };
-  }
-
-  /** Owner only: builds a withdrawal for the owner's wallet to sign. {amount: n} or {amount: "all"}. */
-  async function postWithdrawal(ctx: Ctx) {
-    const { id, ownerId } = await ownAgent(ctx);
-    const raw = ctx.body["amount"];
-    const asked = raw === "all" ? "all" : typeof raw === "number" ? raw : NaN;
-    if (asked !== "all" && !Number.isFinite(asked)) throw new HttpError(400, 'amount must be a number or "all"');
-    const { chain, rate } = await vaultOf(id);
-    // The owner types chips; the vault and the program speak base units.
-    const amount = asked === "all" ? "all" : baseUnits(Math.floor(asked), rate);
-    const out = await withdrawalStep(() => prepareWithdrawal(db, chain, { agentId: id, ownerId, amount }));
-    return {
-      withdrawal: { ...out, amount: toChips(out.amount, rate), remaining: toChips(out.remaining, rate) },
-    };
-  }
-
-  /** Owner only: the signed transaction back; recorded, then sent. */
-  async function postWithdrawalSubmit(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const withdrawalId = requireUuid(ctx.params[0]);
-    const signed = ctx.body["transaction"];
-    if (typeof signed !== "string" || !signed) throw new HttpError(400, "transaction is required (base64)");
-    // The withdrawal knows its agent, and the agent decides which program.
-    const [w] = await db.select({ agentId: withdrawals.agentId }).from(withdrawals).where(eq(withdrawals.id, withdrawalId)).limit(1);
-    if (!w) throw new HttpError(404, "no such withdrawal");
-    const { chain } = await vaultOf(w.agentId);
-    return { withdrawal: await withdrawalStep(() => submitWithdrawal(db, chain, { withdrawalId, ownerId, signedTx: signed })) };
-  }
-
-  /** Owner only: where a withdrawal has got to. */
-  async function getWithdrawal(ctx: Ctx) {
-    const ownerId = ctx.requireOwner();
-    const id = requireUuid(ctx.params[0]);
-    const [w] = await db.select().from(withdrawals).where(eq(withdrawals.id, id)).limit(1);
-    if (!w || w.ownerId !== ownerId) throw new HttpError(404, "no such withdrawal");
-    return {
-      withdrawal: {
-        id: w.id,
-        agentId: w.agentId,
-        amount: w.amount,
-        remaining: w.remaining,
-        retire: w.retire,
-        status: w.status,
-        signature: w.signature,
-        error: w.status === "expired" ? w.error : null,
-      },
-    };
   }
 
   async function getLadder(ctx: Ctx) {

@@ -73,37 +73,28 @@ cd web && npm install
 npm run build && npm run start   # web app on :3000
 ```
 
-Open http://localhost:3000, connect a wallet, rent a preset and press play. Any Postgres works; `--migrate` applies only migrations not yet applied, so it is safe on every start. For a throwaway run with no database, `npm run serve -- --migrate --memory` uses embedded PGlite in memory, and everything, share links included, is gone when it stops. The test suite always uses PGlite.
+Open http://localhost:3000, connect a wallet holding the token, get an agent and press play. Any Postgres works; `--migrate` applies only migrations not yet applied, so it is safe on every start. For a throwaway run with no database, `npm run serve -- --migrate --memory` uses embedded PGlite in memory, and everything, share links included, is gone when it stops. The test suite always uses PGlite.
 
 | Variable | Where | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | API | Needed to rent an agent from a written brief; read from the environment or a `.env` file in the repo root. Without it, presets work and briefs return 503. |
-| `CHAIN_RPC_URL` | API | Settle to a chain, e.g. `https://api.devnet.solana.com`. Without it, settlements queue in the outbox. |
-| `CHAIN_EXIT_INTERVAL_MS` | API | How often exits are read off chain, default 30000. The server refuses to start if the on-chain exit window is under ten times this (docs/security.md, Invariants). |
+| `CHAIN_RPC_URL` | API | The RPC holdings are read from, e.g. `https://api.devnet.solana.com`. Without it no wallet is read and nobody can get an agent. |
+| `HOLDER_MINT` | API | The token holders hold, defaulting to `CHAIN_STAKE_MINT` (devnet's test token). |
+| `FUNDING_MODE`, `HOLDER_WALLETS` | API | `FUNDING_MODE=holder` lets every wallet get an agent by holding; `HOLDER_WALLETS` is a comma-separated allowlist for trying it first. |
+| `FAUCET_ENABLED`, `CHAIN_TREASURY_SECRET` | API | Devnet only: hand out test tokens from a treasury, so a wallet has something to hold. |
 | `ADMIN_WALLETS` | API | Comma-separated wallets that may read `/admin`. Unset means no admin page at all, not an open one. |
-| `CHAIN_SETTLER_KEYPAIR` | API | Seed program's settler key, default `.keys/settler.json`. The deposit program has its own: `CHAIN_SETTLER_KEYPAIR_V2`, defaulting to the first of `.keys/settler-v2.json`, `.keys/settler-new.json`, `.keys/settler.json` that exists. |
 | `DATABASE_URL` | API | Postgres connection string. Required unless `--memory` is passed. |
 | `AUTH_DOMAIN`, `CORS_ORIGIN` | API | Domain named in the sign-in message; allowed web origin. |
 | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL` | web, build time | API location; absolute URLs for share previews. |
 | `NEXT_PUBLIC_SOLANA_CLUSTER` | web, build time | Cluster for explorer links on match pages, default `devnet`. |
 
-### Settling on chain
+### No program
 
-```bash
-npm run chain:build    # anchor build; copies the IDL into src/chain
-npm run test:chain     # the program's own tests, on a local validator
-```
-
-To deploy your own copy: generate `.keys/admin.json` and `.keys/settler.json` with `solana-keygen new`, run `anchor keys sync` in `chain/` (the deployed program's keypair is not in the repo, so a fresh build gets its own program id), fund the admin key with about 3 devnet SOL, then:
-
-```bash
-scripts/chain-deploy.sh devnet
-CHAIN_RPC_URL=https://api.devnet.solana.com DATABASE_URL=... npm run serve -- --migrate
-```
+There is no on-chain program (docs/holder-agents.md, decision 12). Holding the token in your own wallet is the agent; the server only reads wallets, and the season's chip rate - the minimum's dollar peg - is set in the database with `scripts/set-season-rate.ts`. The Anchor program that held vaults is in the git history.
 
 ### Deployment
 
-The live site runs on Railway: Postgres, the API (with the settlement worker) and the web app as three services.
+The live site runs on Railway: Postgres, the API and the web app as three services.
 
 **`railway up` uploads the git repository root, not the working directory.** The API deploys correctly from the repo root with `railway up -s api`, because the root `railway.json` is its config. The web app does not: its config is `web/railway.json`, but a CLI upload puts the repo root at the top of the build context, so Railway reads the root `railway.json`, starts `npm start` → `tsx scripts/serve.ts --migrate`, finds no `DATABASE_URL` and crash-loops. `cd web && railway up -s web` does not fix it, because the CLI still walks up to the git root.
 

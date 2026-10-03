@@ -3,7 +3,7 @@ import { Keypair, PublicKey, type Connection } from "@solana/web3.js";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../src/db/faucet.js";
 import { faucetGrants, FAUCET_GRANT_CHIPS, FAUCET_INTERVAL_MS } from "../src/db/schema.js";
-import { DEVNET_CHIP_RATE } from "../src/chain/settlement.js";
+import { DEVNET_CHIP_RATE } from "../src/chips.js";
 import { DEVNET_GENESIS, MAINNET_GENESIS, NotDevnetError, devnetFaucet } from "../src/chain/faucet.js";
 
 // The devnet faucet: who it pays, how often, and what happens when the payment

@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
 import { Keypair } from "@solana/web3.js";
 import { agentIdFor, newAgentId } from "../src/agent-id.js";
 import { connect, migrate } from "../src/db/client.js";
 import { createAgent } from "../src/db/runner.js";
-import { chainOps } from "../src/db/schema.js";
 import { someWallet } from "./helpers.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -40,25 +38,17 @@ describe("an agent's id", () => {
   });
 });
 
-describe("renting", () => {
-  it("gives the agent an id derived from its owner, and the vault op the salt to prove it", async () => {
+describe("creating an agent", () => {
+  it("gives the agent an id derived from its owner, and the salt to prove it", async () => {
     const { db, close } = await connect();
     await migrate(db);
     const owner = someWallet();
     const mine = await createAgent(db, { name: "Mine", presetName: "Anchor", ownerId: owner });
     const house = await createAgent(db, { name: "House", presetName: "Bully" });
-
-    const ops = await db.select().from(chainOps).where(eq(chainOps.kind, "open_vault"));
-    const opFor = (id: string) => ops.find((o) => o.agentId === id)!;
-    expect(opFor(mine.id).owner).toBe(owner);
-    expect(agentIdFor(owner, opFor(mine.id).salt!)).toBe(mine.id);
+    expect(agentIdFor(owner, mine.salt)).toBe(mine.id);
     // A house agent has no owner, and its id says so.
-    expect(opFor(house.id).owner).toBeNull();
-    expect(agentIdFor(null, opFor(house.id).salt!)).toBe(house.id);
-    expect(agentIdFor(owner, opFor(house.id).salt!)).not.toBe(house.id);
-    // One op per agent: the owner is recorded as the vault opens, not afterwards.
-    expect(ops).toHaveLength(2);
-    expect(await db.select().from(chainOps).where(eq(chainOps.kind, "register_owner"))).toEqual([]);
+    expect(agentIdFor(null, house.salt)).toBe(house.id);
+    expect(agentIdFor(owner, house.salt)).not.toBe(house.id);
     await close();
   });
 });

@@ -106,7 +106,9 @@ describe("a character cannot affect a match", () => {
       "src/db/seasons.ts",
       "src/db/autoplay.ts",
       "src/db/house.ts",
-      "src/db/withdrawals.ts",
+      "src/db/holdings.ts",
+      "src/db/scores.ts",
+      "src/score.ts",
       ...readdirSync("src/chain").filter((f) => f.endsWith(".ts")).map((f) => join("src/chain", f)),
     ];
     for (const file of guarded) {

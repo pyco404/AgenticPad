@@ -1,229 +1,79 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, max, min, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { agents, chainOps, deposits, matches, rentals, withdrawals } from "./schema.js";
-import { dueAtSql } from "./netting.js";
-import { chipRate, chips, seasonRate } from "../chips.js";
+import { agents, holdings, matches, scoreDays } from "./schema.js";
+import { holderCount, HOLDINGS_INTERVAL_MS } from "./holdings.js";
+import { dayDate, dayOf } from "./scores.js";
 
 /**
- * The numbers an operator needs, read from where they already live.
+ * What /admin reports: the health of what runs now (docs/holder-agents.md).
  *
- * Nothing here measures anything new. The settlement lag, the reconciler and
- * the season statement each already know their piece; this is the query layer
- * for the parts that were only ever reachable from a worker pass or a log
- * line, so that one page can show them together.
+ * There is no program, no vault and no settlement, so nothing here watches
+ * money move. What can go quietly wrong is the reading of wallets - an RPC
+ * that stops answering leaves every holder on an old figure, and nobody in or
+ * out of play when they should be - and the freezing of each day's scores,
+ * which payouts will be made from. Both are said plainly, with the threshold
+ * past which they are wrong rather than merely late.
+ *
+ * Read fresh each request: the page is opened when something looks wrong,
+ * which is exactly when a stale figure is worst.
  */
-
-/** An op worth looking at: it failed, or it has been waiting long enough to be stuck. */
-export type OpTrouble = {
-  id: string;
-  seq: number;
-  kind: string;
-  status: string;
-  agentId: string | null;
-  agentName: string | null;
-  amount: number;
-  /** The same amount in chips, converted at its agent's own rate. */
-  amountChips: number;
-  attempts: number;
-  lastError: string | null;
-  ageMs: number;
-  createdAt: Date;
+export type Health = {
+  at: Date;
+  holders: number;
+  holdings: {
+    /** Wallets behind a holder agent in play. */
+    wallets: number;
+    /** The oldest of their readings, and how old it is. Null when there are none. */
+    oldestReadAt: Date | null;
+    oldestAgeMs: number | null;
+    /** Past this, readings are stale: three missed passes. */
+    staleAfterMs: number;
+    stale: boolean;
+  };
+  scores: {
+    /** The last UTC day frozen, as YYYY-MM-DD; null before any. */
+    lastFrozen: string | null;
+    /** Days that are over and not yet frozen. More than one means the freeze has stopped. */
+    behind: number;
+  };
+  matches: { today: number; rankedToday: number };
 };
 
-/**
- * Ops that failed, and ops still pending past `stuckAfterMs`.
- *
- * The two are different problems and the page shows them apart. A failed op
- * has been given up on: the worker decided it can never land, and somebody has
- * to decide what to do about it. A stuck one is still being retried, which
- * usually means the program keeps refusing it - a throttled vault, or a
- * settlement the vault can no longer cover.
- */
-export async function troubledOps(db: Db, stuckAfterMs = 15 * 60_000, now = new Date()): Promise<{
-  failed: OpTrouble[];
-  stuck: OpTrouble[];
-}> {
-  const cutoff = new Date(now.getTime() - stuckAfterMs);
-  const rows = await db
+export async function health(db: Db, now = new Date()): Promise<Health> {
+  const inPlay = and(eq(agents.funding, "holder"), isNull(agents.retiredAt), isNotNull(agents.ownerId));
+  const [readings] = await db
+    .select({ wallets: sql<number>`count(distinct ${agents.ownerId})::int`, oldest: min(holdings.readAt) })
+    .from(agents)
+    .leftJoin(holdings, eq(holdings.wallet, agents.ownerId))
+    .where(inPlay);
+  const oldest = readings?.oldest ? new Date(readings.oldest) : null;
+  const staleAfterMs = 3 * HOLDINGS_INTERVAL_MS;
+  const oldestAgeMs = oldest ? now.getTime() - oldest.getTime() : null;
+
+  const [frozen] = await db.select({ day: max(scoreDays.day) }).from(scoreDays);
+  const last = frozen?.day ?? null;
+  const today = dayOf(now);
+
+  const midnight = new Date(today * 86_400_000);
+  const [played] = await db
     .select({
-      id: chainOps.id,
-      seq: chainOps.seq,
-      kind: chainOps.kind,
-      status: chainOps.status,
-      agentId: chainOps.agentId,
-      fromAgent: chainOps.fromAgent,
-      amount: chainOps.amount,
-      attempts: chainOps.attempts,
-      lastError: chainOps.lastError,
-      createdAt: chainOps.createdAt,
-      name: agents.name,
-      funding: agents.funding,
-    })
-    .from(chainOps)
-    .leftJoin(agents, eq(agents.id, sql`coalesce(${chainOps.agentId}, ${chainOps.fromAgent})`))
-    .where(
-      // Stuck from when it was due: a match waiting for its hour to be netted is not late yet.
-      sql`${chainOps.status} = 'failed' or (${chainOps.status} = 'pending' and ${dueAtSql} < ${cutoff})`,
-    )
-    .orderBy(desc(chainOps.createdAt))
-    .limit(100);
-
-  const shape = (r: (typeof rows)[number]): OpTrouble => ({
-    id: r.id,
-    seq: Number(r.seq),
-    kind: r.kind,
-    status: r.status,
-    agentId: r.agentId ?? r.fromAgent,
-    agentName: r.name,
-    amount: Number(r.amount),
-    amountChips: chips(Number(r.amount), chipRate(r.funding ?? "seed")),
-    attempts: r.attempts,
-    lastError: r.lastError,
-    ageMs: now.getTime() - r.createdAt.getTime(),
-    createdAt: r.createdAt,
-  });
-  return {
-    failed: rows.filter((r) => r.status === "failed").map(shape),
-    stuck: rows.filter((r) => r.status === "pending").map(shape),
-  };
-}
-
-/** The oldest op still waiting, which is what the lag figure is measuring. */
-export async function oldestPending(db: Db, now = new Date()): Promise<OpTrouble | null> {
-  const [r] = await db
-    .select({
-      id: chainOps.id,
-      seq: chainOps.seq,
-      kind: chainOps.kind,
-      status: chainOps.status,
-      agentId: chainOps.agentId,
-      fromAgent: chainOps.fromAgent,
-      amount: chainOps.amount,
-      attempts: chainOps.attempts,
-      lastError: chainOps.lastError,
-      createdAt: chainOps.createdAt,
-      name: agents.name,
-      funding: agents.funding,
-    })
-    .from(chainOps)
-    .leftJoin(agents, eq(agents.id, sql`coalesce(${chainOps.agentId}, ${chainOps.fromAgent})`))
-    .where(eq(chainOps.status, "pending"))
-    .orderBy(dueAtSql)
-    .limit(1);
-  if (!r) return null;
-  return {
-    id: r.id,
-    seq: Number(r.seq),
-    kind: r.kind,
-    status: r.status,
-    agentId: r.agentId ?? r.fromAgent,
-    agentName: r.name,
-    amount: Number(r.amount),
-    amountChips: chips(Number(r.amount), chipRate(r.funding ?? "seed")),
-    attempts: r.attempts,
-    lastError: r.lastError,
-    ageMs: now.getTime() - r.createdAt.getTime(),
-    createdAt: r.createdAt,
-  };
-}
-
-export type Volume = {
-  agents: { active: number; retired: number; house: number };
-  /**
-   * Money in from owners' wallets, both ways it arrives. The `deposits` table
-   * holds only **top-ups**; the deposit an owner makes when they rent is part
-   * of the rental transaction and lives in `rentals.deposit`. Counting only the
-   * table read "0 chips" on a server that had taken 1,800 - and an operator
-   * checking whether money was arriving would have believed it.
-   */
-  deposits: { confirmed: number; chips: number; pending: number; atRentChips: number; topUpChips: number };
-  withdrawals: { confirmed: number; chips: number; pending: number };
-  rentals: { confirmed: number; burnedChips: number; pending: number };
-  matches: { staked: number; ranked: number; exhibitions: number; last24h: number };
-};
-
-/**
- * The volume numbers, under the health ones because they are the ones you read
- * when nothing is wrong.
- *
- * Amounts are converted to chips at the deposit rate: rentals, deposits and
- * withdrawals all belong to the deposit flow, which is the only flow that ever
- * charged rent or took a deposit.
- */
-export async function volume(db: Db, now = new Date()): Promise<Volume> {
-  const dayAgo = new Date(now.getTime() - 24 * 60 * 60_000);
-  const [a] = await db
-    .select({
-      active: sql<number>`count(*) filter (where ${agents.ownerId} is not null and ${agents.retiredAt} is null)::int`,
-      retired: sql<number>`count(*) filter (where ${agents.retiredAt} is not null)::int`,
-      house: sql<number>`count(*) filter (where ${agents.ownerId} is null)::int`,
-    })
-    .from(agents);
-
-  const [d] = await db
-    .select({
-      confirmed: sql<number>`count(*) filter (where ${deposits.status} = 'confirmed')::int`,
-      amount: sql<number>`coalesce(sum(${deposits.amount}) filter (where ${deposits.status} = 'confirmed'), 0)::bigint`,
-      pending: sql<number>`count(*) filter (where ${deposits.status} in ('prepared', 'submitted'))::int`,
-    })
-    .from(deposits);
-
-  const [w] = await db
-    .select({
-      confirmed: sql<number>`count(*) filter (where ${withdrawals.status} = 'confirmed')::int`,
-      amount: sql<number>`coalesce(sum(${withdrawals.amount}) filter (where ${withdrawals.status} = 'confirmed'), 0)::bigint`,
-      pending: sql<number>`count(*) filter (where ${withdrawals.status} in ('prepared', 'submitted'))::int`,
-    })
-    .from(withdrawals);
-
-  const [r] = await db
-    .select({
-      confirmed: sql<number>`count(*) filter (where ${rentals.status} = 'confirmed')::int`,
-      fee: sql<number>`coalesce(sum(${rentals.fee}) filter (where ${rentals.status} = 'confirmed'), 0)::bigint`,
-      deposited: sql<number>`coalesce(sum(${rentals.deposit}) filter (where ${rentals.status} = 'confirmed'), 0)::bigint`,
-      pending: sql<number>`count(*) filter (where ${rentals.status} in ('prepared', 'submitted'))::int`,
-    })
-    .from(rentals);
-
-  const [m] = await db
-    .select({
-      staked: sql<number>`count(*) filter (where not ${matches.exhibition})::int`,
+      today: sql<number>`count(*)::int`,
       ranked: sql<number>`count(*) filter (where ${matches.ranked})::int`,
-      exhibitions: sql<number>`count(*) filter (where ${matches.exhibition})::int`,
-      last24h: sql<number>`count(*) filter (where ${matches.createdAt} >= ${dayAgo})::int`,
     })
-    .from(matches);
+    .from(matches)
+    .where(sql`${matches.createdAt} >= ${midnight.toISOString()}`);
 
-  // All-time sums span seasons at different rates, so these are today's chips:
-  // what that money is worth now, not what it was worth when it moved.
-  const rate = seasonRate();
-  const atRent = Number(r?.deposited ?? 0);
-  const topUps = Number(d?.amount ?? 0);
   return {
-    agents: { active: Number(a?.active ?? 0), retired: Number(a?.retired ?? 0), house: Number(a?.house ?? 0) },
-    deposits: {
-      // Both routes, because "has money come in?" does not care which.
-      confirmed: Number(d?.confirmed ?? 0) + Number(r?.confirmed ?? 0),
-      chips: chips(atRent + topUps, rate),
-      pending: Number(d?.pending ?? 0),
-      atRentChips: chips(atRent, rate),
-      topUpChips: chips(topUps, rate),
+    at: now,
+    holders: await holderCount(db),
+    holdings: {
+      wallets: Number(readings?.wallets ?? 0),
+      oldestReadAt: oldest,
+      oldestAgeMs,
+      staleAfterMs,
+      stale: oldestAgeMs !== null && oldestAgeMs > staleAfterMs,
     },
-    withdrawals: {
-      confirmed: Number(w?.confirmed ?? 0),
-      chips: chips(Number(w?.amount ?? 0), rate),
-      pending: Number(w?.pending ?? 0),
-    },
-    rentals: {
-      confirmed: Number(r?.confirmed ?? 0),
-      burnedChips: chips(Number(r?.fee ?? 0), rate),
-      pending: Number(r?.pending ?? 0),
-    },
-    matches: {
-      staked: Number(m?.staked ?? 0),
-      ranked: Number(m?.ranked ?? 0),
-      exhibitions: Number(m?.exhibitions ?? 0),
-      last24h: Number(m?.last24h ?? 0),
-    },
+    scores: { lastFrozen: last === null ? null : dayDate(last), behind: last === null ? 0 : Math.max(0, today - 1 - last) },
+    matches: { today: Number(played?.today ?? 0), rankedToday: Number(played?.ranked ?? 0) },
   };
 }

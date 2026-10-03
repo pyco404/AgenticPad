@@ -5,12 +5,11 @@ import { createHash } from "node:crypto";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
 import { createAgent } from "../src/db/runner.js";
-import { stakedMatch } from "./staked-match.js";
-import { chainOps, rentals, STARTING_BALANCE } from "../src/db/schema.js";
-import { troubledOps, oldestPending, volume } from "../src/db/admin.js";
-import { reconcile, solvency } from "../src/chain/worker.js";
-import { drainChainOps } from "../src/chain/worker.js";
-import { FakeChain } from "./fake-chain.js";
+import { MIN_FUNDING_CHIPS } from "../src/db/schema.js";
+import { health } from "../src/db/admin.js";
+import { HOLDINGS_INTERVAL_MS, readHolding } from "../src/db/holdings.js";
+import { freezeDay } from "../src/db/scores.js";
+import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
 import { someWallet } from "./helpers.js";
 
 /** Deterministic keypairs, as http.test.ts does: nothing asserts an identity it has not signed for. */
@@ -114,191 +113,49 @@ describe("who may read /admin", () => {
 });
 
 describe("what it reports", () => {
-  const fresh = async () => {
-    const c = await connect();
-    await migrate(c.db);
-    return c;
-  };
+  const DAY_MS = 86_400_000;
+  const chainHolding = (amount: number) => ({ balanceOf: async () => amount, supply: async () => 1_000_000_000 * DEVNET_CHIP_RATE });
 
-  it("adds the ledger and the vaults to the same number when nothing is wrong", async () => {
-    const { db: d, close } = await fresh();
-    const chain = new FakeChain();
-    const a = await createAgent(d, { name: "Sa", presetName: "Bully", ownerId: someWallet() });
-    const b = await createAgent(d, { name: "Sb", presetName: "Anchor", ownerId: someWallet() });
-    for (let i = 0; i < 4; i++) await stakedMatch(d, a.id, b.id, { seed: 70 + i });
-    await drainChainOps(d, chain, { limit: 200 });
+  it("counts the holders and the wallets read, and says when the readings have gone stale", async () => {
+    const { db, close } = await connect();
+    await migrate(db);
+    try {
+      const empty = await health(db);
+      expect(empty.holders).toBe(0);
+      expect(empty.holdings).toMatchObject({ wallets: 0, oldestReadAt: null, stale: false });
 
-    const sums = await solvency(d, chain);
-    expect(sums.counted).toBe(2);
-    expect(sums.unreachable).toBe(0);
-    expect(sums.inFlight).toEqual({});
-    // Per flow, never summed: the two programs hold different mints.
-    expect(Object.keys(sums.byFlow)).toEqual(["seed"]);
-    expect(sums.byFlow.seed!.difference).toBe(0);
-    expect(sums.byFlow.seed!.ledger).toBe(sums.byFlow.seed!.chain);
-    await close();
+      const owner = someWallet();
+      await createAgent(db, { name: "Read", presetName: "Anchor", ownerId: owner, funding: "holder" });
+      const readAt = new Date("2026-05-01T12:00:00Z");
+      await readHolding(db, chainHolding(baseUnits(MIN_FUNDING_CHIPS, DEVNET_CHIP_RATE)), owner, readAt);
+
+      const fresh = await health(db, new Date(readAt.getTime() + HOLDINGS_INTERVAL_MS));
+      expect(fresh.holders).toBe(1);
+      expect(fresh.holdings.wallets).toBe(1);
+      expect(fresh.holdings.stale).toBe(false);
+
+      // Three missed passes: something has stopped reading wallets.
+      const late = await health(db, new Date(readAt.getTime() + 3 * HOLDINGS_INTERVAL_MS + 1));
+      expect(late.holdings.stale).toBe(true);
+      expect(late.holdings.oldestAgeMs).toBe(3 * HOLDINGS_INTERVAL_MS + 1);
+    } finally {
+      await close();
+    }
   });
 
-  it("shows the shortfall as a negative difference when a vault is drained", async () => {
-    const { db: d, close } = await fresh();
-    const chain = new FakeChain();
-    const a = await createAgent(d, { name: "Da", presetName: "Bully", ownerId: someWallet() });
-    await createAgent(d, { name: "Db", presetName: "Anchor", ownerId: someWallet() });
-    await drainChainOps(d, chain, { limit: 200 });
-
-    chain.vaults.set(a.id, (chain.vaults.get(a.id) ?? 0) - 250);
-    const sums = await solvency(d, chain);
-    expect(sums.byFlow.seed!.difference).toBe(-250);
-    expect(sums.byFlow.seed!.chain).toBeLessThan(sums.byFlow.seed!.ledger);
-    await close();
-  });
-
-  it("counts agents with ops in flight rather than quietly leaving them out", async () => {
-    // reconcile skips them on purpose; a total that did would exclude exactly
-    // the agents something is happening to.
-    const { db: d, close } = await fresh();
-    const chain = new FakeChain();
-    const a = await createAgent(d, { name: "Fa", presetName: "Bully", ownerId: someWallet() });
-    const b = await createAgent(d, { name: "Fb", presetName: "Anchor", ownerId: someWallet() });
-    await drainChainOps(d, chain, { limit: 200 });
-    await stakedMatch(d, a.id, b.id, { seed: 5 });
-
-    const sums = await solvency(d, chain);
-    expect(sums.counted).toBe(2);
-    // Only the flow it belongs to: never a figure across both mints.
-    expect(Object.keys(sums.inFlight)).toEqual(["seed"]);
-    expect(sums.inFlight.seed).toBeGreaterThan(0);
-    // The settlement has moved the ledger but not the vaults, so the totals
-    // still agree: it takes from one and gives to the other.
-    expect(sums.byFlow.seed!.difference).toBe(0);
-    await close();
-  });
-
-  it("separates ops given up on from ops still being retried", async () => {
-    const { db: d, close } = await fresh();
-    const a = await createAgent(d, { name: "Ta", presetName: "Anchor", ownerId: someWallet() });
-    const old = new Date(Date.now() - 60 * 60_000);
-    await d.insert(chainOps).values([
-      { kind: "settle", fromAgent: a.id, amount: 10, status: "failed", lastError: "its vault can never open", createdAt: old },
-      { kind: "settle", fromAgent: a.id, amount: 20, status: "pending", lastError: "Error Code: OutflowLimit", createdAt: old, attempts: 9 },
-    ]);
-
-    const t = await troubledOps(d, 15 * 60_000);
-    expect(t.failed).toHaveLength(1);
-    expect(t.failed[0]!.lastError).toMatch(/never open/);
-    expect(t.stuck.some((o) => o.lastError?.includes("OutflowLimit"))).toBe(true);
-    // Both name the agent, because an id alone is no use at three in the morning.
-    expect(t.failed[0]!.agentName).toBe("Ta");
-
-    const oldestOp = await oldestPending(d);
-    expect(oldestOp?.attempts).toBe(9);
-    await close();
-  });
-
-  it("counts what happened without claiming to measure it twice", async () => {
-    const { db: d, close } = await fresh();
-    const a = await createAgent(d, { name: "Va", presetName: "Bully", ownerId: someWallet() });
-    const b = await createAgent(d, { name: "Vb", presetName: "Anchor", ownerId: someWallet() });
-    const h = await createAgent(d, { name: "Vh", presetName: "Anchor" });
-    for (let i = 0; i < 3; i++) await stakedMatch(d, a.id, b.id, { seed: 800 + i });
-    await stakedMatch(d, a.id, h.id, { seed: 999 });
-
-    const v = await volume(d);
-    expect(v.agents.active).toBe(2);
-    expect(v.agents.house).toBe(1);
-    expect(v.matches.staked).toBe(3);
-    expect(v.matches.ranked).toBe(3);
-    expect(v.matches.exhibitions).toBe(1);
-    expect(v.matches.last24h).toBe(4);
-    expect(v.deposits.confirmed).toBe(0);
-    await close();
-  });
-});
-
-describe("a vault that could not be read", () => {
-  const fresh = async () => {
-    const c = await connect();
-    await migrate(c.db);
-    return c;
-  };
-
-  it("is not a disagreement, because it says nothing about the money", async () => {
-    // This is the bug that had the drift alarm reporting healthy vaults as
-    // drained: the read failed, the failure became null, and null read as
-    // "no vault". On a server with 493 rate-limit errors in its log that made
-    // the alarm permanent, and an alarm that is usually wrong is ignored.
-    const { db: d, close } = await fresh();
-    const chain = new FakeChain();
-    const a = await createAgent(d, { name: "Throttled", presetName: "Anchor", ownerId: someWallet() });
-    await drainChainOps(d, chain, { limit: 200 });
-    chain.unreadable.add(a.id);
-
-    const check = await reconcile(d, chain);
-    expect(check.mismatches).toEqual([]);
-    expect(check.unverified).toHaveLength(1);
-    expect(check.unverified[0]).toMatchObject({ agentId: a.id, name: "Throttled", ledger: STARTING_BALANCE });
-    expect(check.unverified[0]!.why).toMatch(/429/);
-    await close();
-  });
-
-  it("still reports a vault that genuinely is not there", async () => {
-    const { db: d, close } = await fresh();
-    const chain = new FakeChain();
-    const a = await createAgent(d, { name: "Missing", presetName: "Anchor", ownerId: someWallet() });
-    await drainChainOps(d, chain, { limit: 200 });
-    chain.vaults.delete(a.id);
-
-    const check = await reconcile(d, chain);
-    expect(check.unverified).toEqual([]);
-    expect(check.mismatches).toHaveLength(1);
-    expect(check.mismatches[0]).toMatchObject({ name: "Missing", chain: null });
-    await close();
-  });
-
-  it("is left out of the solvency total, and counted as left out", async () => {
-    const { db: d, close } = await fresh();
-    const chain = new FakeChain();
-    const a = await createAgent(d, { name: "Ua", presetName: "Anchor", ownerId: someWallet() });
-    await createAgent(d, { name: "Ub", presetName: "Anchor", ownerId: someWallet() });
-    await drainChainOps(d, chain, { limit: 200 });
-    chain.unreadable.add(a.id);
-
-    const sums = await solvency(d, chain);
-    expect(sums.counted).toBe(1);
-    expect(sums.unreachable).toBe(1);
-    expect(sums.byFlow.seed!.difference).toBe(0);
-    await close();
-  });
-});
-
-describe("money in from owners' wallets", () => {
-  it("counts the deposit made at rent time, not only later top-ups", async () => {
-    // The deposits table holds top-ups only. The deposit an owner makes when
-    // they rent is part of the rental transaction, so counting the table alone
-    // read "0 chips" on a server that had taken 1,800 - and an operator
-    // checking whether money was arriving would have believed it.
-    const c = await connect();
-    await migrate(c.db);
-    const d = c.db;
-    const owner = someWallet();
-    const agent = await createAgent(d, { name: "Renter", presetName: "Anchor", ownerId: owner, funding: "deposit" });
-    await d.insert(rentals).values({
-      agentId: agent.id,
-      ownerId: owner,
-      fee: 200_000_000,
-      deposit: 900_000_000,
-      salt: "s",
-      preparedTx: "x",
-      lastValidBlockHeight: 1,
-      status: "confirmed",
-    });
-
-    const v = await volume(d);
-    expect(v.deposits.atRentChips).toBe(900);
-    expect(v.deposits.topUpChips).toBe(0);
-    expect(v.deposits.chips).toBe(900);
-    expect(v.deposits.confirmed).toBe(1);
-    expect(v.rentals.burnedChips).toBe(200);
-    await c.close();
+  it("says how far behind the score freeze is", async () => {
+    const { db, close } = await connect();
+    await migrate(db);
+    try {
+      expect((await health(db)).scores).toEqual({ lastFrozen: null, behind: 0 });
+      const day = Math.floor(Date.parse("2026-05-04T00:00:00Z") / DAY_MS);
+      await freezeDay(db, day, new Date((day + 1) * DAY_MS));
+      const h = await health(db, new Date((day + 4) * DAY_MS + 1));
+      expect(h.scores.lastFrozen).toBe("2026-05-04");
+      // Today is day+4, so day+1, day+2 and day+3 are over and not frozen.
+      expect(h.scores.behind).toBe(3);
+    } finally {
+      await close();
+    }
   });
 });

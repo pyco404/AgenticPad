@@ -3,7 +3,7 @@ import { randomInt } from "node:crypto";
 import type { Db } from "./client.js";
 import { recordEvent } from "./events.js";
 import { prizeOrder, standings } from "./standings.js";
-import { syncSeasonRate, type ChainRate, type RateSync } from "./chip-rate.js";
+import { syncSeasonRate, type RateSync } from "./chip-rate.js";
 import { GRACE_MS, nextSeason, RENEWAL_REMINDER_MS, seasonAt, seasonByKey, type Season } from "../season.js";
 import { agents, seasonStandings, seasons, type AgentRow } from "./schema.js";
 
@@ -153,7 +153,7 @@ export type SeasonTick = { closed: { key: string; result: CloseResult }[]; lapse
  * api was down is closed as soon as it is back, and a new season's rate is in
  * use within a minute of it starting.
  */
-export async function seasonTick(db: Db, now = new Date(), readRate: (() => Promise<ChainRate>) | null = null): Promise<SeasonTick> {
+export async function seasonTick(db: Db, now = new Date()): Promise<SeasonTick> {
   const ended = await db
     .select({ key: seasons.key })
     .from(seasons)
@@ -161,7 +161,7 @@ export async function seasonTick(db: Db, now = new Date(), readRate: (() => Prom
     .orderBy(asc(seasons.key));
   const closed: SeasonTick["closed"] = [];
   for (const { key } of ended) closed.push({ key, result: await closeSeason(db, key, now) });
-  const rate = await syncSeasonRate(db, readRate, now);
+  const rate = await syncSeasonRate(db, now);
   return { closed, lapsed: await lapseExpired(db, now), rate };
 }
 
@@ -171,10 +171,6 @@ export function startSeasons(
     pollMs?: number;
     onLog?: (line: string) => void;
     onError?: (error: unknown) => void;
-    /** Reads the deposit program's rate and rent; absent where there is no deposit program. */
-    readRate?: () => Promise<ChainRate>;
-    /** Every pass's rate, so the caller can keep the rent it quotes in step with the program's. */
-    onRate?: (rate: RateSync) => void;
   } = {},
 ): { stop: () => void } {
   const pollMs = options.pollMs ?? 60_000;
@@ -184,23 +180,13 @@ export function startSeasons(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const once = async () => {
     try {
-      const result = await seasonTick(db, new Date(), options.readRate ?? null);
-      options.onRate?.(result.rate);
+      const result = await seasonTick(db, new Date());
       const r = result.rate;
       // Said once per change, not every minute.
-      const said = `${r.season}:${r.rate}:${r.source}:${r.drift?.chain ?? ""}`;
+      const said = `${r.season}:${r.rate}:${r.source}`;
       if (said !== lastSaid) {
         lastSaid = said;
-        if (r.source === "chain") log(`season: ${r.season} plays at ${r.rate} base units a chip, read from the program`);
-        if (r.source === "unreadable") options.onError?.(new Error(`season ${r.season} has no chip rate and the program could not be read; still using ${r.rate}`));
-        if (r.drift) {
-          options.onError?.(
-            new Error(
-              `chip rate drift: the program is at ${r.drift.chain} but season ${r.season} plays at ${r.drift.season}; ` +
-                `the program's limits already count in the new rate, and the ledger takes it up at the next boundary`,
-            ),
-          );
-        }
+        if (r.source === "carried") log(`season: ${r.season} had no chip rate set, so it carries the last season's, ${r.rate}`);
       }
       for (const { key, result: r } of result.closed) {
         if (r.closed) {

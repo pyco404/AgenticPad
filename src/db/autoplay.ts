@@ -5,13 +5,11 @@ import { pickOpponent, runMatch } from "./runner.js";
 import { balanceOf, inPlayOf, StakeError } from "./ledger.js";
 import { chips, rateOf } from "../chips.js";
 import { recordEvent } from "./events.js";
-import { exitingSql } from "./exits.js";
 import { rentalOpen, rentalOpenSql } from "./rental.js";
 import { headlineFor } from "../transcript.js";
 import {
   agents,
   matches,
-  withdrawals,
   WORST_MATCH,
   MIN_FUNDING_CHIPS,
   AUTOPLAY_INTERVAL_MS,
@@ -49,15 +47,6 @@ export type AutoplayCheck =
  */
 export async function checkAgent(db: Db, row: AgentRow): Promise<AutoplayCheck> {
   if (row.retiredAt !== null) return { play: false, reason: "retired", detail: "the agent is retired" };
-
-  const [pending] = await db
-    .select({ id: withdrawals.id })
-    .from(withdrawals)
-    .where(and(eq(withdrawals.agentId, row.id), eq(withdrawals.status, "submitted")))
-    .limit(1);
-  if (pending) {
-    return { play: false, reason: "withdrawal", detail: "a withdrawal is settling" };
-  }
 
   // In chips from here down: the floor is the owner's figure and the widest
   // net a match can produce is a chip figure, so the balance meets them in their own unit.
@@ -157,10 +146,6 @@ export async function dueAgents(db: Db, intervalMs: number, now = new Date()): P
         isNull(agents.retiredAt),
         // Expired: nothing to play until the owner renews, so not due.
         rentalOpenSql(now),
-        // Mid-exit: the money may be about to leave the vault. Excluded here
-        // as well as refused in runMatch, so the scheduler does not pick it up
-        // every ten minutes only to be turned away.
-        sql`not ${exitingSql}`,
         or(isNull(agents.autoplayLastMatchAt), lte(agents.autoplayLastMatchAt, due)),
       ),
     )

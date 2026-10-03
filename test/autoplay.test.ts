@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { connect, migrate } from "../src/db/client.js";
-import { agentEvents, agents, chainOps, matches, withdrawals, MIN_FUNDING_CHIPS, WORST_MATCH, outflowBudget, STARTING_BALANCE } from "../src/db/schema.js";
+import { agentEvents, agents, matches, MIN_FUNDING_CHIPS, WORST_MATCH, STARTING_BALANCE } from "../src/db/schema.js";
 import { record } from "../src/db/ledger.js";
-import { createAgent, hasBudgetRoom, hasOutflowRoom, lossBudgetOn, lostToday } from "../src/db/runner.js";
-import { utcDay } from "../src/chain/common.js";
+import { createAgent } from "../src/db/runner.js";
 import { autoplayStatus, checkAgent, dueAgents, isHold, markSeen, setAutoplay, sinceYouLeft, stopAgent, tick } from "../src/db/autoplay.js";
 import { someWallet } from "./helpers.js";
-import { SEED_CHIP_RATE } from "../src/chips.js";
 
 const fresh = async () => {
   const c = await connect();
@@ -110,24 +108,6 @@ describe("autoplay: safety", () => {
     const stop = await checkAgent(db, (await db.select().from(agents).where(eq(agents.id, row.id)))[0]!);
     expect(stop.play).toBe(false);
     if (!stop.play) expect(stop.reason).toBe("insolvent");
-    await close();
-  });
-
-  it("holds while a withdrawal is settling, and the hold leaves autoplay on", async () => {
-    const { db, close } = await fresh();
-    const row = await playerOn(db);
-    await db.insert(withdrawals).values({ agentId: row.id, ownerId: row.ownerId!, amount: 10, remaining: 890, retire: false, preparedTx: "test", lastValidBlockHeight: 1, status: "submitted" });
-    const stop = await checkAgent(db, (await db.select().from(agents).where(eq(agents.id, row.id)))[0]!);
-    expect(stop.play).toBe(false);
-    if (!stop.play) {
-      expect(stop.reason).toBe("withdrawal");
-      expect(isHold(stop.reason)).toBe(true);
-    }
-    await stopAgent(db, row.id, "withdrawal");
-    const [after] = await db.select().from(agents).where(eq(agents.id, row.id));
-    // The distinction the panel depends on: still on, so it resumes by itself.
-    expect(after!.autoplay).toBe(true);
-    expect(after!.autoplayStoppedReason).toBe("withdrawal");
     await close();
   });
 
@@ -270,31 +250,6 @@ describe("autoplay: the tick", () => {
   });
 });
 
-describe("autoplay: the popular-opponent budget", () => {
-  it("counts what a vault has already committed, and refuses a loss that would not fit", async () => {
-    const { db, close } = await fresh();
-    const row = await createAgent(db, { name: "Popular", presetName: "Anchor", ownerId: someWallet() });
-    const worst = WORST_MATCH;
-    expect(await hasOutflowRoom(db, row.id, worst)).toBe(true);
-
-    // Fill the window to one chip short of what a full loss needs.
-    const budget = outflowBudget(STARTING_BALANCE, SEED_CHIP_RATE);
-    await db.insert(chainOps).values({ kind: "settle", fromAgent: row.id, amount: budget - worst + 1 });
-    expect(await hasOutflowRoom(db, row.id, worst)).toBe(false);
-    await close();
-  });
-
-  it("a settlement the chain refused still counts against the window", async () => {
-    const { db, close } = await fresh();
-    const row = await createAgent(db, { name: "Refused", presetName: "Anchor", ownerId: someWallet() });
-    const worst = WORST_MATCH;
-    // 'failed' is the one status that does not count: the chain never took it.
-    await db.insert(chainOps).values({ kind: "settle", fromAgent: row.id, amount: outflowBudget(900, SEED_CHIP_RATE), status: "failed" });
-    expect(await hasOutflowRoom(db, row.id, worst)).toBe(true);
-    await close();
-  });
-});
-
 describe("autoplay: what the panel says", () => {
   const rowOf = async (db: Awaited<ReturnType<typeof fresh>>["db"], id: string) =>
     (await db.select().from(agents).where(eq(agents.id, id)))[0]!;
@@ -320,18 +275,8 @@ describe("autoplay: what the panel says", () => {
     await close();
   });
 
-  it("says a hold clears itself and a pause needs the owner, in those words", async () => {
+  it("says a pause needs the owner, in those words", async () => {
     const { db, close } = await fresh();
-    const held = await playerOn(db);
-    await db.insert(withdrawals).values({
-      agentId: held.id, ownerId: held.ownerId!, amount: 10, remaining: 890, retire: false,
-      preparedTx: "test", lastValidBlockHeight: 1, status: "submitted",
-    });
-    const h = await autoplayStatus(db, await rowOf(db, held.id));
-    expect(h.state).toBe("held");
-    expect(h.message).toBe("Held: withdrawal settling, resumes automatically.");
-    expect(h.stop).toEqual({ reason: "withdrawal", hold: true });
-
     const paused = await playerOn(db);
     await db.update(agents).set({ autoplayFloor: 300 }).where(eq(agents.id, paused.id));
     await stopAgent(db, paused.id, "floor");
@@ -461,52 +406,5 @@ describe("agent events", () => {
     await stopAgent(db, row.id, "floor");
     expect(await eventsOf(db, row.id)).toEqual(["autoplay autoplay-off paused: floor"]);
     await close();
-  });
-});
-
-describe("autoplay: the owner's daily loss budget", () => {
-  // Mirrors the program's LossBudget: the ledger declines a pairing the chain
-  // would refuse, so a match it records is always one the chain will take.
-  const worst = WORST_MATCH;
-  const budgeted = async (db: Awaited<ReturnType<typeof fresh>>["db"], name: string, perDay: number) => {
-    const row = await createAgent(db, { name, presetName: "Anchor", ownerId: someWallet() });
-    await db.update(agents).set({ lossBudget: perDay, lossBudgetNext: perDay }).where(eq(agents.id, row.id));
-    return row;
-  };
-
-  it("counts net loss today from the settlements themselves, wins included", async () => {
-    const { db, close } = await fresh();
-    const me = await budgeted(db, "Counted", 100);
-    const other = await createAgent(db, { name: "Other", presetName: "Hammer", ownerId: someWallet() });
-    await db.insert(chainOps).values([
-      { kind: "settle", fromAgent: me.id, toAgent: other.id, amount: 70 },
-      { kind: "settle", fromAgent: other.id, toAgent: me.id, amount: 20 },
-      // Refused by the chain: never charged there, so not here either.
-      { kind: "settle", fromAgent: me.id, toAgent: other.id, amount: 500, status: "failed" },
-      // Yesterday's: its own day's bucket, not today's.
-      { kind: "settle", fromAgent: me.id, toAgent: other.id, amount: 500, createdAt: new Date(Date.now() - 86_400_000) },
-    ]);
-    expect(await lostToday(db, me.id)).toBe(50);
-    // 50 lost, and a full loss is 40: 90 fits in 100, 50 + 40 + 11 would not.
-    expect(await hasBudgetRoom(db, me.id, worst)).toBe(true);
-    await db.insert(chainOps).values({ kind: "settle", fromAgent: me.id, toAgent: other.id, amount: 11 });
-    expect(await hasBudgetRoom(db, me.id, worst)).toBe(false);
-    await close();
-  });
-
-  it("an agent with no budget always has room, as before", async () => {
-    const { db, close } = await fresh();
-    const row = await createAgent(db, { name: "Unbudgeted", presetName: "Anchor", ownerId: someWallet() });
-    await db.insert(chainOps).values({ kind: "settle", fromAgent: row.id, amount: 5_000 });
-    expect(await hasBudgetRoom(db, row.id, worst)).toBe(true);
-    await close();
-  });
-
-  it("applies a cut from its day, and the old limit before it", () => {
-    const today = utcDay(new Date());
-    const row = { lossBudget: 500, lossBudgetNext: 100, lossBudgetNextFromDay: today + 1 };
-    expect(lossBudgetOn(row, today)).toBe(500);
-    expect(lossBudgetOn(row, today + 1)).toBe(100);
-    expect(lossBudgetOn({ lossBudget: null, lossBudgetNext: null, lossBudgetNextFromDay: null }, today)).toBeNull();
   });
 });
