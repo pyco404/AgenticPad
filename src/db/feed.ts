@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, gte, lt, or, sql, type SQL } from "drizzle-orm";
+import { holderCount } from "./holdings.js";
 import { alias } from "drizzle-orm/pg-core";
 import { beatsFor, headlineBeat, type Beat } from "../transcript.js";
 import type { Action, MatchLog, RoundOutcome, Seat } from "../types.js";
@@ -234,11 +235,12 @@ export async function matchActivity(db: Db): Promise<{
 }
 
 /**
- * The two counters the live feed ticks up: staked matches since 00:00 UTC, and
+ * The counters the live feed ticks up: staked matches since 00:00 UTC, and
  * chips staked across every staked match ever, both sides counted as
  * matchActivity counts them. Exhibitions stake nothing and count toward neither.
+ * And the holders: the village grows with them (docs/holder-agents.md).
  */
-export async function liveCounters(db: Db, now: Date): Promise<{ matchesToday: number; totalStaked: number }> {
+export async function liveCounters(db: Db, now: Date): Promise<{ matchesToday: number; totalStaked: number; holders: number }> {
   const [row] = await db
     .select({
       today: sql<number>`count(*) filter (where ${gte(matches.createdAt, dayStart(now))})::int`,
@@ -246,5 +248,5 @@ export async function liveCounters(db: Db, now: Date): Promise<{ matchesToday: n
     })
     .from(matches)
     .where(eq(matches.exhibition, false));
-  return { matchesToday: Number(row?.today ?? 0), totalStaked: Number(row?.totalStaked ?? 0) };
+  return { matchesToday: Number(row?.today ?? 0), totalStaked: Number(row?.totalStaked ?? 0), holders: await holderCount(db) };
 }

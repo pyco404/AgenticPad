@@ -2,6 +2,7 @@ import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { baseUnits, chips, seasonRate } from "../chips.js";
 import type { Db } from "./client.js";
 import { agents, holdings, MIN_FUNDING_CHIPS } from "./schema.js";
+import { inPlaySql } from "./ledger.js";
 
 /**
  * Holdings: what a wallet holds of the token, which for a holder agent is the
@@ -233,4 +234,18 @@ export function startHoldings(
     stopped = true;
     if (timer) clearTimeout(timer);
   };
+}
+
+/**
+ * How many wallets hold an agent in play now: the holder count the village
+ * grows with. A wallet counts once whatever it holds, and only while its
+ * holding keeps its agent in play (inPlaySql), so a sell below the minimum
+ * takes it off the count at the next reading.
+ */
+export async function holderCount(db: Db): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(distinct ${agents.ownerId})::int` })
+    .from(agents)
+    .where(and(eq(agents.funding, "holder"), isNull(agents.retiredAt), isNotNull(agents.ownerId), inPlaySql()));
+  return Number(row?.n ?? 0);
 }

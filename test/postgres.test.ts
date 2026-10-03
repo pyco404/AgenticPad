@@ -232,7 +232,7 @@ describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare
     const played = await runMatch(db, a.id, b.id, { seed: 7 });
     const counters = await liveCounters(db, new Date());
     expect(typeof counters.totalStaked).toBe("number");
-    expect(counters).toEqual({ matchesToday: 1, totalStaked: played.stake * 2 });
+    expect(counters).toEqual({ matchesToday: 1, totalStaked: played.stake * 2, holders: 0 });
     await close();
   });
 

@@ -73,7 +73,7 @@ describe("the live tail", () => {
     const p1 = await createAgent(db, { name: "P1", presetName: "Anchor", ownerId: someWallet() });
     const p2 = await createAgent(db, { name: "P2", presetName: "Hammer", ownerId: someWallet() });
     await runExhibition(db, a.id, b.id, { seed: 1 });
-    expect(await liveCounters(db, new Date())).toEqual({ matchesToday: 0, totalStaked: 0 });
+    expect(await liveCounters(db, new Date())).toEqual({ matchesToday: 0, totalStaked: 0, holders: 0 });
 
     const first = await runMatch(db, p1.id, p2.id, { seed: 2 });
     const second = await runMatch(db, p1.id, p2.id, { seed: 3 });
@@ -84,6 +84,7 @@ describe("the live tail", () => {
     expect(await liveCounters(db, new Date())).toEqual({
       matchesToday: 1,
       totalStaked: (first.stake + second.stake) * 2,
+      holders: 0,
     });
     await close();
   });
@@ -164,7 +165,7 @@ describe("GET /live", () => {
 
     const hello = await next();
     expect(hello.event).toBe("hello");
-    expect(hello.data).toEqual({ counters: { matchesToday: 0, totalStaked: 0 }, playMs: PLAY_MS });
+    expect(hello.data).toEqual({ counters: { matchesToday: 0, totalStaked: 0, holders: 0 }, playMs: PLAY_MS });
 
     const played = await runMatch(t.db, t.a.id, t.b.id, { seed: 4 });
     const staked = await next();
@@ -173,7 +174,7 @@ describe("GET /live", () => {
     expect(staked.data.match.id).toBe(played.match.id);
     expect(staked.data.match.play).toHaveLength(played.log.rounds.length);
     expect(staked.data.ageMs).toBeLessThan(PLAY_MS);
-    expect(staked.data.counters).toEqual({ matchesToday: 1, totalStaked: played.stake * 2 });
+    expect(staked.data.counters).toEqual({ matchesToday: 1, totalStaked: played.stake * 2, holders: 0 });
 
     // An exhibition is streamed too, and changes no counter.
     await runExhibition(t.db, t.h1.id, t.h2.id, { seed: 5 });

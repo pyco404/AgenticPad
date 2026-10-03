@@ -11,7 +11,7 @@ import { latestSeq, liveCounters, matchesAfter, type LiveMatch } from "../db/fee
  */
 export const PLAY_MS = Number(process.env["LIVE_PLAY_MS"] ?? 10_000);
 
-export type LiveCounters = { matchesToday: number; totalStaked: number };
+export type LiveCounters = { matchesToday: number; totalStaked: number; holders: number };
 
 export type LiveOptions = {
   /** How often to look for new matches while anyone is listening. Default one second. */

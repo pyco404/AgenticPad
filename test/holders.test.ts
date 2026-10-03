@@ -9,7 +9,8 @@ import { listen } from "../src/http/server.js";
 import { balanceOf } from "../src/db/ledger.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
 import { agents, ledger, chainOps, MIN_FUNDING_CHIPS } from "../src/db/schema.js";
-import { holdingMinimum, holdingOf, refreshHolders, type HoldingsChain } from "../src/db/holdings.js";
+import { holderCount, holdingMinimum, holdingOf, refreshHolders, type HoldingsChain } from "../src/db/holdings.js";
+import { liveCounters } from "../src/db/feed.js";
 import { pickOpponent, runMatch, StakeError } from "../src/db/runner.js";
 
 // Holder agents (docs/holder-agents.md): a wallet holding the token above the
@@ -204,6 +205,17 @@ describe("holder agents", () => {
       chain.down = false;
     }
     expect(await holdingOf(db, wallet)).toEqual(before);
+  });
+
+  it("counts each wallet holding an agent in play once, and drops one that sells below", async () => {
+    const before = await holderCount(db);
+    chain.held.set(walletOf("counted"), MIN);
+    expect((await api("/agents", { method: "POST", body: { presetName: "Bully" }, as: "counted" })).status).toBe(201);
+    expect(await holderCount(db)).toBe(before + 1);
+    expect((await liveCounters(db, new Date())).holders).toBe(before + 1);
+    chain.held.set(walletOf("counted"), MIN - 1);
+    await refreshHolders(db, chain);
+    expect(await holderCount(db)).toBe(before);
   });
 
   it("records the supply with each reading, for position", async () => {
