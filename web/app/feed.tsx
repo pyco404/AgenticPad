@@ -172,23 +172,23 @@ export function LiveFeed({
 }
 
 /**
- * Staked matches today and chips staked all time, ticking up as matches land.
- * Exhibitions stake nothing and count toward neither.
+ * Ranked matches today - between players' agents, the ones that score - and
+ * the holders, ticking up as matches land. Exhibitions count toward neither.
  */
-function LiveCounters({ counters }: { counters: { matchesToday: number; totalStaked: number } | null }) {
+function LiveCounters({ counters }: { counters: { matchesToday: number; holders?: number } | null }) {
   const today = useTicker(counters?.matchesToday);
-  const staked = useTicker(counters?.totalStaked);
+  const holders = useTicker(counters?.holders);
   if (!counters) return null;
   const n = (v: number | undefined) => (v ?? 0).toLocaleString("en-US");
   return (
     <dl className="grid grid-cols-2 border-b border-line">
       <div className="border-r border-line px-4 py-2.5">
-        <dt className="text-[11px] uppercase tracking-wider text-muted">Staked matches today</dt>
+        <dt className="text-[11px] uppercase tracking-wider text-muted">Ranked matches today</dt>
         <dd className="mt-0.5 font-mono text-[18px] tabular-nums">{n(today)}</dd>
       </div>
       <div className="px-4 py-2.5">
-        <dt className="text-[11px] uppercase tracking-wider text-muted">Chips staked, all time</dt>
-        <dd className="mt-0.5 font-mono text-[18px] tabular-nums text-gold">{n(staked)}</dd>
+        <dt className="text-[11px] uppercase tracking-wider text-muted">Holders</dt>
+        <dd className="mt-0.5 font-mono text-[18px] tabular-nums text-gold">{n(holders)}</dd>
       </div>
     </dl>
   );

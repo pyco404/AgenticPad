@@ -276,11 +276,11 @@ export function BuildingCard({ place, onClose, onEnter }: { place: PlaceInfo; on
         <div className="rounded-panel mt-4 grid grid-cols-2 divide-x divide-line border border-line">
           <div className="py-2 text-center">
             <p className="font-mono text-[20px] text-text">{w.counters.matchesToday.toLocaleString("en-US")}</p>
-            <p className="text-[12px] text-muted">Staked matches today</p>
+            <p className="text-[12px] text-muted">Ranked matches today</p>
           </div>
           <div className="py-2 text-center">
-            <p className="font-mono text-[20px] text-accent">{w.counters.totalStaked.toLocaleString("en-US")}</p>
-            <p className="text-[12px] text-muted">Chips staked, all time</p>
+            <p className="font-mono text-[20px] text-accent">{(w.counters.holders ?? 0).toLocaleString("en-US")}</p>
+            <p className="text-[12px] text-muted">Holders</p>
           </div>
         </div>
       ) : null}
