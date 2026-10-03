@@ -19,6 +19,7 @@ import { LossBudgetPanel } from "@/app/loss-budget-panel";
 import { CutoverNotice } from "@/app/cutover-notice";
 import { CharacterBlock } from "@/app/character";
 import { AutoplayPanel } from "@/app/autoplay-panel";
+import { HoldingCheck, PowerPanel } from "@/app/holder-panel";
 import { PageNote } from "@/app/site-header";
 import { useCountUp } from "@/lib/motion";
 import { netFill, netTone } from "@/lib/tone";
@@ -33,6 +34,9 @@ import {
   type Feed,
   type RosterAgent,
   type AgentView,
+  type Funding,
+  type HolderView,
+  type HoldingView,
   type PlayResult,
   type Preset,
   type Preview,
@@ -102,6 +106,10 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   const { session, wallets, signTransaction } = wallet;
   const token = session?.token ?? null;
   const [agent, setAgent] = useState<AgentView | null>(null);
+  /** The open agent's wallet, clock and power, when it is a holder agent. */
+  const [holder, setHolder] = useState<HolderView | null>(null);
+  /** This wallet's holding, on the holder flow: what the rent screen checks against the minimum. */
+  const [holding, setHolding] = useState<HoldingView | null>(null);
   // Every agent this wallet owns, from the server: the same list on every device.
   const [mine, setMine] = useState<AgentView[]>([]);
   const [tab, setTab] = useState<"preset" | "brief">("preset");
@@ -119,7 +127,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   /** Where a deposit-funded rental has got to, for the screen to narrate. */
   const [rentalStep, setRentalStep] = useState<RentalStep>({ at: "idle" });
   /** How renting works for this wallet. Seed until the server says otherwise. */
-  const [funding, setFunding] = useState<{ mode: "seed" | "deposit"; feeChips: number }>({ mode: "seed", feeChips: 0 });
+  const [funding, setFunding] = useState<{ mode: Funding; feeChips: number }>({ mode: "seed", feeChips: 0 });
   /** Set while the old settlement program is closing. */
   const [cutover, setCutover] = useState<{ endsAt: string; withdrawableUntil: string } | null>(null);
   const [preview, setPreview] = useState<{ value: Preview; paid: boolean } | null>(null);
@@ -175,11 +183,13 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   const refreshAgent = useCallback(
     async (id: string, sessionToken: string | null) => {
       try {
-        const { agent: fresh } = await api.agent(sessionToken, id);
+        const { agent: fresh, holder: wallet } = await api.agent(sessionToken, id);
         setAgent({ ...fresh, id });
+        setHolder(wallet ?? null);
       } catch {
         localStorage.removeItem(AGENT_KEY);
         setAgent(null);
+        setHolder(null);
       }
     },
     [],
@@ -191,9 +201,10 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
    */
   const loadMine = useCallback(
     async (sessionToken: string) => {
-      const { agents: owned, funding, cutover } = await api.me(sessionToken);
+      const { agents: owned, funding, cutover, holding: held } = await api.me(sessionToken);
       setMine(owned);
       setFunding(funding);
+      setHolding(held);
       setCutover(cutover);
       const inPlay = owned.filter((a) => !a.retired);
       const saved = localStorage.getItem(AGENT_KEY);
@@ -345,12 +356,24 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
         }
       }
       const id = created.id ?? created.agentId!;
+      // A holder agent's owner view carries its wallet and power, which the
+      // creation answer does not: read it whole rather than show it without them.
+      if (funding === "holder") {
+        paid = true;
+        await refreshAgent(id, token);
+      }
       localStorage.setItem(AGENT_KEY, id);
       if (!paid) setAgent({ ...created, id });
       setMine((held) => [{ ...created, id }, ...held]);
       setTranscript("");
       setLastPlay(null);
       setLadderKey((k) => k + 1);
+    });
+
+  /** Reads the wallet now: after a buy, so the owner need not wait for the next scheduled read. */
+  const checkHolding = () =>
+    run("holding", async () => {
+      setHolding((await api.refreshHolding(token)).holding);
     });
 
   const play = () =>
@@ -381,6 +404,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       onPlay={play}
       busy={busy === "play"}
       lastPlay={lastPlay}
+      holder={holder}
       onWithdrawn={() => {
         // A full withdrawal retires it, so the list and the card both move on.
         if (token) void loadMine(token);
@@ -411,6 +435,10 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       presetRatings={presetRatings}
       signedIn={Boolean(session)}
       deposits={funding.mode === "deposit"}
+      holders={funding.mode === "holder"}
+      holding={holding}
+      onCheckHolding={checkHolding}
+      checkingHolding={busy === "holding"}
       deposit={deposit}
       setDeposit={setDeposit}
       rentalStep={rentalStep}
@@ -486,7 +514,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
 function Header() {
   return (
     <p className="hud-card px-4 py-3 text-[13px] leading-5 text-muted @3xl:text-[15px] @3xl:leading-6">
-      AI agents play bluff-and-fold against each other, staked and settled on Solana. Every hand is shown.
+      AI agents play bluff-and-fold against each other, and strategy alone decides every match. Every hand is shown.
     </p>
   );
 }
@@ -507,7 +535,7 @@ function ConnectPanel({
   const all: WalletName[] = ["Phantom", "Solflare"];
   return (
     <div className="rounded-panel mb-3 border border-line bg-panel p-3">
-      <p className="text-[13px] leading-5">Want one of your own? Sign in to rent an agent and play.</p>
+      <p className="text-[13px] leading-5">Want one of your own? Sign in to get an agent and play.</p>
       <p className="mt-1 text-[12px] leading-5 text-muted">
         You sign a message, not a transaction: it costs nothing and moves nothing. Browsing needs no wallet.
       </p>
@@ -562,6 +590,11 @@ function RentPanel(props: {
   signedIn: boolean;
   /** This wallet rents by depositing: the screen has to ask for an amount. */
   deposits: boolean;
+  /** This wallet is on the holder flow: holding the minimum is the entry, nothing is paid. */
+  holders: boolean;
+  holding: HoldingView | null;
+  onCheckHolding: () => void;
+  checkingHolding: boolean;
   deposit: string;
   setDeposit: (s: string) => void;
   rentalStep: RentalStep;
@@ -571,12 +604,19 @@ function RentPanel(props: {
   const ready =
     props.signedIn &&
     (props.tab === "preset" ? Boolean(props.chosen) : props.brief.trim().length >= 12) &&
-    (!props.deposits || Number(props.deposit) >= MIN_FUNDING_CHIPS);
+    (!props.deposits || Number(props.deposit) >= MIN_FUNDING_CHIPS) &&
+    (!props.holders || props.holding?.eligible === true);
   return (
     <section className="rounded-panel border border-line bg-panel">
-      <h2 className="border-b border-line px-4 py-3 text-[12px] uppercase tracking-wider text-accent">Rent an agent</h2>
+      <h2 className="border-b border-line px-4 py-3 text-[12px] uppercase tracking-wider text-accent">
+        {props.holders ? "Get your agent" : "Rent an agent"}
+      </h2>
       <div className="space-y-3 p-3">
-        <SeasonLine />
+        {props.holders ? (
+          <HoldingCheck holding={props.holding} onRefresh={props.onCheckHolding} refreshing={props.checkingHolding} />
+        ) : (
+          <SeasonLine />
+        )}
         <Segmented
           value={props.tab}
           onChange={props.setTab}
@@ -655,21 +695,32 @@ function RentPanel(props: {
           className="rounded-panel w-full bg-accent px-3 py-3 text-[14px] font-medium text-ink disabled:bg-line disabled:text-muted"
         >
           {!props.signedIn
-            ? "Sign in to rent"
+            ? props.holders
+              ? "Sign in to get an agent"
+              : "Sign in to rent"
             : props.busy
               ? props.deposits
                 ? "Waiting for your wallet…"
-                : "Renting…"
-              : props.tab === "preset"
-                ? `Rent ${props.chosen}`
-                : "Rent on this brief"}
+                : props.holders
+                  ? "Creating…"
+                  : "Renting…"
+              : props.holders && !props.holding?.eligible
+                ? "Hold the minimum to get an agent"
+                : props.tab === "preset"
+                  ? `${props.holders ? "Play as" : "Rent"} ${props.chosen}`
+                  : props.holders
+                    ? "Play on this brief"
+                    : "Rent on this brief"}
         </button>
         {props.tab === "brief" ? (
           <p className="text-[12px] leading-5 text-muted">
-            Renting on a brief writes its table once, with one model call. Playing it after that is free.
+            {props.holders ? "A brief" : "Renting on a brief"} writes its table once, with one model call. Playing it after
+            that is free.
           </p>
         ) : (
-          <p className="text-[12px] leading-5 text-muted">Presets are free to rent and free to rate.</p>
+          <p className="text-[12px] leading-5 text-muted">
+            {props.holders ? "Presets are free to play and free to rate." : "Presets are free to rent and free to rate."}
+          </p>
         )}
         {props.deposits ? (
           <div className="rounded-panel border border-line bg-panel-2 px-3 py-3">
@@ -705,7 +756,7 @@ function RentPanel(props: {
           </div>
         ) : null}
         {props.rentalStep.at !== "idle" ? <RentalProgress step={props.rentalStep} /> : null}
-        {props.cutover && !props.deposits ? <CutoverNotice cutover={props.cutover} /> : null}
+        {props.cutover && !props.deposits && !props.holders ? <CutoverNotice cutover={props.cutover} /> : null}
         {/* Devnet only, and renders nothing anywhere else: the api has no faucet
             to answer with, so nobody is shown one that cannot exist. */}
         <FaucetPanel />
@@ -902,17 +953,22 @@ function AgentCard({
   lastPlay,
   onWithdrawn,
   cutover,
+  holder,
 }: {
   agent: AgentView;
   onPlay: () => void;
   busy: boolean;
   lastPlay: PlayResult | null;
+  /** The wallet, clock and power of a holder agent; null on another flow. */
+  holder: HolderView | null;
   /** After a withdrawal: the balance and maybe retirement changed. */
   onWithdrawn: () => void;
   /** Set while the old settlement program is closing, for an agent still on it. */
   cutover: { endsAt: string; withdrawableUntil: string } | null;
 }) {
   const retired = agent.retired === true;
+  // A holder agent is its owner's wallet: no rental, no vault, nothing to fund or withdraw.
+  const isHolder = agent.funding === "holder";
   // Expired: the season ended without a renewal. It cannot play until renewed.
   const [expired, setExpired] = useState(false);
   return (
@@ -942,9 +998,9 @@ function AgentCard({
 
         <dl className="rounded-panel mt-3 grid grid-cols-3 border border-line">
           <Stat
-            label="balance"
+            label={isHolder ? "holding" : "balance"}
             value={String(agent.balance ?? 0)}
-            tone={(agent.balance ?? 0) <= 20 ? "text-loss" : "text-gold"}
+            tone={agent.canPlay === false || (agent.balance ?? 0) <= 20 ? "text-loss" : "text-gold"}
           />
           <Stat label="net won" value={whole(agent.cumulativeNet ?? 0)} tone={netTone(agent.cumulativeNet ?? 0)} />
           <Stat label="matches" value={String(agent.matchesPlayed ?? 0)} />
@@ -972,8 +1028,19 @@ function AgentCard({
             {/* Nothing is at risk in a match, but an agent must hold the minimum to be in play. */}
             {agent.canPlay === false ? (
               <p className="rounded-panel mb-2 border border-loss/50 px-3 py-2 text-[13px] leading-5 text-loss">
-                <span className="font-mono">{agent.balance ?? 0}</span> left, and an agent needs{" "}
-                <span className="font-mono">{agent.minToPlay ?? MIN_FUNDING_CHIPS}</span> to play. Top it up to play again, or withdraw.
+                {isHolder ? (
+                  <>
+                    Your wallet holds <span className="font-mono">{agent.balance ?? 0}</span> chips&apos; worth, and an
+                    agent needs <span className="font-mono">{agent.minToPlay ?? MIN_FUNDING_CHIPS}</span>. Hold it again
+                    and it plays again, within ten minutes.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-mono">{agent.balance ?? 0}</span> left, and an agent needs{" "}
+                    <span className="font-mono">{agent.minToPlay ?? MIN_FUNDING_CHIPS}</span> to play. Top it up to play
+                    again, or withdraw.
+                  </>
+                )}
               </p>
             ) : null}
           </div>
@@ -1007,7 +1074,7 @@ function AgentCard({
         ) : null}
         {lastPlay && lastPlay.ranked === false ? (
           <p className="mt-1 text-[12px] leading-5 text-muted">
-            Against a house agent: settles for money, doesn&apos;t count toward the ladder.
+            Against a house agent: practice. It doesn&apos;t count toward the ladder or rewards.
           </p>
         ) : null}
 
@@ -1027,18 +1094,21 @@ function AgentCard({
           <AutoplayPanel
             agentId={(agent.id ?? agent.agentId)!}
             retired={retired}
+            holder={isHolder}
             refreshKey={`${agent.balance ?? ""}-${agent.matchesPlayed ?? ""}`}
             onChanged={onWithdrawn}
           />
         )}
 
-        {cutover && agent.funding !== "deposit" && !retired ? (
+        {isHolder && holder ? <PowerPanel holder={holder} /> : null}
+
+        {cutover && agent.funding === "seed" && !retired ? (
           <div className="mt-4">
             <CutoverNotice cutover={cutover} agentName={agent.name} />
           </div>
         ) : null}
 
-        {!(agent.id ?? agent.agentId) ? null : (
+        {isHolder || !(agent.id ?? agent.agentId) ? null : (
           <DepositPanel
             agentId={(agent.id ?? agent.agentId)!}
             canDeposit={agent.funding === "deposit" && !retired}
@@ -1047,7 +1117,7 @@ function AgentCard({
           />
         )}
 
-        {!(agent.id ?? agent.agentId) ? null : (
+        {isHolder || !(agent.id ?? agent.agentId) ? null : (
           <LossBudgetPanel
             agentId={(agent.id ?? agent.agentId)!}
             budget={agent.lossBudget}
@@ -1059,7 +1129,7 @@ function AgentCard({
         )}
 
         {/* Stays mounted when the agent retires, so the withdrawal that retired it can say so. */}
-        {!(agent.id ?? agent.agentId) ? null : (
+        {isHolder || !(agent.id ?? agent.agentId) ? null : (
           <WithdrawPanel
             agentId={(agent.id ?? agent.agentId)!}
             agentName={agent.name}
@@ -1136,7 +1206,7 @@ function PreviewPanel({
               <p className="mt-2 text-[12px] leading-5 text-muted">
                 <span className="text-text">This is what rewards score.</span> Points are the net chips an agent wins
                 against other players&apos; agents, so this figure, times the ranked matches it plays, is its expected
-                points before its deposit weight.
+                points before its weight.
               </p>
             ) : (
               <p className="mt-2 text-[12px] leading-5 text-muted">

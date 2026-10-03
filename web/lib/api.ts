@@ -57,12 +57,82 @@ export type LossBudgetView = {
   resetsAt: string;
 };
 
+/**
+ * How an agent is funded. "holder" is the model being built
+ * (docs/holder-agents.md): the wallet holds $CLASH above the minimum and that
+ * is the agent - nothing rented, deposited or withdrawn.
+ */
+export type Funding = "seed" | "deposit" | "holder";
+
+/** A wallet's holding against the minimum, and the conviction clock it keeps. Chips throughout. */
+export type HoldingView = {
+  amount: number;
+  chips: number;
+  minimum: number;
+  minimumChips: number;
+  /** Holds the minimum - or, once its clock runs, what it qualified with. */
+  eligible: boolean;
+  readAt: string | null;
+  conviction: { amount: number | null; chips: number | null; since: string | null; days: number };
+};
+
+/** What a holder's power is made of, and the weight it earns now. Weights the reward, never a match. */
+export type PowerView = {
+  convictionDays: number;
+  convictionCapDays: number;
+  /** 0 to 1. */
+  conviction: number;
+  shareOfSupply: number;
+  /** 0 to 1. */
+  position: number;
+  power: number;
+  /** x1 to x4. */
+  weight: number;
+};
+
+export type HolderView = { holding: HoldingView; power: PowerView };
+
+export type ScoreRow = {
+  agentId: string;
+  name: string;
+  presetName: string | null;
+  mark: string | null;
+  rankedMatches: number;
+  points: number;
+  qualified: boolean;
+  convictionDays: number;
+  shareOfSupply: number;
+  power: number;
+  weight: number;
+  score: number;
+  /** Fraction of the payout, under the 10% cap. 0 when not qualified. */
+  share: number;
+};
+
+export type SeasonScoreRow = {
+  agentId: string;
+  name: string;
+  presetName: string | null;
+  mark: string | null;
+  rankedMatches: number;
+  points: number;
+  score: number;
+  days: number;
+  qualified: boolean;
+  share: number;
+};
+
+export type Scores = {
+  day?: { day: string; frozen: boolean; params: { opponentCap: number; minDailyMatches: number }; rows: ScoreRow[] };
+  season?: { season: string; frozen: boolean; params: { minSeasonMatches: number }; rows: SeasonScoreRow[] };
+};
+
 export type AgentView = {
   /**
    * Which flow this agent was rented under. Only a "deposit" agent can be
    * topped up: a "seed" one's vault holds the frozen program's token.
    */
-  funding?: "seed" | "deposit";
+  funding?: Funding;
   /**
    * Owner view only: why it cannot be topped up, or null when it can. Set for
    * an agent whose rental has not been paid for, which has no vault yet.
@@ -313,7 +383,9 @@ export const api = {
       ownerId: string;
       agents: AgentView[];
       /** How renting works for this wallet, which the rent screen needs before it asks anything. */
-      funding: { mode: "seed" | "deposit"; feeChips: number };
+      funding: { mode: Funding; feeChips: number };
+      /** On the holder flow, this wallet's last reading against the minimum; otherwise null. */
+      holding: HoldingView | null;
       /** Set while the old settlement program is closing. Null the rest of the time. */
       cutover: { closed: true; endsAt: string; withdrawableUntil: string } | null;
     }>("/auth/me", { token }),
@@ -338,7 +410,7 @@ export const api = {
     request<{
       agent: AgentView;
       elicitation: { free: boolean } | null;
-      funding: "seed" | "deposit";
+      funding: Funding;
       rental: PendingRental | null;
     }>("/agents", {
       method: "POST",
@@ -346,7 +418,15 @@ export const api = {
       body: JSON.stringify(input),
     }),
   agent: (token: string | null, id: string) =>
-    request<{ agent: AgentView; view: string; autoplay?: AutoplayStatus; sinceYouLeft?: SinceYouLeft | null; rental?: RentalStatus }>(
+    request<{
+      agent: AgentView;
+      view: string;
+      autoplay?: AutoplayStatus;
+      sinceYouLeft?: SinceYouLeft | null;
+      rental?: RentalStatus;
+      /** Owner view of a holder agent: its wallet, clock and power. */
+      holder?: HolderView | null;
+    }>(
       `/agents/${id}`,
       { token },
     ),
@@ -426,6 +506,10 @@ export const api = {
   ladder: (sort: "winnings" | "per-match", limit = 25, period: LadderPeriod = "season") =>
     request<{ rows: LadderRow[]; season?: SeasonInfo & { current: boolean } }>(`/ladder?sort=${sort}&limit=${limit}&period=${period}`),
   admin: (token: string | null) => request<AdminHealth>("/admin", { token }),
+  /** Reads this wallet's holding now, rather than waiting for the next scheduled read. */
+  refreshHolding: (token: string | null) => request<{ holding: HoldingView }>("/holding", { method: "POST", token }),
+  /** Holder scores: today and this season, live until frozen. */
+  scores: () => request<Scores>("/scores"),
   prizes: (limit = 25, season?: string) =>
     request<Prizes>(`/prizes?limit=${limit}${season ? `&season=${season}` : ""}`),
 };

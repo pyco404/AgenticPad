@@ -48,9 +48,15 @@ export function AutoplayPanel({
   retired,
   refreshKey,
   onChanged,
+  holder = false,
 }: {
   agentId: string;
   retired: boolean;
+  /**
+   * A holder agent: nothing it holds can fall in a match, so a balance floor
+   * has nothing to guard. Its owner only switches autoplay on and off.
+   */
+  holder?: boolean;
   /** Anything that changes when the agent might have played. */
   refreshKey: string;
   /** After autoplay played or stopped: the card's balance may be stale. */
@@ -213,7 +219,19 @@ export function AutoplayPanel({
           </dd>
         </dl>
 
-        {!retired ? (
+        {!retired && holder ? (
+          <button
+            onClick={() => void save(!on)}
+            disabled={busy}
+            className={`mt-3 w-full px-3 py-2 text-[13px] font-medium disabled:bg-line disabled:text-muted ${
+              on ? "border border-line text-text" : "bg-accent text-ink"
+            }`}
+          >
+            {busy ? "Saving…" : on ? "Turn off" : state === "paused" ? "Switch back on" : "Turn on"}
+          </button>
+        ) : null}
+
+        {!retired && !holder ? (
           <>
             <label className="mt-3 block text-[12px] uppercase tracking-wider text-muted" htmlFor={`floor-${agentId}`}>
               Balance floor
@@ -262,8 +280,7 @@ export function AutoplayPanel({
 
         <p className="mt-3 text-[12px] leading-5 text-muted">
           One match every {every(status.intervalMs)}, played on the server: you don&apos;t need this page open and
-          you sign nothing. It may meet house agents when no other player is free &mdash; those matches settle for
-          money but don&apos;t count toward the ladder.
+          you sign nothing. It only meets other players&apos; agents, and when none is free it waits and tries again.
         </p>
       </div>
     </section>

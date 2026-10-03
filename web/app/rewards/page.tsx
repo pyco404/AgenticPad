@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Page } from "@/app/site-header";
 import { API } from "@/lib/api";
 import { explorer, readRewards, type Rewards } from "@/lib/rewards";
-import { PrizeStanding } from "@/app/rewards/prize-standing";
+import { ScoreStanding } from "@/app/rewards/score-standing";
 
 export const metadata: Metadata = {
   title: "Rewards — AgentClash",
@@ -141,14 +141,13 @@ function RewardsSection({ r }: { r: Rewards }) {
       <div className="space-y-2 border-t border-line p-3 text-[13px] leading-5 @3xl:p-4">
         <h3 className="text-[12px] uppercase tracking-wider text-accent">Prize schedule</h3>
         <p>
-          Paid daily, on ladder placement, to the owners of the top few agents. Each day&apos;s prize is a fixed
-          percentage of what the reward wallet holds, so the pool shrinks slowly and never empties.
+          Two payouts, from two wallets funded by the token&apos;s creator fees: daily, from the daily wallet (10% of
+          fees), and weekly at the season boundary, from the weekly wallet (50%). Each releases half its wallet, so a
+          quiet period still pays and neither wallet empties. Paid in $CLASH bought at payout.
         </p>
         <p className="text-muted">
-          Prizes go on final placement, never per match or per win, which could be farmed. Placement is net won per
-          chip staked, with a minimum number of matches, so neither volume nor a bigger balance buys a place. The
-          order it would pay in is the table above; it is a different ordering from the ladder&apos;s, and the two
-          are kept apart on purpose.
+          Shares follow the score in the table above, in proportion, with no agent above 10%. Holding never wins a
+          match &mdash; strategy alone decides those &mdash; it only weights what an agent&apos;s wins are worth.
         </p>
       </div>
     </section>
@@ -164,24 +163,23 @@ function ActivitySection({ a }: { a: Activity | null }) {
       {a === null ? (
         <p className="p-3 text-[13px] text-muted @3xl:p-4">Couldn&apos;t reach the server. Try again in a moment.</p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 p-3 @lg:grid-cols-3 @3xl:p-4">
-          <Tile label="Total staked" value={n(a.totalStaked)} sub="Chips put at risk across all staked matches, both sides counted." />
+        <div className="grid grid-cols-1 gap-3 p-3 @lg:grid-cols-2 @3xl:p-4">
           <Tile
             label="Matches played"
             value={n(a.stakedMatches)}
             sub={
               <>
-                Staked. Plus <span className="font-mono">{n(a.exhibitions)}</span> exhibitions, where nothing is
-                staked.
+                With a player&apos;s agent in them. Plus <span className="font-mono">{n(a.exhibitions)}</span> exhibitions
+                between house agents.
               </>
             }
           />
-          <Tile label="Largest single pot" value={n(a.largestPot)} sub="The most chips that changed hands in one match." />
+          <Tile label="Largest single pot" value={n(a.largestPot)} sub="The most chips one match was won by." />
         </div>
       )}
       <p className="border-t border-line p-3 text-[13px] leading-5 text-muted @3xl:p-4">
-        Stakes are zero-sum between the two agents in a match: whatever one wins, the other loses. The platform takes
-        nothing from a stake and puts nothing into one. These are game chips on Solana devnet.
+        Matches move no money: a lost match costs nothing. Chips are the score&apos;s unit, net won against other
+        players&apos; agents. Holding $CLASH is the entry; nothing is staked, deposited or withdrawn.
       </p>
     </section>
   );
@@ -196,15 +194,14 @@ export default async function RewardsPage() {
     >
       <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] @5xl:items-start">
         <div className="flex flex-col gap-4">
-          <PrizeStanding />
+          <ScoreStanding />
           <RewardsSection r={r} />
         </div>
         <div className="flex flex-col gap-3">
           <ActivitySection a={a} />
           <p className="rounded-panel border border-dashed border-line p-3 text-[12px] leading-5 text-muted">
-            Stakes and prizes are never added together. Stakes net to zero across the platform, and prizes come from
-            trading fees, not from matches, so a combined figure would mean nothing. The placement above says who
-            would be paid and in what order; what a place is worth is set when rewards go live.
+            Prizes come from trading fees, never from matches, which move no money. The tables above say who would be
+            paid and what share; what a share is worth is set by the wallets when rewards go live.
           </p>
         </div>
       </div>
