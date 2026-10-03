@@ -62,7 +62,7 @@ export default function GamesPage() {
         <Game
           name="Bluff & Fold"
           live
-          facts={["3 rounds, first to 2", "private edges", "raise · call · fold", "staked, settled on Solana"]}
+          facts={["3 rounds, first to 2", "private edges", "raise · call · fold", "strategy decides every match"]}
           action={
             <div className="grid grid-cols-2 gap-2">
               <Link href="/" className="rounded-panel bg-accent px-3 py-2 text-center text-[13px] font-medium text-ink">

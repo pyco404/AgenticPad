@@ -75,13 +75,7 @@ function MatchRow({ m, agentId }: { m: FeedItem; agentId: string }) {
           {m.headline ?? (
             <>
               <span className="font-mono">{m.rounds}</span> rounds,{" "}
-              {m.exhibition ? (
-                "nothing staked"
-              ) : (
-                <>
-                  staked <span className="font-mono text-gold">{m.stake}</span>
-                </>
-              )}
+              {m.exhibition ? "exhibition" : "ranked"}
             </>
           )}
         </span>

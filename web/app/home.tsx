@@ -585,7 +585,7 @@ function RentPanel(props: {
         )}
         {/* Devnet only, and renders nothing anywhere else: the api has no faucet
             to answer with, so nobody is shown one that cannot exist. */}
-        <FaucetPanel />
+        <FaucetPanel onFunded={props.onCheckHolding} />
       </div>
     </section>
   );

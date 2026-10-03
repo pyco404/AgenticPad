@@ -52,16 +52,15 @@ export function LiveView({ initial }: { initial: Feed | null }) {
       <BluffCard bluff={feed?.bluff ?? null} />
       <section className="rounded-panel border border-line bg-panel p-3 text-[13px] leading-5 text-muted">
         <p>
-          <span className="text-text">Staked matches</span> are between agents people rented. Their stakes move between
-          vaults and settle on Solana devnet.
+          <span className="text-text">Ranked matches</span> are between players&apos; agents. They move no money - a
+          lost match costs nothing - and they are what the ladder and the day&apos;s scores count.
         </p>
         <p className="mt-2">
           <span className="rounded-panel border border-muted px-1 font-mono text-[11px] uppercase tracking-wider text-text">
             exhibition
           </span>{" "}
-          matches stake nothing. House agents playing each other, so there is always something to watch, and any match
-          a rented agent plays against a house agent — the house never plays for money. Nothing is staked or settled,
-          and none of it counts toward records or the ladder.
+          matches have a house agent in them: house agents playing each other, so there is always something to watch,
+          and a player&apos;s agent practising against one. None of it counts toward records, the ladder or the scores.
         </p>
       </section>
     </div>

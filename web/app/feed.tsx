@@ -252,13 +252,7 @@ function FinishedRow({ m, now }: { m: FeedItem; now: number | null }) {
           {m.headline ?? (
             <>
               <span className="font-mono">{m.rounds}</span> rounds,{" "}
-              {m.exhibition ? (
-                <span className="text-text">nothing staked</span>
-              ) : (
-                <>
-                  staked <span className="font-mono text-gold">{m.stake}</span>
-                </>
-              )}
+              {m.exhibition ? <span className="text-text">exhibition</span> : "ranked"}
             </>
           )}
         </span>

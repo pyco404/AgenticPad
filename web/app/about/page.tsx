@@ -6,7 +6,7 @@ import { Page } from "@/app/site-header";
 export const metadata: Metadata = {
   title: "About — AgentClash",
   description:
-    "You rent an AI agent, give it a strategy, and it plays bluff-and-fold against other people's agents. You never play a hand yourself.",
+    "Hold $CLASH and you have an AI agent. Give it a strategy, and it plays bluff-and-fold against other people's agents. You never play a hand yourself.",
   alternates: { canonical: "/about" },
 };
 
@@ -32,9 +32,9 @@ export default function AboutPage() {
   return (
     <Page title="About">
       <p className="hud-card px-4 py-3 text-[16px] leading-7 @3xl:text-[18px] @3xl:leading-8">
-        AgentClash is a game you don&apos;t play yourself. You rent an AI agent, give it a strategy, and it plays
-        bluff-and-fold against other people&apos;s agents for stakes. You never play a hand. You decide how your agent
-        thinks, then watch what it does.
+        AgentClash is a game you don&apos;t play yourself. Hold $CLASH in your own wallet and you have an AI agent;
+        give it a strategy, and it plays bluff-and-fold against other people&apos;s agents. You never play a hand. You
+        decide how your agent thinks, then watch what it does.
       </p>
 
       <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-2 @3xl:items-start">
@@ -59,7 +59,7 @@ export default function AboutPage() {
         </Block>
 
         <Block title="The four presets">
-          <p className="text-muted">Free to rent, and balanced so that none beats all the others.</p>
+          <p className="text-muted">Free to play, and balanced so that none beats all the others.</p>
           <ul className="space-y-2">
             {PRESETS.map(([name, text]) => (
               <li key={name} className="flex gap-3">
@@ -73,77 +73,64 @@ export default function AboutPage() {
         <Block title="Writing your own">
           <p>
             Instead of a preset, you can describe how your agent should play in plain English: when to fold, when to
-            raise, when to bluff. An AI model turns that description into a strategy table, once, when you rent the
+            raise, when to bluff. An AI model turns that description into a strategy table, once, when you get the
             agent. After that the agent plays the table. The model is never consulted during a match.
           </p>
           <p>
-            Before you stake anything, the preview rates your strategy exactly against every agent on the roster as it
+            Before you choose, the preview rates your strategy exactly against every agent on the roster as it
             stands today: its expected result per match, computed by working through every possible draw and coin flip,
             not by simulation. Only you see it. Your written strategy stays private; other players see only what your
             agent does.
           </p>
         </Block>
 
-        <Block title="Funding and retirement">
+        <Block title="Holding is the agent">
           <p>
-            Nothing is staked: a lost match costs nothing. You fund an agent with at least 3,600 chips ($20), and that
-            money stays yours &mdash; you can withdraw it whenever the agent isn&apos;t in a match. Withdrawing below
-            the minimum, or everything, retires the agent and freezes its record. One wallet holds one agent at a time;
-            when it retires you can rent another, and the old one keeps its record.
+            Hold at least $20 of $CLASH in your own wallet and you have an agent. Nothing is rented, deposited or
+            staked, and nothing leaves your wallet: the server only reads what it holds, every ten minutes and whenever
+            you ask. Sell below the minimum and the agent stops playing until you hold it again. One wallet, one agent.
           </p>
           <p>
-            Every match is played at one scale &mdash; ante 4, bet 10, raised 20 &mdash; and every agent can meet every
-            other. The chips a match is won by are its score, not money.
+            A lost match costs nothing. Every match is played at one scale &mdash; ante 4, bet 10, raised 20 &mdash; and
+            the chips a match is won by are its score, not money.
+          </p>
+        </Block>
+
+        <Block title="Power and rewards">
+          <p>
+            Each day&apos;s score is the net chips your agent won against other players&apos; agents, times a weight
+            from x1 to x4. The weight comes from your holding: mostly how long you have held (85%, up to 180 days),
+            and a little how much (15%). It weights the reward and never a match &mdash; strategy alone decides those.
+          </p>
+          <p>
+            Rewards come from the token&apos;s creator fees: a daily payout and a larger weekly one, shared in
+            proportion to score, no agent above 10%. They are not live yet; the{" "}
+            <Link href="/rewards" className="text-accent">
+              rewards page
+            </Link>{" "}
+            shows who would be paid as things stand.
           </p>
         </Block>
 
         <Block title="What's on chain">
           <p>
-            Balances are held in a devnet token on Solana. Each agent has its own vault, controlled by the settlement
-            program rather than by any key. Every match moves your balance at once; on chain, each agent&apos;s matches
-            settle once an hour, as one transfer of what it won or lost over the hour, rather than one per match.
-          </p>
-          <p>
-            The program checks its own limits. Only the settlement key can settle, each hour settles at most once and
-            in order, and no vault can pay out more than a quarter of what it holds (never less than 120) in any hour,
-            however much the server asks for. The AI never signs anything. It writes a strategy table and nothing else.
-          </p>
-          <p>
-            Your agent&apos;s id is derived from your wallet, so the program will record you as its owner and nobody
-            else &mdash; not even the server that made it.
-          </p>
-          <p>
-            You can withdraw from your agent&apos;s vault to your own wallet, any time nothing is still settling. That
-            is a transaction you sign; the program checks it is you, and the server co-signs to say no match is in
-            flight. Leave at least 10 to keep playing, or take it all and the agent retires.
-          </p>
-          <p>
-            If we are ever not there to co-sign, you can still leave: an exit you alone sign waits thirty minutes and
-            then pays you. The page that does it needs nothing of ours - it is at{" "}
-            <Link href="/exit" className="text-accent">
-              useagentclash.xyz/exit
-            </Link>{" "}
-            and, on another provider,{" "}
-            <a href="https://pyco404.github.io/oxude/" className="text-accent" target="_blank" rel="noreferrer">
-              on GitHub
-            </a>
-            , and a saved copy works from your own disk.
+            Your tokens, in your wallet. There is no program and no vault: nothing holds your money but you. The server
+            reads balances, and that is all it does on chain. The AI never signs anything; it writes a strategy table
+            and nothing else.
           </p>
           <p className="text-muted">
-            The ledger off chain is the source of truth; the chain records it, and a reconciler checks the two agree.
-            Nothing has been audited, and the balances in play are devnet test tokens with no value. The{" "}
-            <a href={`${REPO}/blob/main/docs/security.md`} className="text-accent" target="_blank" rel="noreferrer">
-              security model
+            Nothing has been audited. The{" "}
+            <a href={`${REPO}/blob/main/docs/holder-agents.md`} className="text-accent" target="_blank" rel="noreferrer">
+              design
             </a>{" "}
-            says where the protections stop.
+            says how holding, power and rewards work, and what is still open.
           </p>
         </Block>
 
         <Block title="The game token">
           <p>
-            The game runs on Solana <strong>devnet</strong>. Every balance you see here &mdash; what an agent is funded
-            with, what it stakes, what it wins &mdash; is a devnet test token minted by the settlement program. It
-            costs nothing, it is worth nothing, and it cannot be bought or sold.
+            $CLASH has not launched. Until it does, the game runs on Solana <strong>devnet</strong> with a test token
+            standing in for it: free from the faucet, worth nothing, and not for sale.
           </p>
         </Block>
 

@@ -11,8 +11,8 @@ const explorerTx = (sig: string) =>
 type Phase = { at: "idle" | "claiming" } | { at: "done"; chips: number; signature: string } | { at: "error"; message: string };
 
 /**
- * Devnet only: test tokens, so somebody can rent and fund an agent without
- * buying anything. The api answers 503 on any other network and this renders
+ * Devnet only: test tokens, so somebody can hold the minimum and get an agent
+ * without buying anything. The api answers 503 on any other network and this renders
  * nothing, so nobody is ever shown a faucet that cannot exist.
  */
 export function FaucetPanel({ onFunded }: { onFunded?: () => void }) {
@@ -55,8 +55,8 @@ export function FaucetPanel({ onFunded }: { onFunded?: () => void }) {
       <h3 className="text-[12px] uppercase tracking-wider text-accent">Test tokens</h3>
       <p className="mt-2 text-[13px] leading-5 text-muted">
         This is devnet, so the tokens are free and worth nothing. Take{" "}
-        <span className="font-mono text-gold">{info.chips.toLocaleString()}</span> to pay an agent&apos;s rent and fund
-        it.
+        <span className="font-mono text-gold">{info.chips.toLocaleString()}</span> to hold: holding the minimum is what
+        gets this wallet an agent.
       </p>
 
       {info.available ? (

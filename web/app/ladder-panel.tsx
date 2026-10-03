@@ -156,7 +156,7 @@ export function LadderPanel({
           ) : null}
           {rows && rows.length === 0 ? (
             <li className="py-2 text-[13px] text-muted">
-              {period === "all" ? "No agents yet." : period === "day" ? "No staked matches yet today." : "No staked matches yet this season."}
+              {period === "all" ? "No agents yet." : period === "day" ? "No ranked matches yet today." : "No ranked matches yet this season."}
             </li>
           ) : null}
         </ol>
