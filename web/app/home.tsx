@@ -3,10 +3,7 @@
 import { AgentName } from "@/app/agent-name";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Transcript } from "@/app/transcript";
-import { BluffCard, LiveFeed, useFeed } from "@/app/feed";
-import { LadderPanel } from "@/app/ladder-panel";
-import { LiveDot } from "@/app/live-dot";
-import { usePlaying } from "@/lib/live";
+import { BluffCard, useFeed } from "@/app/feed";
 import { Segmented } from "@/app/ui";
 import { PrivyOption } from "@/app/privy-option";
 import { useWallet } from "@/app/wallet-context";
@@ -26,7 +23,6 @@ import {
   ApiError,
   MIN_FUNDING_CHIPS,
   type Feed,
-  type RosterAgent,
   type AgentView,
   type HolderView,
   type HoldingView,
@@ -70,12 +66,8 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   const [presetRatings, setPresetRatings] = useState<Record<string, number>>({});
   /** The table the last brief preview elicited. */
   const [briefTable, setBriefTable] = useState<unknown>(null);
-  // undefined while loading, null if the request failed: neither may read as "nobody here".
-  const [roster, setRoster] = useState<RosterAgent[] | null | undefined>(undefined);
   const [transcript, setTranscript] = useState<string>("");
   const [lastPlay, setLastPlay] = useState<PlayResult | null>(null);
-  // Bumped after renting or playing, so the ladder refetches.
-  const [ladderKey, setLadderKey] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const briefTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -184,13 +176,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
     };
   }, [presets]);
 
-  // Who you would meet: everyone.
-  useEffect(() => {
-    void api
-      .roster()
-      .then((r) => setRoster(r.agents))
-      .catch(() => setRoster(null));
-  }, [agent?.matchesPlayed]);
 
   // Free: rating a preset's table costs nothing, so it runs on every selection.
   useEffect(() => {
@@ -257,7 +242,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       setMine((held) => [{ ...created, id }, ...held]);
       setTranscript("");
       setLastPlay(null);
-      setLadderKey((k) => k + 1);
     });
 
   /** Reads the wallet now: after a buy, so the owner need not wait for the next scheduled read. */
@@ -275,7 +259,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       const { transcript: text } = await api.match(result.matchId);
       setTranscript(text);
       await refreshAgent(id, token);
-      setLadderKey((k) => k + 1);
     });
 
   const select = (id: string) => {
@@ -297,7 +280,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       onChanged={() => {
         // Autoplay played or stopped: the list and the card both catch up.
         if (token) void loadMine(token);
-        setLadderKey((k) => k + 1);
       }}
     />
   ) : null;
@@ -351,45 +333,15 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
         </p>
       ) : null}
 
-      {/*
-        Three columns, each with one job: the live feed, playing, and who else is out there.
-        From xl they sit side by side, the feed leftmost so it is the first thing seen.
-        At lg the feed and the field share the left column and playing takes the right.
-        Below lg they stack: the feed first, except for someone signed in, whose own agent leads.
-      */}
-      <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)] @3xl:grid-rows-[auto_1fr] @3xl:items-start @5xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.8fr)] @5xl:grid-rows-[auto]">
-        <div className="flex min-w-0 flex-col gap-3 *:m-0 @3xl:col-start-1 @3xl:row-start-1">
-          <LiveFeed feed={feed} />
-        </div>
-
-        <div
-          className={`flex min-w-0 flex-col gap-3 *:m-0 @3xl:order-none @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1 @5xl:row-span-1 ${
-            session ? "order-first" : ""
-          }`}
-        >
-          {/* Signed out: a bluff worth reading, then the ask. */}
-          {session ? null : <BluffCard bluff={feed?.bluff ?? null} />}
-          {session ? null : <ConnectPanel
-              wallets={wallets}
-              onConnect={connect}
-              busy={wallet.busy === "connect"}
-            />}
-          {agentOrRent}
-          <PreviewPanel preview={preview} previewing={previewing} tab={agent ? null : tab} />
-          {session ? <Transcript text={transcript} {...(lastPlay ? { matchId: lastPlay.matchId } : {})} /> : null}
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-3 *:m-0 @3xl:col-start-1 @3xl:row-start-2 @5xl:col-start-3 @5xl:row-start-1">
-          <RosterPanel
-            agents={roster ? roster.filter((a) => a.agentId !== (agent?.id ?? agent?.agentId)) : roster}
-            fromAgent={Boolean(agent)}
-          />
-          <LadderPanel refreshKey={ladderKey} mine={agent?.id ?? agent?.agentId} />
-        </div>
+      {/* Playing: signed out, a bluff worth reading, then the ask; signed in, your agent or getting one. */}
+      <div className="flex min-w-0 flex-col gap-3 *:m-0">
+        {session ? null : <BluffCard bluff={feed?.bluff ?? null} />}
+        {session ? null : <ConnectPanel wallets={wallets} onConnect={connect} busy={wallet.busy === "connect"} />}
+        {agentOrRent}
+        <PreviewPanel preview={preview} previewing={previewing} tab={agent ? null : tab} />
+        {session ? <Transcript text={transcript} {...(lastPlay ? { matchId: lastPlay.matchId } : {})} /> : null}
       </div>
-      <PageNote>
-        Ratings shown to you are exact against the roster as it stands today. The ladder ranks what agents actually won.
-      </PageNote>
+      <PageNote>Ratings shown to you are exact against the roster as it stands today.</PageNote>
     </main>
   );
 }
@@ -667,58 +619,6 @@ function Behaviour({ table, delayMs = 0 }: { table: Record<string, Record<string
         <span className="text-gold">raise</span> · call · <span className="opacity-60">fold</span>
       </span>
     </span>
-  );
-}
-
-/** Who you would meet: everyone in play. */
-function RosterPanel({
-  agents,
-  fromAgent,
-}: {
-  agents: RosterAgent[] | null | undefined;
-  fromAgent: boolean;
-}) {
-  const playing = usePlaying();
-  return (
-    <section className="rounded-panel mt-3 border border-line bg-panel">
-      <h2 className="flex items-center justify-between border-b border-line px-4 py-3 text-[12px] uppercase tracking-wider text-accent">
-        Who you'd meet
-      </h2>
-      <div className="p-4">
-        <p className="mb-2 text-[12px] leading-5 text-muted">
-          {fromAgent
-            ? "Your agent can be matched against any of them. A lost match costs nothing."
-            : "Every agent can be matched against every other. A lost match costs nothing."}
-        </p>
-        {agents === undefined ? (
-          <p className="text-[13px] text-muted">Loading…</p>
-        ) : agents === null ? (
-          <p className="text-[13px] text-muted">Couldn&apos;t reach the server. Try again in a moment.</p>
-        ) : agents.length === 0 ? (
-          <p className="text-[13px] text-muted">Nobody else is playing right now.</p>
-        ) : (
-          <ul>
-            {agents.slice(0, 8).map((a) => (
-              <li key={a.agentId} className="flex items-center gap-2 border-b border-line py-2 text-[13px] last:border-b-0">
-                <span className="min-w-0 flex-1 truncate">
-                  <AgentName name={a.name} preset={a.presetName} />
-                </span>
-                {playing.has(a.agentId) ? <LiveDot /> : null}
-                <span className="w-16 shrink-0 truncate font-mono text-[11px] text-muted">{a.presetName ?? "brief"}</span>
-                <span className="w-10 shrink-0 text-right font-mono text-[11px] text-muted">{a.matchesPlayed}m</span>
-                <span className="w-12 shrink-0 text-right font-mono text-[11px] text-gold">{a.balance}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {agents && agents.length > 8 ? (
-          <p className="mt-2 text-[11px] text-muted">
-            and <span className="font-mono">{agents.length - 8}</span> more playing
-          </p>
-        ) : null}
-        <p className="mt-2 font-mono text-[11px] text-muted">name · plays as · matches · balance</p>
-      </div>
-    </section>
   );
 }
 

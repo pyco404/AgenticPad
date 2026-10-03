@@ -53,6 +53,8 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
   const scroller = useRef<HTMLDivElement>(null);
   const [inset, setInset] = useState({ right: 0, bottom: 0 });
   const [villageStatus, setVillageStatus] = useState<"loading" | "ready" | "failed">("loading");
+  /** The village's handle, shared by the village with the controls in the footer chip's row. */
+  const villageHandle = useRef<VillageHandle | null>(null);
   // If the game server can't be reached the agents never come, and a site that waited for them would stay
   // blank for good: after this long the cover lifts anyway, and the village says why it is empty.
   const [waited, setWaited] = useState(false);
@@ -177,6 +179,7 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
           scrolls={open ? scroller : null}
           mine={mine}
           onStatus={setVillageStatus}
+          handleRef={villageHandle}
         />
         <SiteBar night={night} onNight={toggleNight} showing={open} villageUp={villageUp} />
 
@@ -230,7 +233,15 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
         </div>
 
         {/* The footer as a chip in the bottom-right corner, on every page and with the page closed. */}
-        <div className="fixed bottom-2 right-2 z-20 max-w-[calc(100vw-1rem)] md:bottom-4 md:right-4 md:max-w-[min(760px,calc(100vw-2rem))]">{chip}</div>
+        {/* From md the village's own controls sit in the same row, just left of it. */}
+        <div className="fixed bottom-2 right-2 z-20 flex max-w-[calc(100vw-1rem)] items-center gap-2 md:bottom-4 md:right-4 md:max-w-[min(960px,calc(100vw-2rem))]">
+          {villageStatus === "ready" ? (
+            <div className="hidden items-center gap-1 md:flex">
+              <VillageControls village={villageHandle} mine={mine} />
+            </div>
+          ) : null}
+          {chip}
+        </div>
 
         {place ? (
           // A building's card, in the middle of the uncovered village; on a phone, along the bottom.
@@ -258,6 +269,7 @@ function Village({
   scrolls,
   onStatus,
   mine,
+  handleRef,
 }: {
   world: World;
   path: string;
@@ -271,6 +283,8 @@ function Village({
   onStatus: (status: "loading" | "ready" | "failed") => void;
   /** The signed-in owner's agents. */
   mine: ReadonlySet<string>;
+  /** Shared with the shell, so the controls in the footer chip's row can drive the village too. */
+  handleRef: React.MutableRefObject<VillageHandle | null>;
 }) {
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   useEffect(() => onStatus(status), [status, onStatus]);
@@ -332,6 +346,7 @@ function Village({
         (handle) => {
           if (gone) return handle.destroy();
           village.current = handle;
+          handleRef.current = handle;
           const now = latest.current;
           handle.setInsets({ top: BAR, ...now.inset });
           handle.setNotes(now.notes);
@@ -349,6 +364,7 @@ function Village({
       gone = true;
       village.current?.destroy();
       village.current = null;
+      handleRef.current = null;
     };
   }, []);
 
@@ -398,6 +414,7 @@ function Village({
 
   return (
     <div className="fixed inset-0 z-0 bg-ink">
+
       <div ref={box} className="absolute inset-0" style={{ touchAction: "none" }} />
       {/* The veil: enough to settle the world behind the HUD, never enough to hide it. */}
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-ink/10" />
@@ -424,31 +441,10 @@ function Village({
                   : "Drag to look around · scroll or pinch to zoom"}
         </p>
         {status === "ready" ? (
-          // The footer chip runs along the bottom-right edge, and on a narrower screen reaches under these: they sit
-          // above its line - and on a phone with the page closed, above "Show the page", which sits over the chip.
-          <div className={`pointer-events-auto ml-auto flex flex-col items-end gap-1 md:mb-10 ${scrolls ? "mb-9" : "mb-[76px]"}`}>
-            {mine.size > 0 ? (
-              <button
-                type="button"
-                onClick={() => village.current?.findMine()}
-                aria-label="Find my agent"
-                title="Find my agent"
-                className="rounded-panel mb-1 flex h-9 items-center gap-1.5 border border-accent bg-hud px-2.5 text-[12px] font-medium text-accent shadow-[0_4px_16px_rgb(0_0_0/0.5)] hover:text-text"
-              >
-                <span aria-hidden>▼</span> My agent
-              </button>
-            ) : null}
-            {([1, -1] as const).map((step) => (
-              <button
-                key={step}
-                type="button"
-                onClick={() => village.current?.zoom(step)}
-                aria-label={step > 0 ? "Zoom in" : "Zoom out"}
-                className="rounded-panel h-9 w-9 border border-hud-line bg-hud text-[16px] text-text hover:border-accent"
-              >
-                {step > 0 ? "+" : "−"}
-              </button>
-            ))}
+          // On a phone the footer chip runs along the bottom edge and "Show the page" sits over it, so these
+          // stack above both. From md the shell puts them in the chip's own row instead.
+          <div className={`pointer-events-auto ml-auto flex flex-col items-end gap-1 md:hidden ${scrolls ? "mb-9" : "mb-[76px]"}`}>
+            <VillageControls village={village} mine={mine} findLast />
           </div>
         ) : null}
       </div>
@@ -555,5 +551,51 @@ function PhoneStats({ world }: { world: World }) {
         ))}
       </p>
     </div>
+  );
+}
+
+/**
+ * The village's controls: find my agent, then zoom. In the footer chip's row
+ * from md, so they sit at the screen's bottom-right; stacked over the village
+ * on a phone, where the chip fills the bottom edge.
+ */
+function VillageControls({
+  village,
+  mine,
+  findLast = false,
+}: {
+  village: React.RefObject<VillageHandle | null>;
+  mine: ReadonlySet<string>;
+  /** On a phone the zoom comes first and "Find my agent" under it, over "Show the page". */
+  findLast?: boolean;
+}) {
+  const find =
+    mine.size > 0 ? (
+      <button
+        type="button"
+        onClick={() => village.current?.findMine()}
+        aria-label="Find my agent"
+        title="Find my agent"
+        className="rounded-panel flex h-9 items-center gap-1.5 whitespace-nowrap border border-accent bg-hud px-2.5 text-[12px] font-medium text-accent shadow-[0_4px_16px_rgb(0_0_0/0.5)] hover:text-text"
+      >
+        <span aria-hidden>◎</span> Find my agent
+      </button>
+    ) : null;
+  return (
+    <>
+      {findLast ? null : find}
+      {([1, -1] as const).map((step) => (
+        <button
+          key={step}
+          type="button"
+          onClick={() => village.current?.zoom(step)}
+          aria-label={step > 0 ? "Zoom in" : "Zoom out"}
+          className="rounded-panel h-9 w-9 border border-hud-line bg-hud text-[16px] text-text hover:border-accent"
+        >
+          {step > 0 ? "+" : "−"}
+        </button>
+      ))}
+      {findLast ? find : null}
+    </>
   );
 }

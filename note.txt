@@ -1,0 +1,1 @@
+cd ~/Desktop/Oxude npm run serve -- --migrate --memory
