@@ -192,7 +192,7 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
         */}
         <div
           ref={setPanel}
-          className={`hud-page pointer-events-none fixed inset-x-2 bottom-12 z-20 ${open ? "flex" : "hidden"} max-h-[60dvh] flex-col md:inset-x-auto md:bottom-auto md:right-4 md:top-[4.5rem] md:max-h-[calc(100dvh-8rem)] md:w-[clamp(400px,48vw,680px)]`}
+          className={`hud-page pointer-events-none fixed inset-x-2 bottom-12 z-20 ${open ? "flex" : "hidden"} max-h-[60dvh] flex-col md:inset-x-auto md:bottom-auto md:right-4 md:top-[4.5rem] md:max-h-[calc(100dvh-15.5rem)] md:w-[clamp(400px,48vw,680px)]`}
         >
           {/* The close X on its own above the cards, so it never sits on a page's content. */}
           <div className="flex shrink-0 justify-end pb-2 pr-1">
@@ -233,11 +233,11 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
         </div>
 
         {/* The footer as a chip in the bottom-right corner, on every page and with the page closed. */}
-        {/* From md the village's own controls sit in the same row, just left of it. */}
-        <div className="fixed bottom-2 right-2 z-20 flex max-w-[calc(100vw-1rem)] items-center gap-2 md:bottom-4 md:right-4 md:max-w-[min(960px,calc(100vw-2rem))]">
+        {/* From md the village's own controls stack just above it, at the screen's right edge. */}
+        <div className="fixed bottom-2 right-2 z-20 flex max-w-[calc(100vw-1rem)] flex-col items-end gap-2 md:bottom-4 md:right-4 md:max-w-[min(760px,calc(100vw-2rem))]">
           {villageStatus === "ready" ? (
-            <div className="hidden items-center gap-1 md:flex">
-              <VillageControls village={villageHandle} mine={mine} />
+            <div className="hidden flex-col items-end gap-1 md:flex">
+              <VillageControls village={villageHandle} mine={mine} findLast />
             </div>
           ) : null}
           {chip}
