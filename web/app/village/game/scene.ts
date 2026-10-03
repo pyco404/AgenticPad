@@ -11,6 +11,7 @@ import { drawArena, loadArena, type ArenaHandle } from "./arena";
 import { ARENA_LAYOUT, GROUNDS, HIDDEN_ROADS, lots, RESERVED, ROADS, SITES, stands, townBounds } from "./town";
 import { loadWeapons, weaponOf } from "./weapons";
 import { drawMap, loadMap, type VillageMap } from "./map";
+import { felled, FIXTURE_SIZE, openPlots, plotClearing, PLOTS, type Plot } from "./growth";
 import { Roads, type Point } from "./roads";
 import { crispText, MONO } from "./text";
 import { playhead } from "@/lib/playhead";
@@ -55,6 +56,10 @@ const SWIM_REACH = 200;
 const NEAR_ROAD = 110;
 
 const between = ([lo, hi]: [number, number]) => lo + Math.random() * (hi - lo);
+
+/** How long a structure takes to rise when it opens while someone is watching, and how long its builder stays at it. */
+const RISE_MS = 6_000;
+const BUILD_MS = 18_000;
 
 const COLOUR = { text: "#ede6d6", accent: "#e8b84b", live: "#6f9e5c", loss: "#d4745a", muted: "#a79f90" };
 
@@ -105,6 +110,15 @@ export class VillageScene extends Phaser.Scene {
   private dock: { x: number; y: number; halfWidth: number; halfHeight: number } | null = null;
   private swimSpots: Point[] = [];
   private pending: Resident[] | null = null;
+  /** The map's trees, so the village can clear them as it grows (growth.ts). */
+  private trees: { d: { k: string; x: number; y: number; s: number }; sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite }[] = [];
+  /** Which trees have been taken down, and which plots stand. */
+  private cleared = new Set<number>();
+  private grown = new Set<string>();
+  /** The holder count, once known; held until the scene exists. */
+  private holders: number | null = null;
+  /** Whether the village has been drawn at a count yet: only plots opening after that go up in front of the watcher. */
+  private grownOnce = false;
   private placed = false;
   private selected: string | null = null;
   private dragged = false;
@@ -130,6 +144,13 @@ export class VillageScene extends Phaser.Scene {
       else this.load.image(`building-${b.id}`, site.art);
     }
     loadDressing(this);
+    // What the village grows with: the pack's cottages, gardens, fences and sheep (growth.ts).
+    for (const image of new Set(PLOTS.flatMap((p) => p.pieces.map((x) => x.image)))) {
+      const key = `growth-${image}`;
+      const size = FIXTURE_SIZE[image];
+      if (size.frames) this.load.spritesheet(key, `/fixtures/${image}.png`, { frameWidth: size.width, frameHeight: size.height });
+      else this.load.image(key, `/fixtures/${image}.png`);
+    }
     loadArena(this);
     loadWeapons(this);
   }
@@ -140,7 +161,7 @@ export class VillageScene extends Phaser.Scene {
     // forest, less what stands where the town is - its buildings, their props, its roads.
     const { solids, placed } = drawDressing(this, this.opts.still);
     const taken = lots(placed);
-    drawMap(this, {
+    this.trees = drawMap(this, {
       ...this.map,
       paths: ROADS,
       decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS)),
@@ -204,13 +225,92 @@ export class VillageScene extends Phaser.Scene {
     this.setNotes(this.notes);
     this.opts.events.ready();
     if (this.pending) this.setResidents(this.pending);
+    if (this.holders !== null) this.setHolders(this.holders);
+  }
+
+  // --- Growth -------------------------------------------------------------
+
+  /**
+   * The village grows with its holders (growth.ts): each plot that has opened
+   * is built, and the trees on its ground come down. The first count a page
+   * hears is the village as it stands, drawn at once. A plot that opens while
+   * someone is watching goes up in front of them: a house agent walks over
+   * and stands at it while it rises. Presentation only.
+   */
+  setHolders(count: number): void {
+    this.holders = count;
+    if (!this.roads) return;
+    const live = this.grownOnce && !this.opts.still;
+    this.grownOnce = true;
+    const fresh = openPlots(count).filter((p) => !this.grown.has(p.id));
+    for (const plot of fresh) {
+      this.grown.add(plot.id);
+      const pieces = this.build(plot);
+      for (const i of felled(this.trees.map((t) => t.d), [plot])) {
+        if (this.cleared.has(i)) continue;
+        this.cleared.add(i);
+        const tree = this.trees[i]!.sprite;
+        if (live) this.tweens.add({ targets: tree, alpha: 0, duration: 1_500, onComplete: () => tree.setVisible(false) });
+        else tree.setVisible(false);
+      }
+      if (live) this.rise(plot, pieces);
+    }
+    // The land has grown: frame it all, unless someone has moved the view, which is theirs.
+    if (fresh.length > 0 && !this.moved) this.fit();
+  }
+
+  /** Draws a plot's pieces at the depth of their feet, like everything else on the ground. */
+  private build(plot: Plot): (Phaser.GameObjects.Image | Phaser.GameObjects.Sprite)[] {
+    return plot.pieces.flatMap((p) => {
+      const key = `growth-${p.image}`;
+      if (!this.textures.exists(key)) return [];
+      const size = FIXTURE_SIZE[p.image];
+      const obj = size.frames ? this.add.sprite(p.x, p.y, key, 0) : this.add.image(p.x, p.y, key);
+      obj.setOrigin(0.5, size.foot).setScale(p.scale).setFlipX(p.flip ?? false).setDepth(p.y);
+      if (size.frames && obj instanceof Phaser.GameObjects.Sprite && !this.opts.still) {
+        const anim = `${key}:loop`;
+        if (!this.anims.exists(anim)) this.anims.create({ key: anim, frames: this.anims.generateFrameNumbers(key, {}), frameRate: 6, repeat: -1 });
+        obj.play(anim);
+      }
+      return [obj];
+    });
+  }
+
+  /** A plot going up: a house agent comes to build it, and it rises out of the ground. */
+  private rise(plot: Plot, pieces: (Phaser.GameObjects.Image | Phaser.GameObjects.Sprite)[]): void {
+    for (const obj of pieces) {
+      const full = obj.scaleY;
+      obj.setScale(obj.scaleX, 0).setAlpha(0.6);
+      this.tweens.add({ targets: obj, scaleY: full, alpha: 1, duration: RISE_MS, ease: "Sine.easeOut" });
+    }
+    const builder = this.builder();
+    if (!builder) return;
+    const hero = this.heroes.get(builder)!;
+    this.roam(builder, true);
+    hero.walkTo(plot.door, undefined, {
+      pace: STROLL_PACE,
+      then: () => this.after(builder, BUILD_MS, () => this.goHome(builder, hero)),
+    });
+  }
+
+  /** A house agent waiting at its hall and not already out: the one to send to a new plot. */
+  private builder(): string | null {
+    for (const [id, r] of this.residents) {
+      if (r.house && this.heroes.has(id) && this.isHall(r.place) && !this.strolling.has(id) && id !== this.selected) return id;
+    }
+    return null;
   }
 
   // --- Camera -------------------------------------------------------------
 
-  /** The part of the world with the buildings and the people in front of them. */
+  /** The part of the world with the buildings and the people in front of them, and whatever the village has grown into. */
   private villageBounds(): Phaser.Geom.Rectangle {
-    const b = townBounds();
+    let b = townBounds();
+    for (const plot of PLOTS) {
+      if (!this.grown.has(plot.id)) continue;
+      const c = plotClearing(plot);
+      b = { x0: Math.min(b.x0, c.x0), y0: Math.min(b.y0, c.y0), x1: Math.max(b.x1, c.x1), y1: Math.max(b.y1, c.y1) };
+    }
     return new Phaser.Geom.Rectangle(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
   }
 

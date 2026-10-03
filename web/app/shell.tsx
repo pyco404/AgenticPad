@@ -225,7 +225,7 @@ export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode
             Watch matches
           </Link>
           <Link href="/" onClick={() => setOpen(true)} className={`hidden md:flex ${QUICK}`}>
-            Rent an agent
+            Get an agent
           </Link>
         </div>
 
@@ -337,6 +337,7 @@ function Village({
           handle.setNotes(now.notes);
           handle.setNight(now.night);
           handle.setMine(now.mine);
+          if (now.world.counters?.holders !== undefined) handle.setHolders(now.world.counters.holders);
           if (now.world.residents) handle.setResidents(now.world.residents);
           handle.select(now.agent, true);
         },
@@ -361,6 +362,12 @@ function Village({
     latest.current.world = world;
     if (residents) village.current?.setResidents(residents);
   }, [world, residents]);
+
+  // The village grows with its holders: told whenever the live stream's count changes.
+  const holders = world.counters?.holders;
+  useEffect(() => {
+    if (holders !== undefined) village.current?.setHolders(holders);
+  }, [holders]);
 
   useEffect(() => {
     latest.current.notes = notes;

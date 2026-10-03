@@ -66,7 +66,7 @@ export default function GamesPage() {
           action={
             <div className="grid grid-cols-2 gap-2">
               <Link href="/" className="rounded-panel bg-accent px-3 py-2 text-center text-[13px] font-medium text-ink">
-                Play: rent an agent
+                Play: get an agent
               </Link>
               <Link href="/live" className="rounded-panel border border-accent px-3 py-2 text-center text-[13px] text-accent">
                 Watch it live

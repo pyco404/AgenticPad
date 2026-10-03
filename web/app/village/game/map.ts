@@ -42,7 +42,12 @@ export function loadMap(scene: Phaser.Scene, map: VillageMap): void {
  * a container, each at the depth of its foot, so a hero walking in front of a
  * tree's trunk covers it and one behind is hidden.
  */
-export function drawMap(scene: Phaser.Scene, map: VillageMap): void {
+/** Draws the map; returns its trees, each with the sprite drawn for it, so the village can clear them as it grows. */
+export function drawMap(
+  scene: Phaser.Scene,
+  map: VillageMap,
+): { d: { k: string; x: number; y: number; s: number }; sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite }[] {
+  const trees: { d: { k: string; x: number; y: number; s: number }; sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite }[] = [];
   for (const a of map.animations) {
     if (scene.anims.exists(a.key) || !scene.textures.exists(a.texture)) continue;
     scene.anims.create({
@@ -89,5 +94,7 @@ export function drawMap(scene: Phaser.Scene, map: VillageMap): void {
     sprite.setScale(d.s);
     if (d.a !== undefined && sprite instanceof Phaser.GameObjects.Sprite && scene.anims.exists(d.a)) sprite.play(d.a);
     sprite.setDepth(d.d ?? d.y + sprite.displayHeight * 0.5);
+    if (d.k.includes("tree")) trees.push({ d, sprite });
   }
+  return trees;
 }

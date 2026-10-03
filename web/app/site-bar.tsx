@@ -419,7 +419,7 @@ function MenuPanel({ active, onClose }: { active: string | null; onClose: () => 
           onClick={onClose}
           className="rounded-panel flex h-11 flex-1 items-center justify-center bg-accent px-3 text-[13px] font-semibold text-ink hover:bg-accent/90"
         >
-          Rent an agent
+          Get an agent
         </Link>
       </div>
     </div>

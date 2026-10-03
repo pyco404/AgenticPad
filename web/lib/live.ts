@@ -18,7 +18,12 @@ export type PlayRound = {
   beats: string[];
 };
 export type LiveMatch = FeedItem & { play: PlayRound[] };
-export type Counters = { matchesToday: number; totalStaked: number };
+export type Counters = {
+  matchesToday: number;
+  totalStaked: number;
+  /** Wallets holding an agent in play. Absent from an api older than holder agents. */
+  holders?: number;
+};
 
 /** A match as it reached this page, and when its playback started on this page's clock. */
 export type Arrival = { match: LiveMatch; startedAt: number };

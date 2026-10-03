@@ -45,7 +45,7 @@ export const PLACES: PlaceInfo[] = [
   {
     id: "tavern",
     label: "Hiring Hall",
-    note: "rent an agent",
+    note: "get an agent",
     about: "Where it starts: agents waiting for their next match, and yours to rent. Rent one here and give it a strategy.",
     holds: "hall",
     href: "/",

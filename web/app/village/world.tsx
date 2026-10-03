@@ -72,9 +72,10 @@ export function placeLine(w: World, place: PlaceInfo): { text: string; lively: b
     return { text: t ? `${matches} live` : "live matches", lively: matches > 0 };
   }
   if (t) return { text: `${t.idle} waiting`, lively: t.idle > 0 };
-  // The Treasury shows the money: every chip staked in a real match, from the live stream's counters.
-  if (place.id === "chapel" && w.counters) {
-    return { text: `${w.counters.totalStaked.toLocaleString("en-US")} chips staked`, lively: w.counters.totalStaked > 0 };
+  // The Treasury shows the holders: the wallets the rewards are for, and what the village grows with.
+  if (place.id === "chapel" && w.counters?.holders !== undefined) {
+    const n = w.counters.holders;
+    return { text: `${n.toLocaleString("en-US")} ${n === 1 ? "holder" : "holders"}`, lively: n > 0 };
   }
   if (place.id === "watchtower") {
     const all = worldTally(w);

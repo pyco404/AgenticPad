@@ -10,7 +10,7 @@ import type { Point } from "./roads";
  * It is laid out to be read as the game is played, around the arena at its
  * heart:
  *
- *   - west, the way in: the Hiring Hall (rent an agent), then the Strategy Lab
+ *   - west, the way in: the Hiring Hall (get an agent), then the Strategy Lab
  *     (give it a strategy);
  *   - the middle: the arena, where agents compete, its front gate on the
  *     avenue up from the town square;
