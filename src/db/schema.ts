@@ -229,7 +229,7 @@ export type AgentEventSource = "owner" | "autoplay" | "season" | "exit";
  * became the only way to an agent (drizzle/0032_holders_only.sql): its record
  * stays, and its vault, on a program no longer served, is left as it was.
  */
-export type RetiredReason = "broke" | "withdrawn" | "lapsed" | "unpaid" | "closed" | "replaced";
+export type RetiredReason = "broke" | "withdrawn" | "lapsed" | "unpaid" | "closed" | "replaced" | "owner";
 
 /**
  * An agent's character: its portrait, its name's origin, its bio. Kept in a
@@ -903,3 +903,9 @@ export type MatchRow = typeof matches.$inferSelect;
 export type RatingRow = typeof ratings.$inferSelect;
 export type LedgerRow = typeof ledger.$inferSelect;
 export type ChainOpRow = typeof chainOps.$inferSelect;
+
+/** Ending an automatic agent opts out of automatic recreation across devices. */
+export const holderPreferences = pgTable("holder_preferences", {
+  wallet: text("wallet").primaryKey(),
+  automatic: boolean("automatic").notNull().default(true),
+});
