@@ -2,16 +2,18 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { deflateSync, inflateSync, crc32 } from "node:zlib";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RECOLOURED, TERRAIN } from "../web/app/village/game/palette.js";
 
 /**
- * Draws the village's AgentClash art: the arena, the leaderboard, the Game
- * Hall's screens, the Strategy Lab's boards, banners and flags bearing the
- * crest, and the small things of the agent grounds. Everything lands in
- * web/public/village/agentclash; nothing here runs at request time.
+ * Draws the village's AgenticPad art: the arena, the leaderboard, the Game
+ * Hall's screens, the Strategy Lab's boards, the Launch Pad, banners and
+ * flags bearing the crest, and the small things of the agent grounds.
+ * Everything lands in web/public/village/agenticpad; nothing here runs at
+ * request time.
  *
  *   npx tsx scripts/village-art.ts
  *
- * The crest is web/public/agentclash-tb.png, scaled down and never redrawn.
+ * The crest is web/public/agenticpad-tb.png, scaled down and never redrawn.
  * The rest is drawn here in the Tiny Swords pack's palette (the teal stone,
  * the wood, the thatch) and the crest's own greens, outlined like the pack,
  * at one art pixel to two world pixels - the scene draws these at scale 2.
@@ -19,12 +21,16 @@ import { fileURLToPath } from "node:url";
  * castle and the tower fly the crest's colours, and the old arena hut's
  * "ARENA" sign becomes a match screen for the Game Hall.
  *
+ * The pack's ground, water, trees and bushes are recoloured from the
+ * terrain palette (web/app/village/game/palette.ts) into public/village/warm,
+ * colour for colour, never edited by hand; see the end of this file.
+ *
  * No dependencies: a small PNG reader and writer on node:zlib.
  */
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pub = join(root, "web/public");
-const out = join(pub, "village/agentclash");
+const out = join(pub, "village/agenticpad");
 
 // --- PNG ---------------------------------------------------------------------
 
@@ -292,6 +298,9 @@ const P = {
   sand: hex("#e4c88f"),
   sandLo: hex("#d2b07a"),
   sandDk: hex("#b8955f"),
+  // Old Town's roads' own (palette.ts), for the gate that joins one.
+  road: hex(TERRAIN.dirt.edge),
+  roadIn: hex(TERRAIN.dirt.base),
   // Prizes.
   goldHi: hex("#fbe7a1"),
   gold: hex("#e8b84b"),
@@ -310,7 +319,7 @@ const P = {
 const WEAR = ["#5dcd50", "#189b68", "#e8b84b", "#d4745a", "#8f7bd8", "#4a6fa5", "#efdb97", "#9ae352", "#c95b8c", "#f5ecd8"].map((c) => hex(c));
 const SKIN = ["#f1c9a5", "#d9a47c", "#a8714f", "#7a4e38"].map((c) => hex(c));
 
-const CREST = readPng(join(pub, "agentclash-tb.png"));
+const CREST = readPng(join(pub, "agenticpad-tb.png"));
 const crest = (w: number) => scaled(CREST, w);
 
 // --- Pieces ------------------------------------------------------------------
@@ -647,7 +656,7 @@ const TIERS = 6;
 const tier = (k: number) => ({ rx: 121 + 6.5 * k, ry: 53 + 5 * k, cy: ARENA.fy - 4 * k });
 const WALL = { rx: 164, ry: 86, cy: 94 + OY };
 
-function arena(): { back: Raster; front: Raster; crowd: [Raster, Raster] } {
+function ovalArena(): { back: Raster; front: Raster; crowd: [Raster, Raster] } {
   const { w, h, cx, fy, frx, fry } = ARENA;
   const img = new Raster(w, h);
   const rand = rng(7);
@@ -746,12 +755,12 @@ function arena(): { back: Raster; front: Raster; crowd: [Raster, Raster] } {
   const great = banner(P.teal, P.dteal, P.gold, 30, 30);
   img.blit(great, cx - Math.floor(great.w / 2), 0);
 
-  // The front: the main gate through the front wall, pillars and banners either side.
+  // The front: the main gate through the front wall, paved like the road, pillars and banners either side.
   const gateTop = fy + fry - 2;
   const gateBottom = WALL.cy + WALL.ry + 9;
   for (let y = gateTop; y <= gateBottom; y++) {
     for (let x = cx - 12; x <= cx + 12; x++) {
-      if (y > gateTop + 2 || inEllipse(x, y, cx, fy, frx, fry)) img.set(x, y, Math.abs(x - cx) > 10 ? P.sandDk : (x + y) % 7 === 0 ? P.sandLo : P.sand);
+      if (y > gateTop + 2 || inEllipse(x, y, cx, fy, frx, fry)) img.set(x, y, Math.abs(x - cx) > 10 ? P.road : P.roadIn);
     }
   }
   for (const side of [-1, 1]) {
@@ -805,6 +814,449 @@ function arena(): { back: Raster; front: Raster; crowd: [Raster, Raster] } {
   return { back: img, front, crowd: [still, cheer] };
 }
 
+// --- The Launch Pad ------------------------------------------------------------------
+
+/**
+ * The Launch Pad, where tokens are launched (web/lib/launchpad.ts): a round
+ * pad of the pack's teal stone ringed in gold, a wooden gantry beside it, and
+ * on it a rocket built as the village would build one - planks bound in gold,
+ * teal fins, the crest on its side. Two frames, its flame low and high, played
+ * slowly as the leaderboard is.
+ */
+const LAUNCH = { w: 64, h: 86 };
+
+function launchPadFrame(high: boolean): Raster {
+  const img = new Raster(LAUNCH.w, LAUNCH.h);
+  const cx = 36;
+
+  // The pad: its stone edge, its top, a gold ring and the scorched middle.
+  img.ellipse(32, 76, 30, 9, P.stoneDk);
+  img.ellipse(32, 73, 30, 8.5, P.stone);
+  img.ellipse(32, 72, 28, 7, P.stoneHi);
+  img.ellipse(32, 73, 25, 6, P.stone);
+  img.ellipse(cx, 73, 15, 4.2, P.gold);
+  img.ellipse(cx, 73, 13, 3.4, P.stoneLo);
+  img.ellipse(cx, 73, 8, 2.2, P.stoneDeep);
+
+  // The gantry: two posts, braces between them, an arm out to the rocket.
+  for (const x of [4, 13]) img.rect(x, 12, 3, 62, P.woodMid).rect(x, 12, 1, 62, P.woodHi);
+  for (let y = 18; y < 68; y += 12) {
+    img.line(6, y, 13, y + 10, P.woodLo).line(13, y, 6, y + 10, P.woodLo);
+    img.rect(4, y, 12, 2, P.wood);
+  }
+  img.rect(3, 10, 14, 3, P.woodLo).rect(3, 10, 14, 1, P.woodHi);
+  img.rect(16, 30, cx - 24, 2, P.wood).rect(16, 30, cx - 24, 1, P.woodHi);
+  // A pennant of the crest's teal on the gantry.
+  img.rect(5, 2, 1, 9, P.woodLo).rect(6, 2, 7, 4, P.lime).rect(6, 4, 5, 2, P.green);
+
+  // Fins, behind the body.
+  for (let y = 0; y <= 14; y++) {
+    const reach = Math.round((y / 14) * 7);
+    img.rect(cx - 8 - reach, 50 + y, reach, 1, y > 11 ? P.dteal : P.teal);
+    img.rect(cx + 8, 50 + y, reach, 1, y > 11 ? P.deep : P.dteal);
+  }
+
+  // The body: planks, lit from the left, bound in gold.
+  img.rect(cx - 8, 18, 16, 46, P.wood);
+  img.rect(cx - 8, 18, 3, 46, P.woodHi);
+  img.rect(cx + 4, 18, 4, 46, P.woodMid);
+  img.rect(cx + 7, 18, 1, 46, P.woodLo);
+  for (const x of [cx - 3, cx + 2]) img.rect(x, 18, 1, 46, P.woodMid);
+  for (const y of [20, 46, 60]) img.rect(cx - 8, y, 16, 2, P.gold).rect(cx - 8, y, 16, 1, P.goldHi);
+  // A porthole with the crest in it.
+  img.ellipse(cx, 33, 6.5, 6.5, P.goldLo).ellipse(cx, 33, 5.5, 5.5, P.navy);
+  const c = crest(10);
+  img.blit(c, cx - 5, 33 - Math.round(c.h / 2));
+
+  // The nose: red, lit on the left.
+  for (let y = 4; y <= 18; y++) {
+    const half = Math.round(((y - 4) / 14) * 8);
+    img.rect(cx - half, y, half * 2, 1, P.red);
+    img.rect(cx - half, y, Math.max(1, Math.round(half / 2)), 1, P.redHi);
+  }
+  img.rect(cx - 1, 2, 2, 3, P.gold);
+
+  // The nozzle, and the flame under it.
+  img.rect(cx - 5, 64, 10, 3, P.stoneDk).rect(cx - 5, 64, 10, 1, P.stoneLo);
+  const flame = high ? 13 : 8;
+  for (let y = 0; y < flame; y++) {
+    const half = Math.max(1, Math.round((high ? 6 : 5) * (1 - (y / flame) ** 1.5)));
+    img.rect(cx - half, 67 + y, half * 2, 1, y < 2 ? P.glow : y < flame - 2 ? P.gold : P.redHi);
+  }
+  // Smoke rolling out over the pad when the flame is high.
+  if (high) {
+    for (const [x, y, r] of [
+      [cx - 13, 73, 3.5],
+      [cx + 13, 73, 3.5],
+      [cx - 19, 71, 2.5],
+      [cx + 19, 71, 2.5],
+    ] as const) img.ellipse(x, y, r, r * 0.8, hex("#f5ecd8", 220));
+  }
+  return img.outline();
+}
+
+function launchPadSheet(): Raster {
+  const sheet = new Raster(LAUNCH.w * 2, LAUNCH.h);
+  sheet.blit(launchPadFrame(false), 0, 0).blit(launchPadFrame(true), LAUNCH.w, 0);
+  return sheet;
+}
+
+// --- New Town --------------------------------------------------------------------
+
+/**
+ * New Town's buildings, between the ring roads (web/app/village/game/growth.ts):
+ * glass, flat roofs, screens and lamps, drawn at the pack's pixel size in its
+ * outline and light, so they stand in the same world as Old Town's thatch.
+ */
+const M = {
+  roof: hex("#3d434c"),
+  roofHi: hex("#565d68"),
+  wall: hex("#d9d4c7"),
+  wallLo: hex("#b5afa1"),
+  wallDk: hex("#8d877b"),
+  concrete: hex("#9aa0a8"),
+  concreteLo: hex("#747a83"),
+  glass: hex("#5fb3c9"),
+  glassHi: hex("#a9e3ef"),
+  glassLo: hex("#3d7f99"),
+  frame: hex("#2b3038"),
+  door: hex("#2f3a46"),
+};
+
+/** A run of windows: glass with a lit pane and a frame round each. */
+function windows(img: Raster, x: number, y: number, n: number, w: number, h: number, gap: number, lit = 1): void {
+  for (let i = 0; i < n; i++) {
+    const wx = x + i * (w + gap);
+    img.rect(wx, y, w, h, M.frame).rect(wx + 1, y + 1, w - 2, h - 2, M.glass).rect(wx + 1, y + 1, w - 2, 1, M.glassHi);
+    if ((i + lit) % 3 === 0) img.rect(wx + 1, y + 1, w - 2, h - 2, hex("#f3d98a"));
+  }
+}
+
+/** A flat roof with a parapet, over a wall `w` wide. */
+function flatRoof(img: Raster, x: number, y: number, w: number): void {
+  img.rect(x - 1, y, w + 2, 4, M.roof).rect(x - 1, y, w + 2, 1, M.roofHi);
+}
+
+type ModernRole = "home" | "hiring" | "strategy" | "games" | "fame" | "treasury" | "lookout" | "rulebook";
+
+/** Contemporary villas and civic houses, in the village's pixel scale:
+ * limestone, timber cladding, glass balconies and planted roof terraces.
+ * Their front doors stay at the centre of the original building plots. */
+function modernVillageHouse(role: ModernRole, accent: RGBA = P.dteal, variant = "blue"): Raster {
+  const img = new Raster(128, 144);
+  const ivory = hex("#eee7d5"), wall = hex("#cec9b8"), shade = hex("#9fa596");
+  const ink = hex("#263a3d"), copper = hex("#b77b4a"), brick = hex("#b5765b");
+  const polygon = (points: [number, number][], colour: RGBA) => {
+    for (let y = Math.min(...points.map((p) => p[1])); y <= Math.max(...points.map((p) => p[1])); y++) {
+      const hits: number[] = [];
+      for (let i = 0; i < points.length; i++) {
+        const [ax, ay] = points[i]!, [bx, by] = points[(i + 1) % points.length]!;
+        if ((ay <= y && by > y) || (by <= y && ay > y)) hits.push(ax + (y - ay) * (bx - ax) / (by - ay));
+      }
+      hits.sort((a, b) => a - b);
+      for (let i = 1; i < hits.length; i += 2) img.line(Math.ceil(hits[i - 1]!), y, Math.floor(hits[i]!), y, colour);
+    }
+  };
+  const box = (x: number, y: number, w: number, h: number, colour = ivory) => {
+    polygon([[x + w, y], [x + w + 9, y - 8], [x + w + 9, y + h - 8], [x + w, y + h]], shade);
+    img.rect(x, y, w, h, colour).rect(x, y, 3, h, ivory);
+    polygon([[x - 2, y], [x + 7, y - 9], [x + w + 10, y - 9], [x + w + 1, y]], M.roof);
+    img.line(x - 2, y, x + w + 1, y, wall);
+  };
+  const glass = (x: number, y: number, w: number, h: number, panes = 3) => {
+    img.rect(x, y, w, h, ink).rect(x + 2, y + 2, w - 4, h - 4, M.glassLo);
+    polygon([[x + 3, y + 3], [x + w - 4, y + 3], [x + 3, y + h - 4]], M.glass);
+    img.line(x + 3, y + 3, x + w - 4, y + 3, M.glassHi);
+    for (let i = 1; i < panes; i++) img.rect(x + Math.round(w * i / panes), y + 1, 1, h - 2, ink);
+  };
+  const door = (y = 113) => {
+    glass(56, y, 17, 136 - y, 2);
+    img.rect(54, y - 3, 21, 3, accent).rect(69, y + 12, 1, 3, P.goldHi);
+    img.rect(51, 136, 27, 2, shade).rect(48, 138, 33, 3, wall).rect(45, 141, 39, 2, ivory);
+  };
+  const plant = (x: number, y: number, size = 6) => {
+    img.rect(x - 6, y - 5, 12, 6, shade).rect(x - 5, y - 5, 10, 1, ivory);
+    img.ellipse(x, y - 9, size, 5, hex("#335b3f")).ellipse(x - 2, y - 12, size - 2, 3, hex("#6a964e"));
+  };
+  const solar = (x: number, y: number, w: number) => {
+    img.rect(x, y, w, 8, ink);
+    for (let dx = 2; dx < w - 2; dx += 6) img.rect(x + dx, y + 1, 4, 6, M.glassLo).rect(x + dx, y + 1, 4, 1, M.glassHi);
+  };
+  img.ellipse(65, 136, 57, 6, hex("#152c21", 70));
+
+  if (role === "hiring") {
+    // Wide, single-storey welcome pavilion under a folded butterfly roof.
+    box(10, 79, 103, 57, ivory);
+    glass(17, 84, 91, 38, 7);
+    polygon([[5, 70], [23, 53], [65, 68], [116, 51], [121, 68], [64, 80]], ink);
+    polygon([[8, 68], [24, 55], [65, 70], [116, 54], [117, 64], [64, 75]], hex("#688b7d"));
+    img.rect(14, 78, 3, 57, wall).rect(108, 76, 3, 59, wall);
+    img.rect(21, 123, 29, 7, hex("#5c8550")).rect(78, 123, 28, 7, hex("#5c8550"));
+    // The recruitment display: a visible roster, rather than a generic lobby.
+    for (const [i, x] of [24, 39, 84, 99].entries()) {
+      img.rect(x - 5, 91, 10, 19, P.deep);
+      tinyAgent(img, x, 104, SKIN[i % SKIN.length]!, WEAR[i + 2]!);
+      img.rect(x - 3, 108, 6, 1, P.gold);
+    }
+    door(106); plant(23, 135); plant(102, 135);
+  } else if (role === "strategy") {
+    // An L-shaped laboratory: tall glass tower and a low planted wing.
+    box(13, 39, 44, 97, hex("#bacfd0"));
+    glass(19, 45, 34, 74, 3);
+    for (const y of [69, 94]) img.rect(18, y, 36, 3, ivory);
+    box(54, 86, 56, 50, ivory);
+    solar(25, 31, 28); plant(94, 78);
+    glass(80, 94, 23, 28, 2);
+    img.rect(79, 126, 27, 5, ink);
+    // A branching decision tree on the lab's planning screen.
+    img.rect(78, 96, 28, 29, P.deep);
+    img.line(92, 103, 84, 112, P.lime).line(92, 103, 100, 112, P.lime);
+    img.line(84, 112, 82, 120, P.lime).line(100, 112, 102, 120, P.lime);
+    for (const [x, y] of [[92, 103], [84, 112], [100, 112], [82, 120], [102, 120]]) img.rect(x! - 2, y! - 2, 4, 4, P.gold);
+    door(106); plant(23, 135);
+  } else if (role === "games") {
+    // Low charcoal entertainment hall, a sloping roof and a giant LED facade.
+    box(8, 72, 104, 64, hex("#3d4b55"));
+    polygon([[5, 68], [21, 59], [111, 40], [120, 53], [114, 72]], ink);
+    polygon([[10, 65], [23, 61], [109, 44], [116, 52], [111, 66]], hex("#586b7b"));
+    img.line(10, 69, 113, 70, P.teal).line(10, 71, 113, 72, P.glow);
+    img.rect(17, 80, 87, 33, P.ink).rect(20, 83, 81, 27, P.deep);
+    // A game controller on the giant display, with tournament lights beside it.
+    img.ellipse(65, 97, 18, 8, M.glassHi).ellipse(51, 100, 6, 8, M.glassHi).ellipse(79, 100, 6, 8, M.glassHi);
+    img.rect(50, 93, 3, 10, ink).rect(47, 97, 9, 3, ink);
+    img.ellipse(75, 94, 2, 2, P.redHi).ellipse(81, 98, 2, 2, P.gold);
+    for (let x = 24; x < 43; x += 4) img.rect(x, 102 - x % 3 * 4, 2, 4 + x % 3 * 4, P.green);
+    for (let x = 86; x < 99; x += 4) img.rect(x, 89, 2, 15, P.gold);
+    glass(19, 117, 27, 13); glass(83, 117, 21, 13);
+    door(117);
+  } else if (role === "fame") {
+    // A circular glass museum crowned by a broad copper dome.
+    img.ellipse(64, 129, 51, 8, shade).rect(14, 70, 99, 58, wall);
+    for (let x = 22; x < 110; x += 13) glass(x, 75, 10, 41, 1);
+    img.ellipse(64, 68, 53, 13, copper).ellipse(64, 61, 49, 23, P.goldLo);
+    img.ellipse(64, 57, 45, 22, hex("#c79757")).ellipse(64, 53, 33, 17, hex("#d8b778"));
+    for (const x of [36, 49, 79, 92]) img.line(x, 41 + Math.abs(x - 64) / 3, x, 67, hex("#a27641"));
+    img.rect(61, 28, 6, 10, P.gold).ellipse(64, 28, 4, 3, P.goldHi);
+    img.ellipse(64, 70, 53, 6, ink).ellipse(64, 68, 53, 3, ivory);
+    img.rect(49, 79, 30, 25, P.deep).blit(scaled(trophy(), 19), 55, 79);
+    door(113); plant(23, 135); plant(104, 135);
+  } else if (role === "treasury") {
+    // Solid bank: a stepped limestone roof and monumental gold-edged piers.
+    box(13, 52, 97, 84, hex("#a8aeaa"));
+    box(25, 35, 73, 17, wall); box(40, 24, 45, 11, ivory);
+    glass(20, 66, 83, 44, 7);
+    for (const x of [19, 42, 83, 103]) {
+      img.rect(x - 4, 58, 9, 71, ivory).rect(x + 2, 60, 2, 67, P.goldLo);
+      img.rect(x - 6, 56, 13, 4, wall).rect(x - 6, 127, 13, 5, wall);
+    }
+    img.rect(46, 46, 34, 6, P.gold).rect(48, 46, 30, 1, P.goldHi);
+    // A round steel vault above the entrance, and stacked bullion on the roof.
+    img.ellipse(64, 87, 18, 19, ink).ellipse(64, 86, 15, 16, M.concrete);
+    img.ellipse(64, 86, 12, 13, M.concreteLo).ellipse(64, 86, 6, 6, P.silver);
+    img.line(57, 86, 71, 86, ink).line(64, 79, 64, 93, ink);
+    for (const [x, y] of [[44, 18], [59, 18], [74, 18], [53, 12], [68, 12]]) {
+      img.rect(x!, y!, 12, 6, P.goldLo).rect(x!, y!, 12, 2, P.goldHi);
+    }
+    door(113);
+  } else if (role === "lookout") {
+    // A narrow observation tower, with a panoramic round deck and a mast.
+    box(47, 51, 32, 85, ivory); glass(53, 58, 19, 55, 2);
+    for (const y of [77, 96]) img.rect(49, y, 28, 3, ivory);
+    img.ellipse(64, 48, 39, 9, shade).rect(26, 28, 76, 20, ink);
+    for (let x = 30; x < 100; x += 12) glass(x, 30, 10, 16, 1);
+    img.ellipse(64, 27, 43, 10, ink).ellipse(64, 24, 40, 9, M.glassLo);
+    img.ellipse(64, 23, 29, 5, hex("#8bbab6"));
+    img.rect(62, 5, 3, 19, ink).rect(60, 5, 7, 2, P.gold);
+    img.line(53, 13, 73, 13, M.frame).ellipse(77, 17, 6, 3, M.glassHi);
+    door(114); plant(42, 135); plant(86, 135);
+  } else if (role === "rulebook") {
+    // A terracotta library, staggered masses and three sawtooth skylights.
+    box(19, 60, 86, 76, brick);
+    for (let y = 65; y < 132; y += 6) {
+      img.line(23, y, 101, y, hex("#98634b"));
+      for (let x = 25 + (y % 12 ? 4 : 0); x < 103; x += 10) img.line(x, y, x, y + 5, hex("#c99370"));
+    }
+    for (const x of [20, 48, 76]) {
+      polygon([[x - 3, 59], [x + 21, 31], [x + 25, 59]], ink);
+      polygon([[x + 3, 53], [x + 20, 35], [x + 21, 53]], M.glass);
+      img.line(x + 4, 55, x + 23, 55, ivory);
+    }
+    glass(27, 77, 20, 49, 1); glass(83, 77, 15, 49, 1);
+    for (let y = 85; y < 125; y += 10) {
+      img.rect(29, y, 16, 2, copper);
+      for (let x = 30; x < 44; x += 4) img.rect(x, y - 6, 2, 6, x % 3 ? P.paper : P.teal);
+    }
+    img.rect(51, 72, 27, 20, ink).rect(53, 75, 10, 13, P.paper).rect(65, 75, 10, 13, P.thatch);
+    img.line(64, 74, 64, 90, P.gold);
+    door(111); plant(108, 134);
+  } else {
+    // Four homes have different rooflines and floor plans, not just colours.
+    if (variant === "blue") {
+      box(28, 58, 67, 78, ivory);
+      polygon([[20, 60], [64, 22], [108, 60]], ink);
+      polygon([[28, 56], [64, 28], [100, 56]], hex("#446e86"));
+      glass(40, 68, 46, 23, 3); glass(35, 106, 15, 21, 1); glass(81, 106, 12, 21, 1);
+      img.rect(34, 96, 58, 3, accent); door(110);
+    } else if (variant === "red") {
+      box(12, 91, 100, 45, hex("#e3d9c8"));
+      polygon([[7, 88], [23, 70], [118, 70], [114, 88]], copper);
+      img.rect(7, 88, 107, 4, brick);
+      glass(20, 101, 29, 25, 2); glass(83, 101, 24, 25, 2);
+      for (let x = 82; x < 112; x += 7) img.rect(x, 75, 3, 10, ivory);
+      plant(36, 81); door(106);
+    } else if (variant === "yellow") {
+      box(14, 50, 49, 86, wall); box(61, 85, 47, 51, ivory);
+      glass(21, 58, 35, 28, 2); glass(23, 99, 25, 25, 2);
+      glass(84, 96, 18, 28, 1); solar(26, 42, 31);
+      for (let x = 69; x < 112; x += 6) img.rect(x, 67, 2, 18, copper);
+      for (let y = 66; y < 82; y += 5) img.rect(68, y, 45, 2, copper);
+      door(110);
+    } else {
+      box(39, 30, 49, 106, hex("#d3cdc5"));
+      for (const y of [40, 71, 101]) {
+        glass(47, y, 33, 21, 3);
+        img.rect(35, y + 22, 57, 7, accent).rect(35, y + 21, 57, 1, ivory);
+        for (const x of [37, 50, 63, 76, 90]) img.rect(x, y + 22, 1, 6, ink);
+      }
+      solar(52, 22, 30); door(114);
+    }
+    plant(25, 135); plant(104, 135);
+  }
+  return img.outline(hex("#253630"));
+}
+
+function modernVilla(accent: RGBA, variant: string): Raster {
+  // Match the old cottage sheet's canvas and foot, preserving its plot size.
+  return new Raster(128, 192).blit(modernVillageHouse("home", accent, variant), 0, 28);
+}
+
+function modernOffice(): Raster {
+  const img = new Raster(56, 74);
+  img.rect(6, 12, 44, 62, M.concrete).rect(6, 12, 3, 62, M.wall).rect(47, 12, 3, 62, M.concreteLo);
+  flatRoof(img, 6, 8, 44);
+  // A glass front: three floors of curtain wall.
+  for (const y of [16, 30, 44]) windows(img, 10, y, 4, 8, 11, 2, y / 2);
+  // A screen over the door with the crest's green on it.
+  img.rect(14, 57, 28, 6, M.frame).rect(15, 58, 26, 4, P.teal).rect(17, 59, 8, 2, P.lime).rect(28, 59, 10, 2, P.glow);
+  img.rect(23, 64, 10, 10, M.door).rect(24, 65, 8, 9, M.glassLo).rect(28, 65, 1, 9, M.frame);
+  // A dish on the roof.
+  img.rect(38, 4, 6, 4, M.concreteLo).rect(40, 2, 2, 3, M.roofHi);
+  return img.outline();
+}
+
+function modernHouse(accent: RGBA): Raster {
+  const img = new Raster(54, 50);
+  img.rect(4, 14, 46, 36, M.wall).rect(4, 14, 3, 36, hex("#ece8dd")).rect(47, 14, 3, 36, M.wallLo);
+  flatRoof(img, 4, 10, 46);
+  // A wide window and a door under an awning in its own colour.
+  windows(img, 8, 20, 2, 12, 10, 2);
+  img.rect(34, 18, 13, 3, accent).rect(34, 21, 13, 1, M.wallDk);
+  img.rect(36, 24, 9, 26, M.door).rect(37, 25, 7, 6, M.glassLo).rect(43, 37, 1, 1, P.gold);
+  img.rect(8, 34, 24, 6, accent).rect(8, 40, 24, 1, M.wallDk);
+  img.rect(10, 42, 4, 8, M.concreteLo).rect(24, 42, 4, 8, M.concreteLo);
+  // Solar panels on the roof.
+  img.rect(10, 6, 14, 4, M.glassLo).rect(11, 7, 12, 1, M.glass);
+  return img.outline();
+}
+
+function modernShop(): Raster {
+  const img = new Raster(58, 54);
+  img.rect(4, 14, 50, 40, M.wall).rect(4, 14, 3, 40, hex("#ece8dd")).rect(51, 14, 3, 40, M.wallLo);
+  flatRoof(img, 4, 10, 50);
+  // A lit sign board along the top.
+  img.rect(8, 15, 42, 8, M.frame).rect(9, 16, 40, 6, P.navy);
+  for (let x = 11; x < 47; x += 4) img.rect(x, 18, 2, 2, x % 8 === 3 ? P.glow : P.lime);
+  // Shop windows either side of the door, and a striped awning over them.
+  for (let x = 6; x < 52; x += 4) img.rect(x, 25, 4, 4, (x / 4) % 2 ? P.teal : P.white);
+  windows(img, 8, 30, 2, 14, 14, 2);
+  img.rect(40, 30, 10, 24, M.door).rect(41, 31, 8, 22, M.glassLo).rect(45, 31, 1, 22, M.frame);
+  return img.outline();
+}
+
+function modernApartments(): Raster {
+  const img = new Raster(60, 86);
+  img.rect(6, 10, 48, 76, M.wallLo).rect(6, 10, 3, 76, M.wall).rect(51, 10, 3, 76, M.wallDk);
+  flatRoof(img, 6, 6, 48);
+  for (const y of [14, 28, 42, 56]) {
+    windows(img, 10, y, 4, 8, 9, 2, y);
+    // Balconies.
+    img.rect(9, y + 10, 42, 2, M.concreteLo).rect(9, y + 10, 42, 1, M.concrete);
+  }
+  img.rect(24, 72, 12, 14, M.door).rect(25, 73, 10, 13, M.glassLo).rect(30, 73, 1, 13, M.frame);
+  img.rect(22, 69, 16, 3, P.teal);
+  return img.outline();
+}
+
+function modernKiosk(): Raster {
+  const img = new Raster(38, 42);
+  img.rect(4, 16, 30, 26, M.concrete).rect(4, 16, 3, 26, M.wall).rect(31, 16, 3, 26, M.concreteLo);
+  // A curved glass canopy and a screen.
+  img.rect(1, 10, 36, 6, M.glassLo).rect(2, 11, 34, 2, M.glass).rect(2, 11, 34, 1, M.glassHi);
+  img.rect(8, 20, 22, 10, M.frame).rect(9, 21, 20, 8, P.teal).rect(11, 23, 6, 2, P.glow).rect(19, 23, 8, 2, P.lime).rect(11, 26, 14, 1, P.white);
+  img.rect(10, 32, 18, 3, M.wallDk).rect(10, 32, 18, 1, M.wall);
+  return img.outline();
+}
+
+/** A street lamp: a slim pole, a lit head. */
+function modernLamp(): Raster {
+  const img = new Raster(10, 38);
+  img.rect(4, 6, 2, 30, M.frame).rect(2, 35, 6, 3, M.concreteLo);
+  img.rect(1, 2, 8, 4, M.roof).rect(2, 5, 6, 2, P.glow).rect(3, 7, 4, 1, hex("#f3d98a", 160));
+  return img.outline();
+}
+
+function modernPlanter(): Raster {
+  const img = new Raster(22, 14);
+  img.rect(1, 7, 20, 7, M.concrete).rect(1, 7, 20, 1, M.wall).rect(1, 13, 20, 1, M.concreteLo);
+  for (const [x, y, c] of [
+    [3, 3, P.green],
+    [8, 1, P.teal],
+    [13, 3, P.green],
+    [17, 2, P.lime],
+  ] as const) img.ellipse(x + 2, y + 3, 3, 3, c);
+  return img.outline();
+}
+
+/**
+ * The bazaar: three market stalls under striped awnings, crates and a lit
+ * screen of the tokens on show. It leads to /explore; it may also become the
+ * venue for Negotiation later.
+ */
+function bazaar(): Raster {
+  const img = new Raster(98, 62);
+  const stall = (x: number, y: number, a: RGBA, b: RGBA) => {
+    // Posts, a counter, goods, and a striped awning.
+    img.rect(x + 2, y + 12, 2, 20, P.woodLo).rect(x + 26, y + 12, 2, 20, P.woodLo);
+    img.rect(x, y + 22, 30, 10, P.wood).rect(x, y + 22, 30, 1, P.woodHi).rect(x, y + 31, 30, 1, P.woodLo);
+    for (let i = 0; i < 4; i++) img.ellipse(x + 5 + i * 7, y + 20, 2.5, 2, [P.redHi, P.gold, P.lime, P.paper][(i + x) % 4]!);
+    for (let i = 0; i < 6; i++) img.rect(x - 2 + i * 6, y + 4, 6, 8, i % 2 ? a : b);
+    img.rect(x - 2, y + 11, 34, 1, P.woodLo);
+    for (let i = 0; i < 6; i++) img.rect(x - 2 + i * 6, y + 12, 6, 2, i % 2 ? a : b);
+  };
+  stall(4, 22, P.teal, P.white);
+  stall(64, 22, P.red, P.white);
+  stall(34, 4, P.gold, P.white);
+  // A lit board of the tokens on show, between the front two.
+  img.rect(40, 40, 18, 12, P.woodLo).rect(41, 41, 16, 10, P.navy);
+  for (let i = 0; i < 3; i++) img.rect(43, 43 + i * 3, 4 + i * 3, 2, [P.lime, P.glow, P.teal][i]!);
+  img.rect(48, 52, 2, 10, P.woodLo);
+  // Crates and a sack.
+  img.rect(2, 52, 8, 8, P.woodMid).rect(2, 52, 8, 1, P.woodHi).rect(88, 52, 8, 8, P.woodMid).rect(88, 52, 8, 1, P.woodHi);
+  img.ellipse(84, 57, 3.5, 3, P.thatch);
+  return img.outline();
+}
+
+/** The pier on the small lake: planks from the shore out over the water, posts down its sides. */
+function pier(): Raster {
+  const img = new Raster(24, 60);
+  img.rect(4, 0, 16, 56, P.wood);
+  for (let y = 2; y < 56; y += 4) img.rect(4, y, 16, 1, P.woodMid);
+  img.rect(4, 0, 1, 56, P.woodHi);
+  for (const y of [14, 30, 46]) img.rect(1, y, 4, 8, P.woodLo).rect(19, y, 4, 8, P.woodLo);
+  img.rect(1, 54, 22, 6, P.woodLo);
+  return img.outline();
+}
+
 // --- The pack's buildings, in the crest's colours --------------------------------
 
 /** A flag's blue turned the crest's teal, its gold emblem the crest's green. */
@@ -854,15 +1306,115 @@ function gameHall(): Raster {
 
 // --- Out ---------------------------------------------------------------------
 
+/** The reference's walled courtyard: tiers on three sides and a broad south
+ * gate. It keeps the original sand coordinates, so the live match, route
+ * through the gate and layered cheering crowd all stay in the same place. */
+function arena(): { back: Raster; front: Raster; crowd: [Raster, Raster] } {
+  const { w, h, cx, fy, frx, fry } = ARENA;
+  const img = new Raster(w, h), front = new Raster(w, h);
+  const still = new Raster(w, h), cheer = new Raster(w, h);
+  const rand = rng(71);
+  const stone = hex("#99998b"), hi = hex("#d3c9a8"), dark = hex("#505b57"), shade = hex("#727b72");
+  const block = (x: number, y: number, width: number, height: number) => {
+    img.rect(x, y, width, height, dark).rect(x + 2, y + 1, width - 4, height - 2, stone);
+    for (let yy = y + 1; yy < y + height - 2; yy += 5) {
+      img.line(x + 2, yy, x + width - 3, yy, shade);
+      for (let xx = x + 2 + (Math.floor(yy / 5) % 2) * 5; xx < x + width - 2; xx += 10) img.line(xx, yy, xx, yy + 4, shade);
+    }
+    img.rect(x + 1, y, width - 2, 2, hi).rect(x + width - 3, y + 2, 2, height - 2, shade);
+  };
+  img.rect(12, 44, w - 20, 182, hex("#142d23", 85));
+  block(12, 40, 306, 177);
+  img.rect(24, 46, 282, 159, P.woodLo);
+  // Six galleries, inlaid rails and stairs running down each side.
+  for (let k = 0; k < 6; k++) {
+    const y = 48 + k * 9;
+    img.rect(31, y, 268, 8, k % 2 ? P.wood : P.woodMid);
+    img.rect(31, y, 268, 1, P.gold).rect(31, y + 6, 268, 2, dark);
+    for (let x = 36; x < 295; x += 7) {
+      if (Math.abs(x - cx) < 29 && k < 3) continue;
+      const skin = SKIN[Math.floor(rand() * SKIN.length)]!, wear = WEAR[Math.floor(rand() * WEAR.length)]!;
+      still.rect(x, y + 2, 3, 3, wear).rect(x + 1, y, 2, 2, skin);
+      cheer.rect(x, y + 1, 3, 3, wear).rect(x + 1, y - 1, 2, 2, skin).rect(x - 1, y - 1, 1, 2, skin);
+    }
+  }
+  for (const x of [27, 300]) {
+    for (let y = 105; y < 204; y += 8) {
+      img.rect(x - 5, y, 15, 7, P.wood).rect(x - 5, y, 15, 1, P.goldLo).rect(x - 5, y + 6, 15, 1, dark);
+      still.rect(x, y + 2, 3, 3, WEAR[Math.floor(rand() * WEAR.length)]!).rect(x, y, 2, 2, SKIN[1]!);
+      cheer.rect(x, y + 1, 3, 3, WEAR[Math.floor(rand() * WEAR.length)]!).rect(x, y - 1, 2, 2, SKIN[1]!);
+    }
+  }
+  for (const x of [54, 104, 222, 272]) {
+    img.rect(x, 47, 6, 56, shade).rect(x, 47, 1, 56, hi);
+    for (let y = 49; y < 103; y += 5) img.rect(x, y, 6, 1, hi);
+  }
+  // The sand remains open for the actual agents and card table.
+  img.rect(cx - frx - 3, fy - fry - 3, frx * 2 + 6, fry * 2 + 7, dark);
+  img.rect(cx - frx - 1, fy - fry - 1, frx * 2 + 2, fry * 2 + 3, hi);
+  img.rect(cx - frx, fy - fry, frx * 2, fry * 2, P.sand);
+  for (let i = 0; i < 3400; i++) {
+    const x = cx - frx + Math.floor(rand() * frx * 2), y = fy - fry + Math.floor(rand() * fry * 2);
+    img.set(x, y, rand() < 0.5 ? P.sandHi : P.sandLo);
+  }
+  img.rect(cx - frx, fy - fry, frx * 2, 5, hex("#856842", 55));
+  for (let a = 0; a < Math.PI * 2; a += 0.01) img.put(cx + Math.cos(a) * 46, fy + Math.sin(a) * 35, hex("#4f9361", 165));
+  const mark = crest(72); img.blit(mark, cx - 36, fy - Math.round(mark.h / 2), 0.45);
+  // The royal box, with an embroidered canopy and the great crest.
+  block(cx - 29, 42, 58, 29);
+  img.rect(cx - 25, 47, 50, 17, P.deep).rect(cx - 24, 47, 48, 2, P.gold);
+  for (const x of [cx - 25, cx + 24]) img.rect(x, 47, 2, 17, P.goldHi);
+  img.blit(banner(P.dteal, P.deep, P.gold, 32, 27), cx - 19, 1);
+  const torches: { x: number; y: number }[] = [];
+  // Buttresses, crenellations and flaming braziers.
+  for (const x of [13, 41, 285, 313]) {
+    for (const y of [50, 121, 207]) {
+      block(x - 7, y - 11, 15, 25);
+      img.rect(x - 8, y - 13, 17, 3, hi).rect(x - 6, y + 11, 13, 3, P.goldLo);
+      img.ellipse(x, y - 14, 5, 2, P.gold).rect(x - 3, y - 20, 6, 5, P.redHi);
+      img.rect(x - 2, y - 23, 4, 8, hex("#ffb432")).rect(x - 1, y - 25, 2, 9, hex("#ffedac"));
+      torches.push({ x, y: y - 19 });
+    }
+  }
+  for (const x of [18, 72, 110, 218, 256, 310]) img.blit(banner(P.dteal, P.deep, P.gold, 10, 17), x - 8, 28);
+  // South wall with an open gateway and a staircase to the avenue.
+  for (const x of [46, 182]) block(x, 205, 102, 17);
+  for (const x of [cx - 17, cx + 12]) {
+    block(x, 193, 7, 34);
+    img.blit(banner(P.dteal, P.deep, P.gold, 11, 17), x - 6, 186);
+  }
+  img.rect(cx - 10, 204, 20, 24, hex(TERRAIN.paved.base));
+  for (let y = 209; y < 229; y += 4) img.rect(cx - 10, y, 20, 1, hi);
+  for (let y = 192; y < h; y++) for (let x = 0; x < w; x++) {
+    if (y < 204 && x > 46 && x < 283) continue;
+    const colour = img.get(x, y); if (colour[3]) front.set(x, y, colour);
+  }
+  img.outline(); front.outline();
+  writeFileSync(join(out, "arena-torches.json"), JSON.stringify(torches));
+  return { back: img, front, crowd: [still, cheer] };
+}
+
 mkdirSync(out, { recursive: true });
 const save = (name: string, img: Raster) => writePng(join(out, `${name}.png`), img);
 
-const a = arena();
+const modernBuildings: [string, ModernRole][] = [
+  ["hiring-hall", "hiring"], ["strategy-lab", "strategy"], ["game-hall", "games"],
+  ["hall-of-fame", "fame"], ["treasury", "treasury"], ["lookout", "lookout"], ["rulebook-house", "rulebook"],
+];
+for (const [name, role] of modernBuildings) save(`modern-${name}`, modernVillageHouse(role));
+for (const [name, accent] of [["blue", hex("#397d9a")], ["red", hex("#b77357")], ["yellow", P.goldLo], ["purple", hex("#756899")]] as const) {
+  save(`modern-villa-${name}`, modernVilla(accent, name));
+}
+if (process.argv.includes("--modern-only")) process.exit(0);
+
+const a = process.argv.includes("--oval") ? ovalArena() : arena();
 save("arena", a.back);
 save("arena-front", a.front);
 save("arena-crowd", a.crowd[0]);
 save("arena-cheer", a.crowd[1]);
 save("arena-card", a.back.clone().blit(a.crowd[0], 0, 0));
+// A focused rebuild preserves unrelated artwork in an active checkout.
+if (process.argv.includes("--arena-only")) process.exit(0);
 save("banner", banner(P.teal, P.dteal, P.gold));
 save("banner-fame", banner(P.navy, P.deep, P.gold));
 save("banner-gold", banner(P.gold, P.goldLo, P.teal));
@@ -886,4 +1438,95 @@ save("log", logSeat());
 save("strategy-lab", strategyLab());
 save("lookout", lookout());
 save("game-hall", gameHall());
-console.log(`Wrote the village's AgentClash art to ${out}`);
+save("launch-pad", launchPadSheet());
+save("modern-office", modernOffice());
+save("modern-house-a", modernHouse(P.teal));
+save("modern-house-b", modernHouse(P.red));
+save("modern-shop", modernShop());
+save("modern-apartments", modernApartments());
+save("modern-kiosk", modernKiosk());
+save("modern-lamp", modernLamp());
+save("modern-planter", modernPlanter());
+save("bazaar", bazaar());
+save("pier", pier());
+save("launch-pad-card", launchPadFrame(true));
+console.log(`Wrote the village's AgenticPad art to ${out}`);
+
+// --- The pack, recoloured ----------------------------------------------------
+
+/**
+ * The pack's cool greens and teals, each to its place in the terrain palette.
+ * Exact colours only: the pack is drawn in a few flat ones, so nothing else
+ * in a picture - wood, stone, a red flower - is touched.
+ */
+const { grass, tree, water } = TERRAIN;
+const GRASS = { "#9bb94e": grass.base, "#bfba5b": grass.light, "#79a863": grass.low, "#679175": grass.shade, "#5a7d53": grass.shade, "#728844": grass.low };
+const LEAVES = { "#bdd763": tree.tip, "#5ab659": tree.light, "#2f966a": tree.mid, "#27716f": tree.low, "#2a485e": tree.deep, "#161726": tree.shadow };
+const BUSH = { "#d0deb5": grass.light, "#8cc3c4": tree.tip, "#669d9d": tree.light, "#506a69": tree.mid };
+const SPROUT = { "#7cbb4e": grass.light, "#529650": tree.light, "#387253": tree.mid, "#3d4f4d": tree.deep };
+/** The pack's outline, on foliage: the forest's own shadow instead of the pack's navy. */
+const LEAF_INK = { "#161c2e": tree.shadow };
+/** On the ground tiles the outline only ever edges the water: the water's dark edge. */
+const SHORE = { "#161c2e": water.edge };
+
+/** The pack's flat water, in the fountain and the yard's troughs. */
+const POOL = { "#47aba9": water.base };
+
+const deco = (ns: string[], map: Record<string, string>) => Object.fromEntries(ns.map((n) => [`village/tiny-swords/Deco/${n}.png`, map]));
+const MAPS: Record<string, Record<string, string>> = {
+  "village/tiny-swords/Terrain/Ground/Tilemap_Flat.png": { ...GRASS, ...SHORE },
+  "village/tiny-swords/Resources/Trees/Tree.png": { ...LEAVES, ...LEAF_INK },
+  ...deco(["04", "05", "06"], { ...BUSH, ...LEAF_INK }),
+  ...deco(["08", "09"], { ...LEAVES, ...LEAF_INK }),
+  ...deco(["07", "17"], LEAVES),
+  ...deco(["10", "11", "12"], SPROUT),
+  "fixtures/Fountain.png": POOL,
+  "fixtures/Yard.png": POOL,
+  "fixtures/Pumpkin.png": SPROUT,
+};
+
+function recolour(src: Raster, map: Record<string, string>): { img: Raster; changed: number } {
+  const to = new Map(Object.entries(map).map(([from, c]) => [hex(from).slice(0, 3).join(), hex(c)]));
+  const img = src.clone();
+  let changed = 0;
+  for (let y = 0; y < img.h; y++) {
+    for (let x = 0; x < img.w; x++) {
+      const c = img.get(x, y);
+      const n = c[3] > 0 ? to.get(c.slice(0, 3).join()) : undefined;
+      if (!n) continue;
+      img.set(x, y, [n[0], n[1], n[2], c[3]]);
+      changed++;
+    }
+  }
+  return { img, changed };
+}
+
+/** The water: not the pack's flat teal but drawn from the palette, its base with short ripples of the darker teal. */
+function waterTile(): Raster {
+  const img = new Raster(64, 64).rect(0, 0, 64, 64, hex(water.base));
+  const rand = rng(44);
+  for (let k = 0; k < 22; k++) {
+    const x = Math.floor(rand() * 64);
+    const y = Math.floor(rand() * 64);
+    const len = 3 + Math.floor(rand() * 5);
+    // Wrapped, so the tile repeats without a seam.
+    for (let i = 0; i < len; i++) img.set((x + i) % 64, y, hex(rand() < 0.25 ? water.edge : water.mid));
+  }
+  return img;
+}
+
+const warmOut = join(pub, "village/warm");
+for (const path of RECOLOURED) {
+  mkdirSync(dirname(join(warmOut, path)), { recursive: true });
+  if (path.endsWith("Water/Water.png")) {
+    writePng(join(warmOut, path), waterTile());
+    continue;
+  }
+  const map = MAPS[path];
+  if (!map) throw new Error(`${path}: in RECOLOURED but given no colours`);
+  const { img, changed } = recolour(readPng(join(pub, path)), map);
+  // A picture none of whose colours were found has changed in the pack: say so rather than ship it unchanged.
+  if (changed === 0) throw new Error(`${path}: no colour of its map found`);
+  writePng(join(warmOut, path), img);
+}
+console.log(`Recoloured ${RECOLOURED.length} of the pack's pictures to ${warmOut}`);
