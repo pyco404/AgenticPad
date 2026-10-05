@@ -70,6 +70,16 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* The entrance borrows the village's teal banners and square pixel geometry. */
+.welcome-cover {
+  background: radial-gradient(ellipse at 50% 42%, #102b26 0%, #101c22 42%, #080e15 80%);
+}
+.welcome-grid {
+  background-image: linear-gradient(rgb(79 179 173 / 0.07) 1px, transparent 1px), linear-gradient(90deg, rgb(79 179 173 / 0.07) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at center, black, transparent 75%);
+}
+
 /*
  * The grain. One fixed layer behind all content: its colour is --color-grain,
  * its shape a noise mask, so retuning it stays a matter of the variable above.
