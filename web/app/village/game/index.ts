@@ -3,7 +3,9 @@ import * as Phaser from "phaser";
 import type { Resident } from "../residents";
 import type { BuildingLabel } from "./building";
 import type { VillageMap } from "./map";
+import { VOID } from "./palette";
 import { VillageScene, type VillageEvents } from "./scene";
+import { CROSSROADS, lakeTerrain, WORLD } from "./world";
 
 export type { BuildingLabel } from "./building";
 
@@ -43,7 +45,16 @@ export async function startVillage(
 ): Promise<VillageHandle> {
   const res = await fetch(`${opts.base}/map.json`);
   if (!res.ok) throw new Error(`village map: ${res.status}`);
-  const map = (await res.json()) as VillageMap;
+  // Agent Quest's map brings Old Town's ground, its in-town trees and its props; the world round it is
+  // laid out here (world.ts): its size, plain grass under everything, the small lake, the crossroads' plazas.
+  const imported = (await res.json()) as VillageMap;
+  const map: VillageMap = {
+    ...imported,
+    world: { x0: WORLD.x0, y0: WORLD.y0, width: WORLD.x1 - WORLD.x0, height: WORLD.y1 - WORLD.y0 },
+    baseFrame: 11,
+    terrain: lakeTerrain(),
+    plazas: CROSSROADS.map((c) => [c.x, c.y]),
+  };
 
   const scene = new VillageScene(map, opts);
   const size = () => {
@@ -54,7 +65,7 @@ export async function startVillage(
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: container,
-    backgroundColor: "#141a24",
+    backgroundColor: VOID,
     // Nearest-neighbour everywhere: it is pixel art.
     pixelArt: true,
     banner: false,
