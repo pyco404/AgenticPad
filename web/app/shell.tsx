@@ -616,8 +616,9 @@ function PhoneStats({ world, hidden }: { world: World; hidden: boolean }) {
   const cells: { label: string; value: number | undefined; tone: string; title?: string }[] = [
     { label: "Active", value: t?.active, tone: "text-live" },
     { label: "Idle", value: t?.idle, tone: "text-accent" },
-    { label: "Done", value: t?.done, tone: "text-text", title: "Matches finished in the live window" },
+    { label: "Done", value: t?.done, tone: "text-text", title: "Player matches finished in the live window; exhibitions excluded" },
     { label: "Total", value: t?.total, tone: "text-text" },
+    { label: "House", value: t?.house, tone: "text-muted", title: "Demo agents; excluded from player counts" },
   ];
   return (
     <div
@@ -631,7 +632,7 @@ function PhoneStats({ world, hidden }: { world: World; hidden: boolean }) {
           <span className={tone}>{state}</span>
         </span>
       </p>
-      <p className="flex gap-3 sm:flex-col sm:gap-0">
+      <p className="flex flex-wrap gap-x-3 sm:flex-col sm:gap-0">
         {cells.map((c) => (
           <span key={c.label} title={c.title} className="sm:flex sm:justify-between sm:gap-4">
             <span className="text-muted">{c.label}:</span> <span className={c.tone}>{n(c.value)}</span>
