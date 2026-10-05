@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
   makeStrategy,
-  AGENTCLASH_RULES,
+  AGENTICPAD_RULES,
   policyAgent,
   PRESET_NAMES,
   PRESETS,
@@ -16,8 +16,8 @@ import {
 // on the same scale the presets are balanced on.
 // Usage: npm run score-policies [-- <dir or file>...]
 
-const stakes: Stakes = AGENTCLASH_RULES.stakes;
-const opts = { stakes, turnOrder: AGENTCLASH_RULES.turnOrder, deal: AGENTCLASH_RULES.deal } as const;
+const stakes: Stakes = AGENTICPAD_RULES.stakes;
+const opts = { stakes, turnOrder: AGENTICPAD_RULES.turnOrder, deal: AGENTICPAD_RULES.deal } as const;
 const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const paths = (args.length ? args : ["policies"]).flatMap((p) =>
   p.endsWith(".json") ? [p] : readdirSync(p).filter((f) => f.endsWith(".json")).map((f) => join(p, f)),
