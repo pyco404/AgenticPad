@@ -3,7 +3,7 @@ import {
   EDGES,
   expectedNet,
   InvalidPolicyError,
-  AGENTCLASH_RULES,
+  AGENTICPAD_RULES,
   playMatch,
   policyAgent,
   policyFromAgent,
@@ -36,7 +36,7 @@ const view = (over: Partial<View> = {}): View => ({
   roundNumber: 1,
   oppRaiseCount: 0,
   oppRaisedLastRound: false,
-  stakes: AGENTCLASH_RULES.stakes,
+  stakes: AGENTICPAD_RULES.stakes,
   myNet: 0,
   oppActionThisRound: null,
   myActionThisRound: null,
@@ -129,8 +129,8 @@ describe("policy elicitation", () => {
   });
 
   it("the prompt is a pure function of the stakes and brief, and leaks nothing", () => {
-    const prompt = buildPrompt(AGENTCLASH_RULES.stakes, "play tight");
-    expect(prompt).toBe(buildPrompt(AGENTCLASH_RULES.stakes, "play tight"));
+    const prompt = buildPrompt(AGENTICPAD_RULES.stakes, "play tight");
+    expect(prompt).toBe(buildPrompt(AGENTICPAD_RULES.stakes, "play tight"));
     expect(prompt).toContain("You see only your own edge");
     expect(prompt).toContain("play tight");
     // Nothing about the opponent's draw, the coin roll or the seed.
