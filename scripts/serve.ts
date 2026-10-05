@@ -80,22 +80,7 @@ if (exhibitionMs > 0) {
     onError: (error) => console.error(`traits: ${String(error).slice(0, 160)}`),
   });
 }
-// Autoplay: agents play on a timer, without their owners present. On by
-// default, because an agent only plays once its own owner has switched it on;
-// AUTOPLAY_INTERVAL_MS=0 turns the loop off entirely.
 const autoplayMs = Number(process.env["AUTOPLAY_INTERVAL_MS"] ?? AUTOPLAY_INTERVAL_MS);
-if (autoplayMs > 0) {
-  const { startAutoplay } = await import("../src/db/autoplay.js");
-  startAutoplay(db, {
-    intervalMs: autoplayMs,
-    onError: (error) => console.error(`autoplay: ${String(error).slice(0, 160)}`),
-    onLog: (line) => console.log(line),
-  });
-  const every = autoplayMs < 60_000 ? `${Math.round(autoplayMs / 1000)} seconds` : `${autoplayMs / 60_000} minutes`;
-  console.log(`Autoplay: one match per agent every ${every}`);
-} else {
-  console.log("Autoplay: off (AUTOPLAY_INTERVAL_MS=0)");
-}
 
 const rpc = process.env["CHAIN_RPC_URL"];
 // The token holders hold: $AGP on mainnet, the faucet's test token on devnet.
@@ -142,7 +127,18 @@ if (rpc && mint) {
       .filter(Boolean),
   );
   if (mode || allowed.size) {
-    const holdingsChain = rpcHoldings(new Connection(rpc, "confirmed"), new PublicKey(mint));
+    const connection = new Connection(rpc, "confirmed");
+    const mainnet = await connection.getGenesisHash() === "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+    const { useLiveHolderPricing } = await import("../src/holder-policy.js");
+    useLiveHolderPricing(mainnet);
+    const discoveryRpc = process.env["HOLDER_DISCOVERY_RPC_URL"] ?? process.env["CHAIN_RPC_URL_HELIUS"] ?? (mainnet && rpc.includes("helius") ? rpc : undefined);
+    if (discoveryRpc && mode && await new Connection(discoveryRpc).getGenesisHash() !== await connection.getGenesisHash()) {
+      throw new Error("Holder discovery and balance RPC must use the same Solana network");
+    }
+    const holdingsChain = rpcHoldings(connection, new PublicKey(mint), {
+      livePricing: mainnet,
+      ...(discoveryRpc && mode ? { discoveryRpc } : {}),
+    });
     holderFlow = { chain: holdingsChain, allow: (ownerId) => mode || allowed.has(ownerId) };
     startHoldings(db, holdingsChain, {
       ...(Number(process.env["HOLDINGS_INTERVAL_MS"]) > 0 ? { intervalMs: Number(process.env["HOLDINGS_INTERVAL_MS"]) } : {}),
@@ -154,6 +150,23 @@ if (rpc && mint) {
     console.log("Holders: off (set FUNDING_MODE=holder or HOLDER_WALLETS to turn them on)");
   }
 }
+
+// Autoplay: agents play on a timer, without their owners present. On by
+// default for newly activated holders;
+// AUTOPLAY_INTERVAL_MS=0 turns the loop off entirely.
+if (autoplayMs > 0) {
+  const { startAutoplay } = await import("../src/db/autoplay.js");
+  startAutoplay(db, {
+    intervalMs: autoplayMs,
+    onError: (error) => console.error(`autoplay: ${String(error).slice(0, 160)}`),
+    onLog: (line) => console.log(line),
+  });
+  const every = autoplayMs < 60_000 ? `${Math.round(autoplayMs / 1000)} seconds` : `${autoplayMs / 60_000} minutes`;
+  console.log(`Autoplay: one match per agent every ${every}`);
+} else {
+  console.log("Autoplay: off (AUTOPLAY_INTERVAL_MS=0)");
+}
+
 
 // Characters check chosen names and write bios for brief-written agents with
 // a small model, when there is a key to call one with.
