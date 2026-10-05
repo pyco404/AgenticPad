@@ -111,10 +111,10 @@ is not connected to the game yet.** Real launches keep that tracker stage
 pending and never pretend to activate an agent. The existing single-token game
 holder flow remains separate.
 
-Market cap, volume, holder counts and bonding progress require a market indexer;
-real launches return `null` and show a dash for those figures. They are listed
-newest-first until statistics are connected, rather than inventing prices or
-rankings. No fee-claiming worker or automatic reward payout is added here.
+Market cap and 24-hour volume now come from the persisted DEX Screener monitor,
+with verified inactive tokens excluded. Unknown or stale figures show a dash.
+Holder counts and bonding progress remain unavailable. See
+[automatic agents and monitoring](automatic-agents.md). No fee-claiming worker or automatic reward payout is added here.
 
 The SDK's native ESM dependency chain currently has an Anchor `BN` export
 problem under Node. The server loads the SDK's published CommonJS entry through
