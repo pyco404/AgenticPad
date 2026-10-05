@@ -1,3 +1,4 @@
+import { readStoredValue, removeStoredValue } from "./browser-storage";
 import bs58 from "bs58";
 import { API } from "./api";
 
@@ -48,7 +49,7 @@ export type SignInMethod = WalletName | "Privy";
 
 export type Session = { token: string; ownerId: string; wallet: SignInMethod; expiresAt: string };
 
-const SESSION_KEY = "oxude.session";
+const SESSION_KEY = "agenticpad.session";
 
 /**
  * The session token lives in localStorage so a refresh does not ask for a new
@@ -58,7 +59,7 @@ const SESSION_KEY = "oxude.session";
  */
 export function loadSession(): Session | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = readStoredValue(localStorage, SESSION_KEY);
     if (!raw) return null;
     const session = JSON.parse(raw) as Session;
     return new Date(session.expiresAt).getTime() > Date.now() ? session : null;
@@ -70,7 +71,7 @@ export function loadSession(): Session | null {
 function saveSession(session: Session | null) {
   try {
     if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    else localStorage.removeItem(SESSION_KEY);
+    else removeStoredValue(localStorage, SESSION_KEY);
   } catch {
     /* storage unavailable: the session lasts this page load */
   }
@@ -158,8 +159,14 @@ export async function signTransactionWith(session: Session, prepared: string): P
   if (connected !== session.ownerId) {
     throw new Error(`${session.wallet} is on a different account: switch it to ${shortKey(session.ownerId)} and try again`);
   }
-  const { Transaction } = await import("@solana/web3.js");
-  const signed = await provider.signTransaction(Transaction.from(fromBase64(prepared)));
+  const { Transaction, VersionedTransaction } = await import("@solana/web3.js");
+  const bytes = fromBase64(prepared);
+  const versioned = VersionedTransaction.deserialize(bytes);
+  if (versioned.version !== "legacy") {
+    const signed = await provider.signTransaction(versioned);
+    return toBase64(signed.serialize());
+  }
+  const signed = await provider.signTransaction(Transaction.from(bytes));
   return toBase64(signed.serialize({ requireAllSignatures: false, verifySignatures: false }));
 }
 
