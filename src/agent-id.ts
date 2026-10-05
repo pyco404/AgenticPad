@@ -7,7 +7,8 @@ import { PublicKey } from "@solana/web3.js";
  * the same hash when it opens the vault and records the owner in that
  * instruction, so no key - the server's included - can record anyone else as
  * this agent's owner. A house agent hashes 32 zero bytes in the owner's place.
- * Must match `agent_id_for` in chain/programs/oxude_settlement/src/lib.rs.
+ * The original hash domain is retained so existing owner/salt proofs still
+ * produce their recorded IDs after a branding change.
  */
 
 const DOMAIN = Buffer.from("oxude-agent-v1");
