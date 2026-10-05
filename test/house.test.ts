@@ -17,6 +17,24 @@ const fresh = async () => {
 };
 
 describe("house exhibitions", () => {
+  it("pauses at ten eligible autoplay players and resumes below ten", async () => {
+    const { db, close } = await fresh();
+    try {
+      await createAgent(db, { name: "DemoA", presetName: "Anchor" });
+      await createAgent(db, { name: "DemoB", presetName: "Hammer" });
+      for (let i = 0; i < 9; i++) {
+        const player = await createPlayer(db, { name: `Player${i}`, presetName: "Mirage", ownerId: someWallet() });
+        await db.update(agents).set({ autoplay: true }).where(eq(agents.id, player.id));
+      }
+      expect(await pickHousePair(db)).not.toBeNull();
+      const tenth = await createPlayer(db, { name: "PlayerTen", presetName: "Bully", ownerId: someWallet() });
+      await db.update(agents).set({ autoplay: true }).where(eq(agents.id, tenth.id));
+      expect(await pickHousePair(db)).toBeNull();
+      await db.update(agents).set({ autoplay: false }).where(eq(agents.id, tenth.id));
+      expect(await pickHousePair(db)).not.toBeNull();
+    } finally { await close(); }
+  });
+
   it("record a match and move nothing: no ledger, no chain, no balance, no rating", async () => {
     const { db, close } = await fresh();
     const a = await createAgent(db, { name: "HouseA", presetName: "Mirage" });
