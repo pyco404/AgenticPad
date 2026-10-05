@@ -189,8 +189,9 @@ export class VillageScene extends Phaser.Scene {
     for (const b of this.opts.buildings) {
       const site = SITES[b.id];
       if (!site) continue;
-      if (site.sheet) this.load.spritesheet(`building-${b.id}`, site.art, { frameWidth: site.sheet.width, frameHeight: site.sheet.height });
-      else this.load.image(`building-${b.id}`, site.art);
+      const art = b.id === "arena" ? `${site.art}?v=agp-logo-1` : site.art;
+      if (site.sheet) this.load.spritesheet(`building-${b.id}`, art, { frameWidth: site.sheet.width, frameHeight: site.sheet.height });
+      else this.load.image(`building-${b.id}`, art);
     }
     loadDressing(this);
     // What the village grows with: New Town's buildings, lamps and planters (growth.ts).
