@@ -2,28 +2,26 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Segmented } from "@/app/ui";
-import { launchpad, type LaunchSort, type TokenSummary } from "@/lib/launchpad";
+import { launchpad, usd, type TokenSummary } from "@/lib/launchpad";
 import { Board, FeeSplitBar, formatDate, MockNote, TokenImage, VerificationBadge } from "./parts";
 import { useLaunchConfig } from "./use-config";
 
 /** The launchpad's front: what launching means, the way in, and every token launched. */
 export function LaunchIndex() {
   const { config } = useLaunchConfig();
-  const [sort, setSort] = useState<LaunchSort>("newest");
   const [tokens, setTokens] = useState<TokenSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let gone = false;
-    launchpad.listLaunches({ sort, limit: 10 }).then(
-      (page) => !gone && setTokens(page.tokens),
+    launchpad.listLaunches({ sort: "marketCap", limit: 5 }).then(
+      (page) => !gone && setTokens(page.tokens.filter((token) => token.marketCapUsd !== null)),
       (e: Error) => !gone && setError(e.message),
     );
     return () => {
       gone = true;
     };
-  }, [sort]);
+  }, []);
 
   return (
     <div className="space-y-3">
@@ -32,7 +30,7 @@ export function LaunchIndex() {
         {config ? (
           <>
             <p>
-              Launch a token on pump.fun from here. {config.agentsEnabled ? `Every wallet holding at least $${config.minimumUsd} of it gets an agent in the village.` : "Holder-agent activation is planned; launches currently create the token and lock its creator fee split."}
+              launch token. {config.agentsEnabled ? `Every wallet holding at least $${config.minimumUsd} of it gets an agent in the village.` : "Holder-agent activation is planned; launches currently create the token and lock its creator fee split."}
             </p>
             <p className="mt-2">
               <span className="text-accent">Mandatory launch fee: {config.launchFeeLamports / 1_000_000_000} SOL per token.</span>{" "}
@@ -72,26 +70,17 @@ export function LaunchIndex() {
       </Link>
 
       <Board
-        sign="Latest launches"
+        sign="Top market cap"
         action={
-          <div className="w-56">
-            <Segmented
-              options={[
-                { value: "newest", label: "Newest" },
-                { value: "agents", label: "Agents in play" },
-              ]}
-              value={sort}
-              onChange={setSort}
-            />
-          </div>
+          <Link href="/explore" className="text-[13px] text-accent hover:text-text">View all →</Link>
         }
       >
         {error ? (
-          <p className="text-loss">The launches could not be read: {error}</p>
+          <p className="text-loss">The tokens could not be read: {error}</p>
         ) : !tokens ? (
           <p className="text-muted">Loading…</p>
         ) : tokens.length === 0 ? (
-          <p className="text-muted">No tokens launched yet.</p>
+          <p className="text-muted">No market cap data available yet.</p>
         ) : (
           <ul className="-my-1 divide-y divide-line">
             {tokens.map((t) => (
@@ -113,7 +102,11 @@ export function LaunchIndex() {
                       <span>{formatDate(t.launchedAt)}</span>
                     </p>
                   </div>
-                  <VerificationBadge v={t.verification} />
+                  <div className="shrink-0 text-right">
+                    <p className="font-mono text-[14px] text-accent">{usd(t.marketCapUsd)}</p>
+                    <p className="text-[10px] text-muted">Market cap</p>
+                    <VerificationBadge v={t.verification} />
+                  </div>
                 </Link>
               </li>
             ))}
