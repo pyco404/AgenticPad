@@ -55,18 +55,17 @@ type ShellProps = { children: ReactNode; chip: ReactNode };
 export function Shell({ children, chip }: ShellProps) {
   const path = usePathname() ?? "/";
   return path === "/admin" || path.startsWith("/admin/")
-    ? <AdminShell chip={chip}>{children}</AdminShell>
+    ? <AdminShell>{children}</AdminShell>
     : <VillageShell chip={chip}>{children}</VillageShell>;
 }
 
-function AdminShell({ children, chip }: ShellProps) {
+function AdminShell({ children }: { children: ReactNode }) {
   const [night, toggleNight] = useNight();
   return (
     <div className="h-dvh overflow-y-auto bg-ink">
       <SiteBar night={night} onNight={toggleNight} showing villageUp={false} />
       <div className="hud-page mx-auto w-full max-w-6xl px-3 pb-6 pt-20 sm:px-6">
         {children}
-        <div className="mt-4 flex justify-end">{chip}</div>
       </div>
     </div>
   );
@@ -580,7 +579,6 @@ function Cover({ up, drawn }: { up: boolean; drawn: boolean }) {
     >
       <div aria-hidden className="welcome-grid absolute inset-0" />
       <div className="relative flex max-h-[calc(100dvh-4rem)] w-full max-w-md flex-col items-center overflow-y-auto text-center">
-        <p className="mb-8 text-[10px] uppercase tracking-[0.3em] text-teal sm:text-xs">Welcome to the village</p>
         <div className="relative mb-7 flex h-28 w-28 shrink-0 items-center justify-center sm:h-36 sm:w-36">
           <img
             src="/agenticpad-tb.png"
@@ -599,7 +597,7 @@ function Cover({ up, drawn }: { up: boolean; drawn: boolean }) {
         </div>
         <div className="mt-10 w-full max-w-xs">
           <div className="mb-2 flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-muted">
-            <span>{up ? "Ready" : drawn ? "Gathering agents" : "Building the village"}</span>
+            <span>{up ? "Ready" : drawn ? "Gathering agents" : "Building field"}</span>
             <span className="text-teal">{pct}%</span>
           </div>
           <div
