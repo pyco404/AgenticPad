@@ -524,7 +524,7 @@ function Village({
 }
 
 /**
- * What shows while the world is loading: only the mark, on the village's own
+ * What shows while the world is loading: a branded entrance, on the village's own
  * dark, over everything - no bar, no page, no half-drawn map. It fades once the
  * village is drawn with its agents standing in it, and is gone for the rest of
  * the visit: moving between pages never brings it back.
@@ -551,36 +551,53 @@ function Cover({ up, drawn }: { up: boolean; drawn: boolean }) {
   return (
     <div
       aria-hidden={up}
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-[radial-gradient(ellipse_at_center,rgb(10_14_20/0.84),rgb(6_9_13/0.97)_55%,rgb(4_6_9)_85%)] transition-opacity delay-200 duration-500 motion-reduce:transition-none ${
+      className={`welcome-cover fixed inset-0 z-50 flex items-center justify-center overflow-hidden px-6 py-8 transition-opacity delay-200 duration-500 motion-reduce:transition-none ${
         up ? "pointer-events-none opacity-0" : "opacity-100"
       }`}
     >
-      <img
-        src="/agenticpad-tb.png"
-        alt=""
-        width={450}
-        height={315}
-        className="aspect-[10/7] h-auto w-40 object-fill [filter:drop-shadow(0_0_18px_rgb(111_158_92/0.35))] [image-rendering:pixelated] md:w-48 lg:w-80"
-      />
-      <p className="font-pixel text-[48px] font-bold leading-none tracking-[0.04em] text-brand [text-shadow:0_3px_0_rgb(90_0_0),0_0_24px_rgb(255_45_45/0.25)] md:text-[64px]">
-        AgenticPad
-      </p>
-      <div
-        role="progressbar"
-        aria-label="Loading the village"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={pct}
-        className="mt-4 h-4 w-[min(300px,72vw)] rounded-[3px] border-2 border-[#5b6068] bg-black/70 p-[2px] shadow-[0_0_0_1px_rgb(0_0_0/0.6)]"
-      >
-        <div
-          className="h-full rounded-[1px] bg-[linear-gradient(90deg,#1c5a33,#2f8f52_60%,#5fd88a)] shadow-[0_0_10px_rgb(95_216_138/0.55)] transition-[width] duration-300 ease-out motion-reduce:transition-none"
-          style={{ width: `${pct}%` }}
-        />
+      <div aria-hidden className="welcome-grid absolute inset-0" />
+      <div className="relative flex max-h-[calc(100dvh-4rem)] w-full max-w-md flex-col items-center overflow-y-auto text-center">
+        <p className="mb-8 text-[10px] uppercase tracking-[0.3em] text-teal sm:text-xs">Welcome to the village</p>
+        <div className="relative mb-7 flex h-28 w-28 shrink-0 items-center justify-center sm:h-36 sm:w-36">
+          <img
+            src="/agenticpad-tb.png"
+            alt=""
+            width={372}
+            height={370}
+            className="h-20 w-20 object-contain [image-rendering:pixelated] sm:h-24 sm:w-24"
+          />
+        </div>
+        <p className="font-pixel text-[clamp(26px,7vw,42px)] font-bold leading-tight text-text">
+          AgenticPad
+        </p>
+        <p className="mt-3 text-sm leading-6 text-muted">Launch your token. Let your agent play.</p>
+        <div className="mt-6 flex items-center gap-4 text-[10px] uppercase tracking-[0.18em] text-teal sm:text-xs">
+          <span>Launch</span><span aria-hidden className="h-1 w-1 bg-accent" /><span>Hold</span><span aria-hidden className="h-1 w-1 bg-accent" /><span>Compete</span>
+        </div>
+        <div className="mt-10 w-full max-w-xs">
+          <div className="mb-2 flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-muted">
+            <span>{up ? "Ready" : drawn ? "Gathering agents" : "Building the village"}</span>
+            <span className="text-teal">{pct}%</span>
+          </div>
+          <div
+            role="progressbar"
+            aria-label="Loading the village"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={pct}
+            className="h-2 w-full border border-teal/30 bg-ink p-px"
+          >
+            <div
+              className="h-full bg-teal transition-[width] duration-300 ease-out motion-reduce:transition-none"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <p role="status" className="mt-3 text-xs text-muted">
+            {up ? "Your village is ready." : "Preparing your entrance…"}
+          </p>
+        </div>
+        <p className="mt-10 text-[10px] uppercase tracking-[0.22em] text-muted">Built on Solana</p>
       </div>
-      <p role="status" className="text-[15px] tracking-wide text-muted md:text-[17px]">
-        Entering the arena...
-      </p>
     </div>
   );
 }
