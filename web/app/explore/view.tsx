@@ -1,5 +1,6 @@
 "use client";
 
+import { PlatformStats } from "../platform-stats";
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { launchpad, usd, type LaunchSort, type TokenSummary } from "@/lib/launchpad";
@@ -284,6 +285,7 @@ export function Explore() {
 
   return (
     <div className="space-y-3">
+      <PlatformStats />
       {launchpad.mock ? <MockNote /> : null}
       <div className="hud-card flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center">
         <input
