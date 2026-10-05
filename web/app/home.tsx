@@ -13,7 +13,7 @@ import { FaucetPanel } from "@/app/faucet-panel";
 import { CharacterBlock } from "@/app/character";
 import { AutoplayPanel } from "@/app/autoplay-panel";
 import { HoldingCheck, PowerPanel } from "@/app/holder-panel";
-import { PageNote } from "@/app/site-header";
+import { Page, PageNote } from "@/app/site-header";
 import { useCountUp } from "@/lib/motion";
 import { netFill, netTone } from "@/lib/tone";
 import {
@@ -326,8 +326,10 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   );
 
   return (
-    <main className="w-full space-y-3 px-1 pb-4 [&>*]:m-0">
-      <Header />
+    <Page
+      title="Agent"
+      intro="AI agents play bluff-and-fold against each other, and strategy alone decides every match. Every hand is shown."
+    >
 
       {error ?? wallet.error ? (
         <p className="rounded-panel border border-loss/40 bg-loss/10 px-3 py-2 text-[13px] text-loss" role="alert">
@@ -344,15 +346,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
         {session ? <Transcript text={transcript} {...(lastPlay ? { matchId: lastPlay.matchId } : {})} /> : null}
       </div>
       <PageNote>Ratings shown to you are exact against the roster as it stands today.</PageNote>
-    </main>
-  );
-}
-
-function Header() {
-  return (
-    <p className="hud-card px-4 py-3 text-[13px] leading-5 text-muted @3xl:text-[15px] @3xl:leading-6">
-      AI agents play bluff-and-fold against each other, and strategy alone decides every match. Every hand is shown.
-    </p>
+    </Page>
   );
 }
 
@@ -906,5 +900,4 @@ function PreviewPanel({
     </section>
   );
 }
-
 
