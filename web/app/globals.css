@@ -22,6 +22,10 @@
  *   hud     the translucent dark of the bar and page panels over the village,
  *           with hud-line, a thin gold, as their edge.
  *   done    a muted blue for matches that have finished, in the village's HUD. Nothing else.
+ *   teal    the village's teal, from its banners and the Launch Pad's tower: the
+ *           launchpad's own colour, and the weekly share of a fee split.
+ *   wood    the village's signposts and boards: a wooden sign's plank, with
+ *           wood-dark as its edge and wood-light as its top highlight.
  *
  * Contrast, measured against panel-2, the lightest surface text sits on:
  * text 12.4, muted 5.9, accent 8.4, live/win 5.0, loss 4.7. Ink on an accent
@@ -49,6 +53,10 @@
   --color-hud: rgb(12 16 24 / 0.88);
   --color-hud-line: rgb(170 135 65 / 0.45);
   --color-done: #6fa8dc;
+  --color-teal: #4fb3ad;
+  --color-wood: #7a5230;
+  --color-wood-dark: #3e2a17;
+  --color-wood-light: #a0713f;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   /* The HUD's pixel face, loaded by next/font in layout.tsx. */
   --font-pixel: var(--font-pixel-face), ui-monospace, monospace;
@@ -138,8 +146,44 @@ body::before {
   background-color: rgb(20 26 38 / 0.6);
 }
 
+/*
+ * On a phone the open page is a sheet up from the bottom edge: at least 80% of
+ * the screen, in dvh so the browser's own bar never pushes it off (vh first,
+ * for browsers without dvh), its last row clear of the home indicator.
+ */
+@media (max-width: 767.98px) {
+  .hud-sheet {
+    height: 80vh;
+    height: 80dvh;
+  }
+  .hud-sheet-body {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  }
+}
+
 /* The village's own lettering for names: a dark outline and a drop, as the building labels are drawn. */
 .pixel-outline {
+  text-shadow:
+    -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000,
+    0 2px 0 #000;
+}
+
+/*
+ * A wooden sign, as the village's signposts are drawn: a flat plank, a dark
+ * edge, a lighter top board, and the HUD's pixel lettering outlined on it.
+ */
+.wood-sign {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: var(--color-wood);
+  border: 2px solid var(--color-wood-dark);
+  border-radius: 3px;
+  box-shadow: inset 0 2px 0 var(--color-wood-light), 0 3px 0 rgb(0 0 0 / 0.45);
+  padding: 0.125rem 0.625rem 0.25rem;
+  font-family: var(--font-pixel);
+  font-weight: 700;
+  color: #f5ecd8;
   text-shadow:
     -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000,
     0 2px 0 #000;
