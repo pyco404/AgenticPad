@@ -1,5 +1,6 @@
 "use client";
 
+import { PlatformStats } from "../platform-stats";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { launchpad, usd, type TokenSummary } from "@/lib/launchpad";
@@ -25,6 +26,7 @@ export function LaunchIndex() {
 
   return (
     <div className="space-y-3">
+      <PlatformStats />
       {launchpad.mock ? <MockNote /> : null}
       <Board sign="Launch a token">
         {config ? (
