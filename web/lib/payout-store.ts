@@ -31,6 +31,7 @@ export class PayoutStore {
     try {
       const plan = this.get(id);
       if (!plan) throw new Error("Payout plan not found.");
+      if (BigInt(plan.platformLamports) !== 0n) throw new Error("This older plan includes a platform cut. Preview a new plan that retains unpaid SOL in the reward wallet.");
       if (plan.status !== "approved") {
         const existing = this.db.prepare("SELECT id FROM payout_plans WHERE kind = ? AND period = ? AND status = 'approved'").get(plan.kind, plan.period);
         if (existing) throw new Error("A payout is already approved for this period.");
