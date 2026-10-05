@@ -166,9 +166,9 @@ describe("POST /agents", () => {
     expect(bad.status).toBe(400);
     expect((await readBody(bad)).known).toEqual(PRESET_NAMES);
 
-    const badName = await api("/agents", { method: "POST", owner: "impostor", body: JSON.stringify({ name: "AgentClash Admin", presetName: "Bully" }) });
+    const badName = await api("/agents", { method: "POST", owner: "impostor", body: JSON.stringify({ name: "AgenticPad Admin", presetName: "Bully" }) });
     expect(badName.status).toBe(400);
-    expect((await readBody(badName)).error).toMatch(/speaking for AgentClash/);
+    expect((await readBody(badName)).error).toMatch(/speaking for AgenticPad/);
 
     // A token nobody issued is simply signed out.
     const forged = await fetch(`${url}/agents`, {
@@ -557,7 +557,7 @@ describe("wallet sign-in", () => {
   it("rejects a tampered message: the server verifies what it issued, not what was sent", async () => {
     const publicKey = walletOf("tamper");
     const issued = await readBody(await post("/auth/nonce", { publicKey }));
-    const altered = issued.message.replace("Sign in to AgentClash", "Approve a transfer");
+    const altered = issued.message.replace("Sign in to AgenticPad", "Approve a transfer");
     const res = await post("/auth/verify", { publicKey, nonce: issued.nonce, signature: signFor("tamper", altered) });
     expect(res.status).toBe(401);
   });
