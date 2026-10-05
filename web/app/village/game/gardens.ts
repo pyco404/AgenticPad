@@ -1,6 +1,7 @@
 import type * as Phaser from "phaser";
 import { nearRoad, ROADS, SITES, type Rect } from "./town";
 import { CROSSROADS } from "./world";
+import { SOLAR_LIGHTS } from "./dressing";
 
 /** Hand tended gardens around the playable village; never inputs to a match. */
 export const GARDEN_PONDS: Rect[] = [
@@ -111,8 +112,10 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
       scene.add.image(x!, y!, "ac-bench").setOrigin(0.5, 1).setScale(2).setDepth(y!);
     }
   }
-  // Lit Victorian lanterns and crest banners along the town's streets.
+  // Keep banners along the streets, but only a few widely separated lanterns.
+  // Include the plaza's solar lights so the two styles never crowd each other.
   const used = new Set<string>();
+  const lights = [...SOLAR_LIGHTS];
   for (const road of ROADS) {
     if (road.style === "trail" || road.style === "dirt") continue;
     for (let i = 1; i < road.points.length; i++) {
@@ -128,10 +131,12 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
           const key = `${Math.round(x / 35)},${Math.round(y / 35)}`;
           if (used.has(key)) continue;
           used.add(key);
-          scene.add.image(x, y, "garden-lantern").setOrigin(0.5, 1).setScale(1.35).setDepth(y);
           if (Math.floor(d / 145) % 2 === 0 && side === 1 && scene.textures.exists("ac-banner")) {
             scene.add.image(x + nx * 31, y + ny * 31, "ac-banner").setOrigin(0.5, 1).setScale(1.3).setDepth(y + ny * 31);
           }
+          if (lights.length >= 10 || lights.some((p) => Math.hypot(x - p.x, y - p.y) < 500)) continue;
+          lights.push({ x, y });
+          scene.add.image(x, y, "garden-lantern").setOrigin(0.5, 1).setScale(1.35).setDepth(y);
         }
       }
     }
