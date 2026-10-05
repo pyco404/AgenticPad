@@ -72,6 +72,13 @@ as twelve-hour activity.
 
 ## Public totals
 
+House exhibitions pause once ten unretired real agents under the same funding
+program have autoplay enabled and currently meet the holding requirement. The
+house loop resumes below that threshold; exhibitions already played may finish
+their visual playback. Village Active, Idle and Total counts include real agents
+only, with house residents listed separately. Completed-match counts exclude
+exhibitions. House agents never receive rankings or rewards.
+
 Agent, Launch and Explore show active tokens, active autoplay agents, combined
 24-hour token volume, current daily plus weekly reward-wallet SOL balances, and
 a payout-total slot. Archived tokens do not contribute to token totals or volume.
