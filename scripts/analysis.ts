@@ -1,6 +1,6 @@
 import {
   CLASSIC_STAKES,
-  AGENTCLASH_RULES,
+  AGENTICPAD_RULES,
   makeStrategy,
   PRESET_NAMES,
   PRESETS,
@@ -110,8 +110,8 @@ export function stakesFromEnv(): Stakes {
     return v;
   };
   return {
-    ante: num("ANTE", AGENTCLASH_RULES.stakes.ante),
-    baseBet: num("BASE_BET", AGENTCLASH_RULES.stakes.baseBet),
-    raisedBet: num("RAISED_BET", AGENTCLASH_RULES.stakes.raisedBet),
+    ante: num("ANTE", AGENTICPAD_RULES.stakes.ante),
+    baseBet: num("BASE_BET", AGENTICPAD_RULES.stakes.baseBet),
+    raisedBet: num("RAISED_BET", AGENTICPAD_RULES.stakes.raisedBet),
   };
 }
