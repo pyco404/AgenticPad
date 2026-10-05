@@ -57,10 +57,12 @@ function sectionOf(path: string): string | null {
   return null;
 }
 
+const LOGO_CLASS = "aspect-[10/7] h-6 w-auto object-fill [image-rendering:pixelated] lg:h-8";
+
 function Mark() {
   return (
     <Link href="/" aria-label="AgenticPad home" className="flex shrink-0 items-center gap-2">
-      <img src="/agenticpad-tb.png" alt="" width={450} height={315} className="aspect-[10/7] h-6 w-auto object-fill [image-rendering:pixelated] lg:h-8" />
+      <img src="/agenticpad-tb.png" alt="" width={450} height={315} className={LOGO_CLASS} />
     </Link>
   );
 }
@@ -388,7 +390,7 @@ function MenuPanel({ active, onClose }: { active: string | null; onClose: () => 
       className="rounded-panel fixed inset-x-2 top-2 z-40 flex max-h-[calc(100dvh-1rem)] flex-col overflow-y-auto border border-hud-line bg-hud px-4 pb-4 pt-3 shadow-[0_10px_32px_rgb(0_0_0/0.6)] sm:inset-x-auto sm:right-3 sm:top-16 sm:w-80"
     >
       <div className="flex items-center justify-between pb-2">
-        <img src="/agenticpad-tb.png" alt="AgenticPad" width={450} height={315} className="aspect-[10/7] h-12 w-auto object-fill [image-rendering:pixelated]" />
+        <img src="/agenticpad-tb.png" alt="AgenticPad" width={450} height={315} className={LOGO_CLASS} />
         <div className="flex items-center gap-3">
           <span
             aria-hidden
