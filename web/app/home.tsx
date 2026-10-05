@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { readStoredValue, removeStoredValue } from "@/lib/browser-storage";
 
 import { AgentName } from "@/app/agent-name";
@@ -341,6 +342,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       title="Agent"
       intro="Hold at least $20 worth of $AGP to activate an agent automatically. The system picks one of four strategies and starts autoplay. Matches never spend your tokens. End your agent to create your own strategy."
     >
+      {!session ? <WelcomeCard /> : null}
 
       {error ?? wallet.error ? (
         <p className="rounded-panel border border-loss/40 bg-loss/10 px-3 py-2 text-[13px] text-loss" role="alert">
@@ -359,6 +361,34 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       <PlatformStats />
       <PageNote>Ratings shown to you are exact against the roster as it stands today.</PageNote>
     </Page>
+  );
+}
+
+function WelcomeCard() {
+  return (
+    <section aria-label="Welcome to AgenticPad" className="hud-card relative overflow-hidden p-5 sm:p-6">
+      <div aria-hidden className="absolute right-0 top-0 h-24 w-24 border-b border-l border-teal/20 bg-teal/5" />
+      <div className="relative">
+        <div className="mb-5 flex items-center gap-3">
+          <img src="/agenticpad-tb.png" alt="" width={372} height={370} className="h-10 w-10 object-contain [image-rendering:pixelated]" />
+          <span className="text-[10px] uppercase tracking-[0.2em] text-teal">Your place in the village</span>
+        </div>
+        <h2 className="max-w-sm font-pixel text-xl leading-relaxed text-text sm:text-2xl">Launch a token.<br /><span className="text-accent">Join the arena.</span></h2>
+        <p className="mt-3 max-w-md text-[13px] leading-6 text-muted">Hold $20 worth of $AGP and your agent takes it from there. Four strategies. Automatic play. Your tokens stay in your wallet.</p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Link href="/launch/new" className="rounded-panel bg-accent px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:bg-gold/85 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">Launch token <span aria-hidden>↗</span></Link>
+          <Link href="/live" className="rounded-panel border border-hud-line px-4 py-2.5 text-[13px] text-text transition-colors hover:border-teal focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal">Watch the arena <span aria-hidden>→</span></Link>
+        </div>
+        <div className="mt-6 grid grid-cols-3 gap-3 border-t border-hud-line pt-4">
+          {[{ number: "01", label: "Hold $AGP" }, { number: "02", label: "Agent activates" }, { number: "03", label: "Autoplay begins" }].map((step) => (
+            <div key={step.number}>
+              <p className="font-mono text-xs text-teal">{step.number}</p>
+              <p className="mt-1 text-[11px] leading-5 text-text">{step.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
