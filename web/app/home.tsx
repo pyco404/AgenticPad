@@ -1,5 +1,7 @@
 "use client";
 
+import { readStoredValue, removeStoredValue } from "@/lib/browser-storage";
+
 import { AgentName } from "@/app/agent-name";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Transcript } from "@/app/transcript";
@@ -31,7 +33,7 @@ import {
   type Preview,
 } from "@/lib/api";
 
-const AGENT_KEY = "oxude.agent";
+const AGENT_KEY = "agenticpad.agent";
 
 /** Agent views carry their id under either name, depending on the route that made them. */
 const idOf = (a: AgentView) => (a.id ?? a.agentId)!;
@@ -111,7 +113,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
         setAgent({ ...fresh, id });
         setHolder(wallet ?? null);
       } catch {
-        localStorage.removeItem(AGENT_KEY);
+        removeStoredValue(localStorage, AGENT_KEY);
         setAgent(null);
         setHolder(null);
       }
@@ -129,13 +131,13 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       setMine(owned);
       setHolding(held);
       const inPlay = owned.filter((a) => !a.retired);
-      const saved = localStorage.getItem(AGENT_KEY);
+      const saved = readStoredValue(localStorage, AGENT_KEY);
       const open = inPlay.find((a) => idOf(a) === saved) ?? inPlay[0] ?? null;
       if (open) {
         localStorage.setItem(AGENT_KEY, idOf(open));
         await refreshAgent(idOf(open), sessionToken);
       } else {
-        localStorage.removeItem(AGENT_KEY);
+        removeStoredValue(localStorage, AGENT_KEY);
         setAgent(null);
       }
     },
