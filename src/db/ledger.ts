@@ -1,3 +1,4 @@
+import { holderPriceReady, liveHolderPricing, liveHolderMinimum } from "../holder-policy.js";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { agents, elicitations, FREE_ELICITATIONS, MIN_FUNDING_CHIPS } from "./schema.js";
@@ -41,10 +42,13 @@ export const balanceSql = () => sql<number>`(case when "agents"."funding" = 'hol
  * sold. House agents are never asked: they hold nothing and need nothing.
  */
 export const inPlaySql = () => {
-  const minimum = baseUnits(MIN_FUNDING_CHIPS, seasonRate());
+  if (!holderPriceReady()) return sql<boolean>`false`;
+  const minimum = liveHolderMinimum(baseUnits(MIN_FUNDING_CHIPS, seasonRate()));
+  const threshold = liveHolderPricing() ? sql`${minimum}::bigint` : sql`least(coalesce(h.conviction_amount, ${minimum}::bigint), ${minimum}::bigint)`;
+  const fresh = liveHolderPricing() ? sql`and h.read_at >= now() - interval '20 minutes'` : sql``;
   return sql<boolean>`(case
     when "agents"."funding" = 'holder' then coalesce((
-      select h.amount >= least(coalesce(h.conviction_amount, ${minimum}::bigint), ${minimum}::bigint)
+      select h.amount >= ${threshold} ${fresh}
       from holdings h where h.wallet = "agents"."owner_id"), false)
     else false
   end)`;
