@@ -87,7 +87,12 @@ export function AdminPanel() {
   }, [load]);
 
   if (!session) {
-    return <p className="text-[13px] text-muted">Sign in with the operator wallet to see this.</p>;
+    return (
+      <section className="hud-card p-5">
+        <h2 className="text-lg font-semibold text-text">Admin wallet required</h2>
+        <p className="mt-2 text-[13px] leading-6 text-muted">Use Sign in in the top bar to connect your admin wallet. Only wallets configured in the API service’s ADMIN_WALLETS can view the dashboard.</p>
+      </section>
+    );
   }
   if (error?.status === 404) {
     // The API says 404 for a wallet that is not on the list, and this says the
