@@ -1,10 +1,10 @@
 # Holder agents
 
-**Status: design, decided 2026-10-02, nothing built.** This replaces both the staked model in [economy.md](economy.md) and the no-loss model in [no-loss-rewards.md](no-loss-rewards.md). Until it is built, economy.md still describes what runs on devnet. Nothing here pays real $CLASH before the legal review ([Legal](#legal)).
+**Status: design, decided 2026-10-02, nothing built.** This replaces both the staked model in [economy.md](economy.md) and the no-loss model in [no-loss-rewards.md](no-loss-rewards.md). Until it is built, economy.md still describes what runs on devnet. Nothing here pays real $AGP before the legal review ([Legal](#legal)).
 
 ## In one paragraph
 
-Hold $CLASH in your own wallet above a dollar-pegged minimum and you have an agent. Nothing is rented, nothing is deposited, nothing is held for you, and there is nothing to withdraw. The agent plays Bluff & Fold against other holders' agents, with the default strategy or a brief its owner writes, and the strategy alone decides every match. What an owner's holding buys is a weight on the reward, not an edge at the table: each period's score is the net chips the agent won, times a capped weight derived from its **power** - mostly how long the wallet has held, and a little for how much it holds. Playing enough is a gate: an agent below the qualifying minimum of matches does not score at all.
+Hold $AGP in your own wallet above a dollar-pegged minimum and you have an agent. Nothing is rented, nothing is deposited, nothing is held for you, and there is nothing to withdraw. The agent plays Bluff & Fold against other holders' agents, with the default strategy or a brief its owner writes, and the strategy alone decides every match. What an owner's holding buys is a weight on the reward, not an edge at the table: each period's score is the net chips the agent won, times a capped weight derived from its **power** - mostly how long the wallet has held, and a little for how much it holds. Playing enough is a gate: an agent below the qualifying minimum of matches does not score at all.
 
 ## Decided
 
@@ -42,7 +42,7 @@ Each part runs from 0 to 1, so power does too.
 
 - **The clock starts when a wallet first qualifies**, and the minimum as it stands at that moment, in tokens, is recorded as its **conviction amount** - the minimum, not the whole holding, so a large holder who trims to anything above it keeps their clock.
 - **It runs while the wallet holds at least the conviction amount.** Selling below it sets the clock back to zero. Topping up never resets it, and never raises the conviction amount. Selling down to anything still at or above the conviction amount costs nothing.
-- **The dollar line does not touch it.** If $CLASH falls and the minimum is retuned to more tokens, a wallet that has not sold keeps its clock. The minimum is what a new wallet must hold to qualify; once a wallet has qualified, its own recorded amount is what it must keep.
+- **The dollar line does not touch it.** If $AGP falls and the minimum is retuned to more tokens, a wallet that has not sold keeps its clock. The minimum is what a new wallet must hold to qualify; once a wallet has qualified, its own recorded amount is what it must keep.
 - **After a reset**, the next qualification records a new conviction amount at the minimum as it then stands.
 - **At 180 days the clock stops growing.**
 - **A wallet that qualified keeps its agent while it keeps its conviction amount**, even if a retune has since raised the minimum above it. It needs the minimum as it then stands only to qualify afresh.
@@ -94,12 +94,27 @@ The qualifying minimums and the per-opponent cap are parameters, raised as the r
 
 ## Rewards
 
-Unchanged from [economy.md](economy.md#creator-fees-and-prizes):
+As in [economy.md](economy.md#creator-fees-and-prizes), with the split changed 2026-10-03:
 
-- Funded by the token's creator fees: **10% to the daily reward wallet, 50% to the weekly reward wallet**.
-- **Each cycle releases half its wallet's balance**, so a quiet period still pays and neither wallet empties.
+- Funded by creator fees, split the same way for **every token on the platform, $AGP included: 15% to the daily reward wallet, 50% to the weekly reward wallet, 35% to the platform.** Daily to weekly is about 1:3.3, so weekly stays clearly the larger prize and the reason to stay in all week. This replaces 10/50/40 for $AGP and 60/40 for launch tokens: one rule, easier to explain and to configure. The split is configured once on pump.fun per token and cannot be changed afterwards.
+- **Each cycle uses an admin-selected SOL budget and reward percentage** (updated 2026-10-05). The rest of that budget goes to the platform in SOL; for example, 90% for winners and 10% retained. This replaces the fixed half-wallet release. Network fees and rent need a separate reserve.
 - **No agent takes more than 10% of a cycle's payout.**
-- **Paid in $CLASH bought at payout.**
+- **Paid in $AGP bought at payout, batch by batch.** SOL accumulates in the reward wallets; small swaps and distributions are confirmed before the next batch proceeds, with a delay between batches. Admin planning and approval records are built; actual swap-and-send execution remains unfinished. See [reward-payouts.md](reward-payouts.md).
+
+## Launchpad (direction)
+
+**Token launch integration started 2026-10-05; holder-agent activation remains design only.** The wallet-signed Pump adapter and explicit preview are described in [pump-launchpad.md](pump-launchpad.md). Real launches require operator configuration before they can run. Everything above describes $AGP alone; the multi-token game integration below remains the direction for other tokens.
+
+- **Any token can launch on the platform.** It gives up 100% of its creator fees, split 15/50/35 like every token ([Rewards](#rewards)).
+- **Every launch requires a 0.1 SOL platform fee** (100,000,000 lamports), to deter spam. This is separate from creator fees, network costs and any optional initial token purchase. Launchers receive 0% of creator fees and may buy tokens during creation. Recorded 2026-10-05.
+- **The launch fee goes to the platform wallet:** `8d2HSFZJiAg9UP8r5k4giGTrdsBxMkzjM6g2imcWwjGf` ([economy.md](economy.md#creator-fees-and-prizes)).
+- **The real launch transaction includes the fee transfer with token creation.** The server verifies the complete signed message and chain confirmation before accepting a platform launch. A failed creation does not collect the platform fee, and recovery resends the same transaction. The explicit preview collects no SOL.
+- **Its holders become agents in the same village** and draw from **the same shared pool** as $AGP agents.
+- **$AGP agents earn 1.3x per point; launch-token agents earn 1.0x.** The multiplier sits on top of the weight: score = points × weight × 1.3 for a $AGP agent, × 1.0 for any other.
+- **One agent per wallet per token.** A wallet holding $AGP, $DOX and $ZIP has three agents, each with its own conviction clock. Selling one token resets only that token's clock.
+- **Conviction and position are measured per token.** A $DOX agent's conviction is its $DOX clock, and its position is its share of $DOX supply, through the same formula as [Power](#power).
+
+Not yet decided: whether each launch token has its own dollar-pegged minimum, and how a launch that brings far more agents than $AGP shares the pool ([Open](#open), item 2).
 
 ## The village
 
@@ -113,7 +128,7 @@ Most of the program's surface goes with them. This is a large change to [mainnet
 
 ## Legal
 
-A reward weighted by how long and how much someone holds a token may read as a return on holding it, which is a different question from whether Bluff & Fold is a game of skill. Both go to the lawyer before any real $CLASH is paid. This extends [economy.md](economy.md#open-questions)'s open question 5.
+A reward weighted by how long and how much someone holds a token may read as a return on holding it, which is a different question from whether Bluff & Fold is a game of skill. Both go to the lawyer before any real $AGP is paid. This extends [economy.md](economy.md#open-questions)'s open question 5.
 
 ## Known properties
 
@@ -136,3 +151,4 @@ The third is why no fix exists inside the model. A different position curve coul
 ## Open
 
 1. **Moving between one's own wallets.** A transfer to a holder's own new wallet looks identical to a sell, and costs the clock unless something links the two. Conviction runs on snapshots for now (decision 13), which reads balances, not transfers, so nothing links them yet.
+2. **A launch that outnumbers $AGP** ([Launchpad](#launchpad-direction)). If a launch brings far more agents than $AGP has, those agents take most of the shared pool on numbers alone. The 1.3x multiplier does not close a large headcount gap, and the fee split does not touch it. The options: a higher multiplier, pools split per token, or weighting each token's collective draw by the fees it contributed.
