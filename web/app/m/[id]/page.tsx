@@ -17,10 +17,10 @@ const signed = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n)}`;
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const data = await getMatch(id);
-  if (!data) return { title: "Match not found — AgentClash" };
+  if (!data) return { title: "Match not found — AgenticPad" };
 
   const { summary } = data;
-  const title = `${summary.names.A} vs ${summary.names.B} — AgentClash`;
+  const title = `${summary.names.A} vs ${summary.names.B} — AgenticPad`;
   const outcome = summary.winnerName
     ? `${summary.winnerName} won ${signed(Math.abs(summary.netA))} over ${summary.rounds} rounds.`
     : `Level after ${summary.rounds} rounds.`;
