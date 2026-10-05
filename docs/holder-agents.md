@@ -1,10 +1,10 @@
 # Holder agents
 
-**Status: design, decided 2026-10-02, nothing built.** This replaces both the staked model in [economy.md](economy.md) and the no-loss model in [no-loss-rewards.md](no-loss-rewards.md). Until it is built, economy.md still describes what runs on devnet. Nothing here pays real $AGP before the legal review ([Legal](#legal)).
+**Status: automatic $AGP holder activation implemented 2026-10-05; see [automatic agents](automatic-agents.md) for current behavior and deployment settings.** This replaces both the staked model in [economy.md](economy.md) and the no-loss model in [no-loss-rewards.md](no-loss-rewards.md). Until it is built, economy.md still describes what runs on devnet. Nothing here pays real $AGP before the legal review ([Legal](#legal)).
 
 ## In one paragraph
 
-Hold $AGP in your own wallet above a dollar-pegged minimum and you have an agent. Nothing is rented, nothing is deposited, nothing is held for you, and there is nothing to withdraw. The agent plays Bluff & Fold against other holders' agents, with the default strategy or a brief its owner writes, and the strategy alone decides every match. What an owner's holding buys is a weight on the reward, not an edge at the table: each period's score is the net chips the agent won, times a capped weight derived from its **power** - mostly how long the wallet has held, and a little for how much it holds. Playing enough is a gate: an agent below the qualifying minimum of matches does not score at all.
+Hold $AGP in your own wallet above a dollar-pegged minimum and you have an agent. Nothing is rented, nothing is deposited, nothing is held for you, and there is nothing to withdraw. The agent plays Bluff & Fold against other holders' agents, with an automatically selected preset or a strategy its owner chooses, and the strategy alone decides every match. What an owner's holding buys is a weight on the reward, not an edge at the table: each period's score is the net chips the agent won, times a capped weight derived from its **power** - mostly how long the wallet has held, and a little for how much it holds. Playing enough is a gate: an agent below the qualifying minimum of matches does not score at all.
 
 ## Decided
 
@@ -12,9 +12,9 @@ Hold $AGP in your own wallet above a dollar-pegged minimum and you have an agent
 |---|---|
 | 1 | **An agent is a wallet holding at least the minimum.** No rent, no deposit, no vault, no custody, no withdrawal, no exit page. The tokens never leave the owner's wallet. |
 | 2 | **No rent.** There is nothing to rent: holding is the entry. It also removes a reason to charge someone before they have seen anything. |
-| 3 | **The minimum is pegged in dollars**, retuned at the season boundary, the same shape as [the chip rate](economy.md#the-chip-rate). Not a percentage of market cap, which would move daily. |
+| 3 | **The minimum is $20 at the current verified mainnet price.** Chip scoring keeps its season rate; eligibility is checked separately. Devnet retains the season-pegged test threshold. |
 | 4 | **Conviction follows the tokens, not the dollar line.** The token amount is recorded when a wallet first qualifies, and only a sell below that amount resets the clock. A price move, or a retune of the minimum, never costs someone their days ([Conviction](#conviction)). |
-| 5 | **One game: Bluff & Fold, unchanged.** The default strategy, or a brief the owner writes. |
+| 5 | **One game: Bluff & Fold, unchanged.** The system picks one of the four presets at activation. Holders can end that agent and create their own with a chosen strategy. |
 | 6 | **Power never affects a match.** Matches are decided by strategy alone. Power weights the reward and nothing else. |
 | 7 | **Power = 85% conviction + 15% position** ([Power](#power)). Performance is not part of it: net chips appear once, in the score. Activity is not part of it either: autoplay puts every active agent near full activity, so it would be banked on day one. Playing enough is the qualifying gate instead - it decides whether an agent scores, not how much. |
 | 8 | **Score = net chips won in the period × weight**, the weight derived from power and capped at ×4 ([Scoring](#scoring)). |
@@ -103,7 +103,7 @@ As in [economy.md](economy.md#creator-fees-and-prizes), with the split changed 2
 
 ## Launchpad (direction)
 
-**Token launch integration started 2026-10-05; holder-agent activation remains design only.** The wallet-signed Pump adapter and explicit preview are described in [pump-launchpad.md](pump-launchpad.md). Real launches require operator configuration before they can run. Everything above describes $AGP alone; the multi-token game integration below remains the direction for other tokens.
+**Token launch integration started 2026-10-05; automatic $AGP holder activation is implemented; multi-token activation remains separate.** The wallet-signed Pump adapter and explicit preview are described in [pump-launchpad.md](pump-launchpad.md). Real launches require operator configuration before they can run. Everything above describes $AGP alone; the multi-token game integration below remains the direction for other tokens.
 
 - **Any token can launch on the platform.** It gives up 100% of its creator fees, split 15/50/35 like every token ([Rewards](#rewards)).
 - **Every launch requires a 0.1 SOL platform fee** (100,000,000 lamports), to deter spam. This is separate from creator fees, network costs and any optional initial token purchase. Launchers receive 0% of creator fees and may buy tokens during creation. Recorded 2026-10-05.
