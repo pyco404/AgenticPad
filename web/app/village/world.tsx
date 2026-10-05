@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import { isPlaying, type Arrival, type Counters } from "@/lib/live";
+import { isPlaying, type Arrival, type Counters } from "../../lib/live";
 import { PLACES, type PlaceInfo } from "./places";
 import { inMatch, type Resident } from "./residents";
 
@@ -31,14 +31,15 @@ export type Tally = { active: number; idle: number; done: number; total: number 
 /** Matches in the stream's recent window that have finished playing out. */
 export const finished = (w: World) => w.arrivals.filter((a) => !isPlaying(a, w.playMs, w.now));
 
-/** The whole village: in the arena, waiting, recent matches finished, everyone on the field. */
-export function worldTally(w: World): Tally | null {
+/** Real agents on the field, with house residents counted separately. */
+export function worldTally(w: World): (Tally & { house: number }) | null {
   if (!w.residents) return null;
   // A replay's stand-ins are not agents on the field.
-  const here = w.residents.filter((r) => r.place !== "gate" && !r.standIn);
+  const residents = w.residents.filter((r) => r.place !== "gate" && !r.standIn);
+  const here = residents.filter((r) => !r.house);
   // Every match counts, in the Arena or out in the village, drawn in full or only as a marker.
   const active = here.filter((r) => inMatch(r.place)).length;
-  return { active, idle: here.length - active, done: finished(w).length, total: here.length };
+  return { active, idle: here.length - active, done: finished(w).filter((a) => !a.match.exhibition).length, total: here.length, house: residents.filter((r) => r.house).length };
 }
 
 /** Whether an agent belongs to a building: everyone for the arena, and its own hall. */
@@ -50,10 +51,10 @@ function belongs(place: PlaceInfo, hall: string | undefined): boolean {
 export function placeTally(w: World, place: PlaceInfo): Tally | null {
   if (!w.residents || !place.holds) return null;
   const hallOf = new Map(w.residents.map((r) => [r.id, r.hall]));
-  const mine = w.residents.filter((r) => r.place !== "gate" && !r.standIn && belongs(place, r.hall));
+  const mine = w.residents.filter((r) => !r.house && r.place !== "gate" && !r.standIn && belongs(place, r.hall));
   const active = mine.filter((r) => r.place === "arena").length;
   const idle = place.holds === "arena" ? 0 : mine.filter((r) => r.place === r.hall).length;
-  const done = finished(w).filter((a) => belongs(place, hallOf.get(a.match.a.id)) || belongs(place, hallOf.get(a.match.b.id))).length;
+  const done = finished(w).filter((a) => !a.match.exhibition && (belongs(place, hallOf.get(a.match.a.id)) || belongs(place, hallOf.get(a.match.b.id)))).length;
   return { active, idle, done, total: place.holds === "arena" ? active : mine.length };
 }
 
