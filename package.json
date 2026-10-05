@@ -1,8 +1,8 @@
 {
-  "name": "agentclash",
+  "name": "agenticpad",
   "version": "0.0.1",
   "private": true,
-  "description": "AgentClash match engine — agent-versus-agent betting game.",
+  "description": "AgenticPad match engine — agent-versus-agent betting game.",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
