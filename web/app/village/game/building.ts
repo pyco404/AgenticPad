@@ -56,14 +56,15 @@ export class Building {
     image.setDepth(site.depth ?? this.door.y);
 
     // Name, then its line, both clear above the roof, and above the trees, the night and the walkers.
-    const top = site.labelY ?? site.y - image.displayHeight * (1 - (CLEAR_ABOVE[def.id] ?? 0)) - 2;
+    const clearAbove = site.art.includes("/modern-") ? 0.03 : (CLEAR_ABOVE[def.id] ?? 0);
+    const top = site.labelY ?? site.y - image.displayHeight * (1 - clearAbove) - 2;
     const name = crispText(scene, 0, -16, def.label, {
       fontSize: "20px",
       fontStyle: "700",
-      fontFamily: nameFont,
+      fontFamily: "Georgia, serif",
       color: "#f5ecd8",
       stroke: "#000000",
-      strokeThickness: 4,
+      strokeThickness: 1,
       shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 0, fill: true },
     }).setOrigin(0.5, 1);
     this.note = crispText(scene, 0, 0, def.note, {
@@ -74,7 +75,21 @@ export class Building {
       strokeThickness: 3,
     }).setOrigin(0.5, 1);
     // Above agents' names too (hero.ts puts those at 10,000 and up): the map's own labels always read.
-    this.label = scene.add.container(site.x, top, [name, this.note]).setDepth(30_000 + this.door.y / 10);
+    const width = Math.ceil(name.width) + 26;
+    const sign = scene.add.graphics();
+    sign.fillStyle(0x171e18, 0.96).fillRoundedRect(-width / 2, -48, width, 35, 3);
+    sign.lineStyle(2, 0xc49a49, 1).strokeRoundedRect(-width / 2, -48, width, 35, 3);
+    sign.lineStyle(1, 0x6d603b, 1).strokeRect(-width / 2 + 4, -44, width - 8, 27);
+    for (const x of [-width / 2 + 3, width / 2 - 5]) {
+      sign.fillStyle(0xf0d18b, 1).fillRect(x, -45, 2, 2).fillRect(x, -19, 2, 2);
+    }
+    this.label = scene.add.container(site.x, top, [sign, name, this.note]).setDepth(30_000 + this.door.y / 10);
+  }
+
+  /** Where its name and line sit, in world pixels: no agent's name goes over them (labels.ts). */
+  labelBounds(): { x0: number; y0: number; x1: number; y1: number } {
+    const b = this.label.getBounds();
+    return { x0: b.x, y0: b.y, x1: b.right, y1: b.bottom };
   }
 
   setLabelScale(scale: number): void {
