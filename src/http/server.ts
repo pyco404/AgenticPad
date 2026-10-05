@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { elicitPolicy } from "../agents/llm.js";
 import { validatePolicy, type Policy } from "../agents/policy.js";
 import { headlineFor, renderTranscript } from "../transcript.js";
@@ -251,6 +251,7 @@ export function createApp(options: AppOptions): Server {
     ["GET", /^\/scores$/, getScores],
     ["GET", /^\/statement$/, getStatement],
     ["GET", /^\/admin$/, getAdmin],
+    ["GET", /^\/admin\/payout-recipients$/, getPayoutRecipients],
     ["GET", /^\/holding$/, getHolding],
     ["POST", /^\/holding$/, postHolding],
     ["GET", /^\/faucet$/, getFaucet],
@@ -360,13 +361,13 @@ export function createApp(options: AppOptions): Server {
         holding = await readHolding(db, holder.chain, ownerId);
       } catch (error) {
         console.error(`holdings: could not read ${ownerId}: ${String(error).slice(0, 160)}`);
-        throw new HttpError(503, "couldn't read your wallet's $CLASH right now; try again in a moment");
+        throw new HttpError(503, "couldn't read your wallet's $AGP right now; try again in a moment");
       }
       if (!keeps(holding)) {
         const view = holdingView(holding);
         throw new HttpError(
           403,
-          `an agent needs this wallet to hold at least ${view.minimumChips} chips' worth of $CLASH ($20); it holds ${view.chips}`,
+          `an agent needs this wallet to hold at least ${view.minimumChips} chips' worth of $AGP ($20); it holds ${view.chips}`,
           { holding: view },
         );
       }
@@ -670,6 +671,23 @@ export function createApp(options: AppOptions): Server {
     return options.health();
   }
 
+  async function getPayoutRecipients(ctx: Ctx) {
+    if (!adminWallets.has(ctx.requireOwner())) throw new HttpError(404, "not found");
+    const tables = await getScores(ctx);
+    const table = "day" in tables ? tables.day : tables.season;
+    if (!table || !table.frozen) throw new HttpError(409, "payouts require frozen scores");
+    const eligible = table.rows.filter((row) => row.qualified && row.share > 0);
+    const owners = eligible.length ? await db.select({ id: agents.id, wallet: agents.ownerId }).from(agents)
+      .where(inArray(agents.id, eligible.map((row) => row.agentId))) : [];
+    const wallets = new Map(owners.map((row) => [row.id, row.wallet]));
+    const winners = eligible.map((row) => {
+      const wallet = wallets.get(row.agentId);
+      if (!wallet || !isPublicKey(wallet)) throw new HttpError(409, "a winner has no valid receiving wallet");
+      return { agentId: row.agentId, name: row.name, share: row.share, wallet };
+    });
+    return { frozen: true, winners };
+  }
+
   /**
    * A season's statement: what the season did, and the scores it would pay
    * on. Nothing is paid yet; the scores say who would be, and what share.
@@ -831,7 +849,7 @@ export function createApp(options: AppOptions): Server {
       return { holding: holdingView(await readHolding(db, holder.chain, ownerId)) };
     } catch (error) {
       console.error(`holdings: could not read ${ownerId}: ${String(error).slice(0, 160)}`);
-      throw new HttpError(503, "couldn't read your wallet's $CLASH right now; try again in a moment");
+      throw new HttpError(503, "couldn't read your wallet's $AGP right now; try again in a moment");
     }
   }
 
