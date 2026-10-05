@@ -1,22 +1,49 @@
 /**
  * The village grows with its holders (docs/holder-agents.md, The village):
- * as more wallets hold an agent, house agents put up new structures and the
- * forest gives way to them. Presentation only - nothing here is read by
- * anything that plays, pairs or pays.
+ * as more wallets hold an agent, plots open and buildings go up, and the
+ * trees on their ground come down. Presentation only - nothing here is read
+ * by anything that plays, pairs or pays.
  *
  * Pure, and free of Phaser and the web app's aliases, so the root suite can
  * test it. The scene (scene.ts) draws what this says.
  *
- * The plan is a list of plots, each opening at a holder count, laid out in a
- * ring in the forest round the town: first just past the town's edge, then
- * further out as the count climbs, so the land opens outward. A plot never
- * moves and never closes again once open in a page's life; if the count falls,
- * what stands stays standing until the page is reloaded.
+ * Growth comes in plans: a list of plots, each opening at a holder count, in
+ * the order they open. New Town is one plan, opened by $AGP holders; each
+ * launch district will be another (checkpoint 2), opened by its own token's.
+ * A plot never moves and never closes again once open in a page's life; if
+ * the count falls, what stands stays standing until the page is reloaded.
  */
 
+import { CENTRE, fromEdge, inNewTown, INNER, OUTER, SPOKES, type Octagon, type Pt } from "./world";
+
+/** Every picture a plot can be built from, with where it comes from and how it stands. */
+export const PIECE_ART = {
+  // The pack's own (public/fixtures).
+  House_Blue: { src: "/village/agenticpad/modern-villa-blue.png", width: 128, height: 192, foot: 172 / 192 },
+  House_Red: { src: "/village/agenticpad/modern-villa-red.png", width: 128, height: 192, foot: 172 / 192 },
+  House_Yellow: { src: "/village/agenticpad/modern-villa-yellow.png", width: 128, height: 192, foot: 172 / 192 },
+  House_Purple: { src: "/village/agenticpad/modern-villa-purple.png", width: 128, height: 192, foot: 172 / 192 },
+  Plot: { src: "/fixtures/Plot.png", width: 90, height: 54, foot: 1 },
+  Yard: { src: "/fixtures/Yard.png", width: 288, height: 107, foot: 1 },
+  Pumpkin: { src: "/fixtures/Pumpkin.png", width: 64, height: 64, foot: 1 },
+  Fence: { src: "/fixtures/Fence.png", width: 96, height: 30, foot: 1 },
+  // A sheet of eight frames, 128 across.
+  Sheep: { src: "/fixtures/Sheep.png", width: 128, height: 128, foot: 0.8, frames: 8 },
+  // New Town's, drawn for AgenticPad (scripts/village-art.ts): glass, flat roofs, screens, lamps.
+  office: { src: "/village/agenticpad/modern-office.png", width: 56, height: 74, foot: 1 },
+  "house-a": { src: "/village/agenticpad/modern-house-a.png", width: 54, height: 50, foot: 1 },
+  "house-b": { src: "/village/agenticpad/modern-house-b.png", width: 54, height: 50, foot: 1 },
+  shop: { src: "/village/agenticpad/modern-shop.png", width: 58, height: 54, foot: 1 },
+  apartments: { src: "/village/agenticpad/modern-apartments.png", width: 60, height: 86, foot: 1 },
+  kiosk: { src: "/village/agenticpad/modern-kiosk.png", width: 38, height: 42, foot: 1 },
+  lamp: { src: "/village/agenticpad/modern-lamp.png", width: 10, height: 38, foot: 1 },
+  planter: { src: "/village/agenticpad/modern-planter.png", width: 22, height: 14, foot: 1 },
+} as const satisfies Record<string, { src: string; width: number; height: number; foot: number; frames?: number }>;
+
+export type PieceArt = keyof typeof PIECE_ART;
+
 export type GrowthPiece = {
-  /** A fixture's picture (public/fixtures), and how it is drawn. */
-  image: "House_Blue" | "House_Red" | "House_Yellow" | "House_Purple" | "Plot" | "Yard" | "Pumpkin" | "Fence" | "Sheep";
+  image: PieceArt;
   x: number;
   y: number;
   scale: number;
@@ -33,112 +60,17 @@ export type Plot = {
   pieces: GrowthPiece[];
 };
 
-/** Each fixture's frame, in its own pixels: what a piece's footprint is reckoned from. */
-export const FIXTURE_SIZE: Record<GrowthPiece["image"], { width: number; height: number; foot: number; frames?: number }> = {
-  House_Blue: { width: 128, height: 192, foot: 172 / 192 },
-  House_Red: { width: 128, height: 192, foot: 172 / 192 },
-  House_Yellow: { width: 128, height: 192, foot: 172 / 192 },
-  House_Purple: { width: 128, height: 192, foot: 172 / 192 },
-  Plot: { width: 90, height: 54, foot: 1 },
-  Yard: { width: 288, height: 107, foot: 1 },
-  Pumpkin: { width: 64, height: 64, foot: 1 },
-  Fence: { width: 96, height: 30, foot: 1 },
-  // A sheet of eight frames, 128 across.
-  Sheep: { width: 128, height: 128, foot: 0.8, frames: 8 },
-};
+/** A plan: plots in the order they open, by one count of holders. */
+export type Plan = { id: string; plots: Plot[] };
 
-const house = (colour: "Blue" | "Red" | "Yellow" | "Purple", x: number, y: number, flip = false): GrowthPiece => ({
-  image: `House_${colour}`,
-  x,
-  y,
-  scale: 0.55,
-  flip,
-});
-const cottage = (id: string, at: number, colour: "Blue" | "Red" | "Yellow" | "Purple", x: number, y: number, flip = false): Plot => ({
-  id,
-  at,
-  door: { x, y: y + 24 },
-  pieces: [house(colour, x, y, flip)],
-});
-
-/**
- * The plots, in the order they open. Coordinates are world pixels, each
- * piece's foot; the town is an ellipse round (1400, 860), 880 by 540 (town.ts),
- * the lake below y 1480 west of x 2130, and the world 2800 by 1800.
- */
-export const PLOTS: Plot[] = [
-  // The first holder: a cottage at the west edge of town, where the high street runs out.
-  cottage("west-1", 1, "Blue", 450, 1040),
-  // A few: one east, and a garden by the first.
-  cottage("east-1", 3, "Red", 2370, 980, true),
-  { id: "west-garden", at: 3, door: { x: 350, y: 1170 }, pieces: [{ image: "Plot", x: 345, y: 1160, scale: 1.4 }, { image: "Pumpkin", x: 392, y: 1158, scale: 0.7 }] },
-  // Five: north, past the Lookout, and a sheepfold east.
-  cottage("north-1", 5, "Yellow", 1170, 140),
-  {
-    id: "east-fold",
-    at: 5,
-    door: { x: 2420, y: 1210 },
-    pieces: [
-      // The sheep stand a little below the pen's foot, so they are drawn in front of it.
-      { image: "Yard", x: 2440, y: 1190, scale: 0.7 },
-      { image: "Sheep", x: 2410, y: 1196, scale: 0.6 },
-      { image: "Sheep", x: 2475, y: 1200, scale: 0.6, flip: true },
-    ],
-  },
-  // Ten: a cottage either side, a little further out.
-  cottage("west-2", 10, "Purple", 430, 780),
-  cottage("east-2", 10, "Blue", 2400, 740, true),
-  // Twenty: a row north of the Hall of Fame, fenced.
-  cottage("north-2", 20, "Red", 1620, 140, true),
-  {
-    id: "north-fence",
-    at: 20,
-    door: { x: 1370, y: 160 },
-    pieces: [
-      { image: "Fence", x: 1320, y: 150, scale: 1.2 },
-      { image: "Fence", x: 1420, y: 150, scale: 1.2 },
-      { image: "Pumpkin", x: 1370, y: 146, scale: 0.7 },
-    ],
-  },
-  // Thirty-five: the north corners.
-  cottage("north-west", 35, "Blue", 640, 360),
-  cottage("north-east", 35, "Yellow", 2160, 360, true),
-  // Fifty: the land opens on the far west and the south-east shore.
-  cottage("far-west-1", 50, "Red", 230, 900),
-  cottage("south-east", 50, "Purple", 2470, 1450, true),
-  { id: "far-west-garden", at: 50, door: { x: 250, y: 1060 }, pieces: [{ image: "Plot", x: 240, y: 1050, scale: 1.4 }, { image: "Pumpkin", x: 285, y: 1046, scale: 0.7 }] },
-  // Seventy-five and up: further out on every side.
-  cottage("far-east-1", 75, "Blue", 2620, 900, true),
-  cottage("far-north-1", 75, "Purple", 900, 180),
-  cottage("far-north-2", 100, "Red", 1900, 180, true),
-  cottage("far-west-2", 100, "Yellow", 210, 620),
-  {
-    id: "far-east-fold",
-    at: 150,
-    door: { x: 2650, y: 1320 },
-    pieces: [
-      { image: "Yard", x: 2650, y: 1300, scale: 0.7 },
-      { image: "Sheep", x: 2620, y: 1306, scale: 0.6 },
-    ],
-  },
-  cottage("far-east-2", 150, "Red", 2640, 620, true),
-  cottage("far-north-3", 250, "Blue", 1540, 140),
-  cottage("far-west-3", 250, "Purple", 230, 1260),
-  cottage("far-north-west", 400, "Yellow", 380, 260),
-  cottage("far-north-east", 400, "Blue", 2440, 250, true),
-  cottage("far-east-3", 600, "Purple", 2660, 1500, true),
-  cottage("far-north-4", 1000, "Red", 650, 140),
-  cottage("far-north-5", 1000, "Yellow", 2150, 140, true),
-];
-
-/** The plots open at this many holders, in the order they opened. */
-export function openPlots(holders: number): Plot[] {
-  return PLOTS.filter((p) => holders >= p.at);
+/** The plots of a plan open at this many holders, in the order they opened. */
+export function openPlots(plan: Plan, holders: number): Plot[] {
+  return plan.plots.filter((p) => holders >= p.at);
 }
 
 /** The next plot to open, and the count it opens at; null once every plot is open. */
-export function nextPlot(holders: number): Plot | null {
-  return PLOTS.find((p) => holders < p.at) ?? null;
+export function nextPlot(plan: Plan, holders: number): Plot | null {
+  return plan.plots.find((p) => holders < p.at) ?? null;
 }
 
 export type Box = { x0: number; y0: number; x1: number; y1: number };
@@ -146,12 +78,12 @@ export type Box = { x0: number; y0: number; x1: number; y1: number };
 /**
  * The ground a plot takes: every piece's picture and some room round it. The
  * forest gives way here - a tree whose canopy reaches into it is taken down
- * when the plot opens. That clearing is the land expanding.
+ * when the plot opens, and never grows back, since a plot never closes.
  */
 export function plotClearing(plot: Plot, margin = 40): Box {
   let box: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
   for (const p of plot.pieces) {
-    const size = FIXTURE_SIZE[p.image];
+    const size = PIECE_ART[p.image];
     const w = size.width * p.scale;
     const h = size.height * p.scale;
     box = {
@@ -180,3 +112,133 @@ export function felled(trees: readonly { x: number; y: number; s: number }[], pl
   });
   return out;
 }
+
+// --- New Town ------------------------------------------------------------------
+
+/** The New Town plots' fixed neighbours, which no plot is laid over: the Launch Pad east, the bazaar west (town.ts). */
+export const NEW_TOWN_FIXED: { id: string; at: Pt; room: number }[] = [
+  { id: "launchpad", at: { x: 2860, y: 1250 }, room: 230 },
+  { id: "bazaar", at: { x: -60, y: 1150 }, room: 250 },
+];
+
+/** How far apart New Town's buildings stand along a row, and how far each row is from its ring road. */
+const SLOT_STEP = 190;
+const ROW_OFFSET = 210;
+/** No building this close to a main road's centre line. */
+const SPOKE_ROOM = 150;
+
+/** The holder count each plot opens at, in order: one at a time at first, then further apart as the town fills. */
+export function thresholds(n: number): number[] {
+  const out: number[] = [];
+  let at = 1;
+  for (let i = 0; i < n; i++) {
+    out.push(Math.round(at));
+    at = i < 6 ? at + 1 : Math.max(at + 1, at * 1.12);
+  }
+  return out;
+}
+
+/** The octagon `o` grown outward by `by`, its edges kept parallel. */
+const grown = (o: Octagon, by: number): Octagon => ({ ...o, hw: o.hw + by, hh: o.hh + by, chamfer: o.chamfer + by * (Math.SQRT2 - 1) });
+
+/** Points `step` apart round an octagon, starting from the middle of its left edge. */
+function around(o: Octagon, step: number): Pt[] {
+  const { cx, cy, hw, hh, chamfer: c } = o;
+  const cs: Pt[] = [
+    { x: cx - hw, y: cy },
+    { x: cx - hw, y: cy - hh + c },
+    { x: cx - hw + c, y: cy - hh },
+    { x: cx + hw - c, y: cy - hh },
+    { x: cx + hw, y: cy - hh + c },
+    { x: cx + hw, y: cy + hh - c },
+    { x: cx + hw - c, y: cy + hh },
+    { x: cx - hw + c, y: cy + hh },
+    { x: cx - hw, y: cy + hh - c },
+    { x: cx - hw, y: cy },
+  ];
+  const out: Pt[] = [];
+  let carry = 0;
+  for (let i = 1; i < cs.length; i++) {
+    const a = cs[i - 1]!;
+    const b = cs[i]!;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    for (let d = carry; d < len; d += step) out.push({ x: a.x + ((b.x - a.x) * d) / len, y: a.y + ((b.y - a.y) * d) / len });
+    carry = (step - ((len - carry) % step)) % step;
+  }
+  return out;
+}
+
+const distToSegment = (p: Pt, a: Pt, b: Pt) => {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+};
+
+/** A deterministic random stream, so New Town is laid out the same on every load. */
+function rng(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const BUILDINGS: PieceArt[] = ["house-a", "office", "shop", "house-b", "apartments", "kiosk"];
+
+/**
+ * New Town: two rows of plots round the band between the rings, one facing
+ * each ring road, kept off the main roads and away from the Launch Pad and the
+ * bazaar. Each plot is a modern building, a street lamp, and now and then a
+ * planter. They open in arrival order, from the west - the way in, past the
+ * Hiring Hall - outward round both sides, the inner row first.
+ */
+function newTownPlan(): Plan {
+  const rand = rng(20261005);
+  const rows = [
+    { name: "inner", ring: grown(INNER, ROW_OFFSET) },
+    { name: "outer", ring: grown(OUTER, -ROW_OFFSET) },
+  ];
+  const slots: { id: string; at: Pt; row: number; turn: number }[] = [];
+  rows.forEach((row, r) => {
+    around(row.ring, SLOT_STEP).forEach((p, i) => {
+      if (!inNewTown(p, 120)) return;
+      if (SPOKES.some((s) => distToSegment(p, s.start, s.end) < SPOKE_ROOM)) return;
+      if (NEW_TOWN_FIXED.some((f) => Math.hypot(f.at.x - p.x, f.at.y - p.y) < f.room)) return;
+      // How far round from the west, either way: 0 at the west, π at the east.
+      const turn = Math.abs(Math.atan2(p.y - CENTRE.y, -(p.x - CENTRE.x)));
+      slots.push({ id: `${row.name}-${i}`, at: { x: Math.round(p.x), y: Math.round(p.y) }, row: r, turn });
+    });
+  });
+  slots.sort((a, b) => a.row - b.row || a.turn - b.turn);
+  // Each slot's building, lamp and maybe a planter; a slot whose ground would overlap one already laid -
+  // where a row turns a corner, or tall buildings stack up an upright side - is left as open ground.
+  const laid: { id: string; door: Pt; pieces: GrowthPiece[] }[] = [];
+  for (const s of slots) {
+    const image = BUILDINGS[Math.floor(rand() * BUILDINGS.length)]!;
+    const size = PIECE_ART[image];
+    // The building's foot sits a little below the slot, so it stands centred on it.
+    const foot = { x: s.at.x, y: s.at.y + size.height };
+    const flip = rand() < 0.5;
+    const planter = rand() < 0.4;
+    const pieces: GrowthPiece[] = [
+      { image, x: foot.x, y: foot.y, scale: 2, flip },
+      { image: "lamp", x: foot.x + (flip ? -1 : 1) * (size.width + 12), y: foot.y + 6, scale: 2 },
+    ];
+    if (planter) pieces.push({ image: "planter", x: foot.x + (flip ? 1 : -1) * (size.width + 8), y: foot.y + 8, scale: 2 });
+    const plot = { id: `new-town-${s.id}`, at: 0, door: { x: foot.x, y: foot.y + 20 }, pieces };
+    const ground = plotClearing(plot, 0);
+    if (laid.some((other) => overlaps(ground, plotClearing({ ...other, at: 0 }, 0)))) continue;
+    if (NEW_TOWN_FIXED.some((f) => overlaps(ground, { x0: f.at.x - 140, y0: f.at.y - 220, x1: f.at.x + 140, y1: f.at.y + 60 }))) continue;
+    laid.push(plot);
+  }
+  const at = thresholds(laid.length);
+  return { id: "new-town", plots: laid.map((p, i) => ({ ...p, at: at[i]! })) };
+}
+
+export const NEW_TOWN: Plan = newTownPlan();
+
+/** Whether a point is inside New Town's band at all (for the forest, which grows sparse there until plots open). */
+export const inBand = (p: Pt) => fromEdge(INNER, p) > 0 && fromEdge(OUTER, p) < 0;
