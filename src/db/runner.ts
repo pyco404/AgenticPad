@@ -85,6 +85,7 @@ export function assertStakesMatch(row: Pick<AgentRow, "name" | "policyStakes">, 
 }
 
 export type CreateAgentInput = {
+  autoplay?: boolean;
   name: string;
   ownerId?: string | null;
   presetName?: PresetName;
@@ -140,6 +141,7 @@ export async function createAgent(db: Db, input: CreateAgentInput) {
       policyTable: table,
       policyStakes: input.policyStakes ?? DEFAULT_RULES.stakes,
       funding: "holder",
+      autoplay: input.ownerId != null && (input.autoplay ?? false),
     })
     .returning();
   await tx.insert(ratings).values({ agentId: row!.id });
