@@ -1,8 +1,9 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import { randomInt } from "node:crypto";
 import type { Db } from "./client.js";
 import { runExhibition } from "./runner.js";
 import { agents, matches } from "./schema.js";
+import { inPlaySql } from "./ledger.js";
 
 /**
  * Exhibitions between house agents, so the platform is visibly running when no
@@ -25,6 +26,12 @@ export async function pickHousePair(
   db: Db,
   random: (n: number) => number = (n) => randomInt(n),
 ): Promise<[string, string] | null> {
+  // Ten eligible autoplay players under the same program can meet each other.
+  // Pause house filler until that is no longer true; no restart is needed.
+  const players = await db.select({ funding: agents.funding }).from(agents)
+    .where(and(isNotNull(agents.ownerId), isNull(agents.retiredAt), eq(agents.autoplay, true), inPlaySql()))
+    .groupBy(agents.funding).having(sql`count(*) >= 10`).limit(1);
+  if (players.length) return null;
   const rows = await db
     .select({ id: agents.id, funding: agents.funding })
     .from(agents)
@@ -110,4 +117,3 @@ export function startHouseExhibitions(
     },
   };
 }
-
