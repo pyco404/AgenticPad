@@ -1,12 +1,13 @@
+import { activateHolder, endHolder } from "../db/holder-activation.js";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { elicitPolicy } from "../agents/llm.js";
 import { validatePolicy, type Policy } from "../agents/policy.js";
 import { headlineFor, renderTranscript } from "../transcript.js";
 import { PRESET_DESCRIPTIONS, PRESET_NAMES, type PresetName } from "../presets.js";
 import type { Db } from "../db/client.js";
 import { agents, matches, AUTOPLAY_INTERVAL_MS } from "../db/schema.js";
-import { isFirstElicitationFree, recordElicitation, StakeError } from "../db/ledger.js";
+import { inPlaySql, isFirstElicitationFree, recordElicitation, StakeError } from "../db/ledger.js";
 import {
   activeAgentsOf,
   agentsOf,
@@ -30,13 +31,12 @@ import { traitsOf } from "../character/trait-store.js";
 import { dayStart, seasonAt, seasonByKey } from "../season.js";
 import { previewPolicy, refreshTrueRatings, scoringProfile } from "../db/rating.js";
 import { agentRecord, latestBluff, matchActivity, recentMatches } from "../db/feed.js";
-import { MIN_FUNDING_CHIPS } from "../db/schema.js";
 
 import { RateLimiter, type RateLimitRule } from "./rate-limit.js";
 import { LiveStream, resumeFrom, type LiveOptions } from "./live.js";
 import { rateOf, seasonRate, type Funding } from "../chips.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../db/faucet.js";
-import { holdingOf, holdingView, keeps, readHolding, type Holding, type HoldingsChain } from "../db/holdings.js";
+import { holdingMinimum, holdingOf, holdingView, keeps, readHolding, type Holding, type HoldingsChain } from "../db/holdings.js";
 import { conviction, CONVICTION_CAP_DAYS, position, power, weight } from "../score.js";
 import { chips as toChips } from "../chips.js";
 import { AuthError, isPublicKey, issueNonce, ownerForToken, revokeSession, verifySignIn } from "../auth/wallet.js";
@@ -237,6 +237,7 @@ export function createApp(options: AppOptions): Server {
     ["GET", /^\/agents\/([^/]+)$/, getAgent],
     ["POST", /^\/agents\/([^/]+)\/play$/, postPlay],
     ["POST", /^\/agents\/([^/]+)\/autoplay$/, postAutoplay],
+    ["POST", /^\/agents\/([^/]+)\/end$/, postEndAgent],
     ["POST", /^\/agents\/([^/]+)\/seen$/, postSeen],
     ["GET", /^\/agents\/([^/]+)\/portrait\.svg$/, getPortrait],
     ["GET", /^\/matches$/, getFeed],
@@ -314,6 +315,15 @@ export function createApp(options: AppOptions): Server {
 
   async function getMe(ctx: Ctx) {
     const ownerId = ctx.requireOwner();
+    if (options.holder?.allow(ownerId)) {
+      const last = await holdingOf(db, ownerId);
+      if (!last || Date.now() - last.readAt.getTime() > 60_000) {
+        ctx.spendPlay();
+        try { await readHolding(db, options.holder.chain, ownerId); }
+        catch { /* Preserve the last verified reading during an RPC outage. */ }
+      }
+      await activateHolder(db, ownerId);
+    }
     // Every agent this wallet owns, so a second device shows the same ones as the first.
     return {
       ownerId,
@@ -402,6 +412,7 @@ export function createApp(options: AppOptions): Server {
       }
       const t = tx as unknown as Db;
       const wanted = {
+        autoplay: true,
         name,
         ownerId,
         ...(presetName ? { presetName } : {}),
@@ -477,7 +488,7 @@ export function createApp(options: AppOptions): Server {
   function playStatus(row: { house?: boolean; inPlay: boolean }) {
     return {
       /** The least it must hold to play, in chips. */
-      minToPlay: MIN_FUNDING_CHIPS,
+      minToPlay: toChips(holdingMinimum(), seasonRate()),
       // A house agent holds nothing and is never asked to. A player's is
       // inPlaySql: it knows the conviction amount, which the balance alone does not.
       canPlay: row.house === true || row.inPlay,
@@ -603,6 +614,14 @@ export function createApp(options: AppOptions): Server {
    * anyway, so an agent that still cannot play stops again immediately, with a
    * current reason rather than a stale one.
    */
+  async function postEndAgent(ctx: Ctx) {
+    const owner = ctx.requireOwner();
+    const id = requireUuid(ctx.params[0]);
+    ctx.spendPlay();
+    if (!await endHolder(db, owner, id)) throw new HttpError(404, "no such agent");
+    return { ended: true };
+  }
+
   async function postAutoplay(ctx: Ctx) {
     const ownerId = ctx.requireOwner();
     const id = requireUuid(ctx.params[0]);
@@ -685,7 +704,17 @@ export function createApp(options: AppOptions): Server {
       if (!wallet || !isPublicKey(wallet)) throw new HttpError(409, "a winner has no valid receiving wallet");
       return { agentId: row.agentId, name: row.name, share: row.share, wallet };
     });
-    return { frozen: true, winners };
+    // Replacing an agent preserves its score, but never creates another payout
+    // slot for the same wallet or bypasses the 10% recipient cap.
+    const grouped = new Map<string, typeof winners[number] & { agentIds?: string[] }>();
+    for (const winner of winners) {
+      const previous = grouped.get(winner.wallet);
+      if (previous) {
+        previous.share = Math.min(0.1, previous.share + winner.share);
+        previous.agentIds = [...(previous.agentIds ?? [previous.agentId]), winner.agentId];
+      } else grouped.set(winner.wallet, { ...winner });
+    }
+    return { frozen: true, winners: [...grouped.values()] };
   }
 
   /**
@@ -825,7 +854,8 @@ export function createApp(options: AppOptions): Server {
 
   /** Public: platform-wide match activity. */
   async function getStats() {
-    return { activity: await matchActivity(db) };
+    const [active] = await db.select({ n: sql<number>`count(*)::int` }).from(agents).where(and(isNull(agents.retiredAt), eq(agents.autoplay, true), inPlaySql()));
+    return { activity: await matchActivity(db), activeAgents: Number(active?.n ?? 0) };
   }
 
   /** This wallet's last holding reading against the minimum. 404 off the holder flow. */
@@ -846,7 +876,9 @@ export function createApp(options: AppOptions): Server {
     if (!holder?.allow(ownerId)) throw new HttpError(404, "this server doesn't run holder agents for this wallet");
     ctx.spendPlay();
     try {
-      return { holding: holdingView(await readHolding(db, holder.chain, ownerId)) };
+      const holding = await readHolding(db, holder.chain, ownerId);
+      await activateHolder(db, ownerId);
+      return { holding: holdingView(holding) };
     } catch (error) {
       console.error(`holdings: could not read ${ownerId}: ${String(error).slice(0, 160)}`);
       throw new HttpError(503, "couldn't read your wallet's $AGP right now; try again in a moment");
