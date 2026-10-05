@@ -1,5 +1,6 @@
 import { and, desc, eq, gt, gte, isNull, isNotNull, lte, or, sql } from "drizzle-orm";
 import { randomInt } from "node:crypto";
+import { liveHolderPricing } from "../holder-policy.js";
 import type { Db } from "./client.js";
 import { pickOpponent, runMatch } from "./runner.js";
 import { balanceOf, inPlayOf, StakeError } from "./ledger.js";
@@ -48,7 +49,7 @@ export async function checkAgent(db: Db, row: AgentRow): Promise<AutoplayCheck> 
     return {
       play: false,
       reason: "insolvent",
-      detail: `the wallet holds ${balance}, below the ${MIN_FUNDING_CHIPS} an agent needs to play`,
+      detail: liveHolderPricing() ? "the wallet needs fresh verified holdings worth at least $20 of $AGP" : `the wallet holds ${balance}, below the ${MIN_FUNDING_CHIPS} an agent needs to play`,
     };
   }
   return { play: true };
@@ -282,6 +283,10 @@ export type AutoplayStatus = {
 function describeStop(reason: AutoplayStop, balance: number): { message: string; action: string } {
   switch (reason) {
     case "insolvent":
+      if (liveHolderPricing()) return {
+        message: "Held: your wallet needs fresh verified holdings worth at least $20 of $AGP.",
+        action: "Autoplay resumes after the next wallet check confirms eligibility. No tokens are spent.",
+      };
       return {
         message: `Held: your wallet holds ${balance}, below the ${MIN_FUNDING_CHIPS} an agent needs to play.`,
         action: `Nothing to switch on: hold ${MIN_FUNDING_CHIPS} chips' worth of $AGP again and it plays again, within ten minutes.`,
