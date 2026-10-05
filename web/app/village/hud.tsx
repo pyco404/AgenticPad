@@ -178,15 +178,16 @@ export function BuildingsCard() {
   );
 }
 
-/** The village in four numbers. */
+/** Player activity, with house residents shown separately. */
 export function GlobalStats() {
   const w = useWorld();
   const t = worldTally(w);
   const rows: { label: string; value: number | undefined; tone: string; title?: string }[] = [
     { label: "Active agents", value: t?.active, tone: "bg-live" },
     { label: "Idle agents", value: t?.idle, tone: "bg-accent" },
-    { label: "Completed matches", value: t?.done, tone: "bg-done", title: "Finished in the live window: the last 100 matches" },
+    { label: "Completed matches", value: t?.done, tone: "bg-done", title: "Finished player matches in the live window; exhibitions excluded" },
     { label: "Total agents", value: t?.total, tone: "bg-text" },
+    { label: "House agents", value: t?.house, tone: "bg-muted", title: "Demo agents; excluded from player totals, rankings and rewards" },
   ];
   return (
     <Card title="Global stats">
