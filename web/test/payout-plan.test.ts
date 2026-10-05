@@ -8,21 +8,36 @@ const winners = Array.from({ length: 10 }, (_, index) => ({ agentId: `agent-${in
 const plan = (input = settings, recipients = winners) => buildPayoutPlan(input, recipients, "daily", "platform", "admin");
 
 describe("SOL reward payout planning (no swaps or payments)", () => {
-  it("splits a 90% reward budget from a 10% SOL platform share and bounds every batch", () => {
+  it("pays 90% and retains 10% in the reward wallet while bounding every batch", () => {
     const result = plan();
     expect(result.allocatedLamports).toBe("9000000000");
-    expect(result.platformLamports).toBe("1000000000");
-    expect(result.carryoverLamports).toBe("0");
+    expect(result.platformLamports).toBe("0");
+    expect(result.carryoverLamports).toBe("1000000000");
     expect(result.batchLamports).toHaveLength(36);
     expect(result.batchLamports.every((amount) => BigInt(amount) <= 250_000_000n)).toBe(true);
     expect(result.batchLamports.reduce((sum, amount) => sum + BigInt(amount), 0n)).toBe(9_000_000_000n);
     expect(result.approvedAt).toBeNull();
   });
+  it("pays 8 SOL from a 10 SOL budget at 80% and retains 2 SOL", () => {
+    const result = plan({ ...settings, rewardPercent: "80" });
+    expect(result.allocatedLamports).toBe("8000000000");
+    expect(result.carryoverLamports).toBe("2000000000");
+    expect(result.platformLamports).toBe("0");
+  });
+  it("rejects approval of older plans that send reward SOL to the platform", () => {
+    const launches = new LaunchStore(":memory:");
+    const store = new PayoutStore(launches.db);
+    const old = { ...plan(), platformLamports: "1000000000", carryoverLamports: "0" };
+    store.insert(old);
+    expect(() => store.approve(old.id, "operator")).toThrow("older plan");
+    expect(store.get(old.id)?.status).toBe("draft");
+    launches.db.close();
+  });
   it("keeps capped rewards in the reward wallet instead of increasing the platform share", () => {
     const result = plan(settings, winners.slice(0, 1));
     expect(result.allocatedLamports).toBe("900000000");
-    expect(result.platformLamports).toBe("1000000000");
-    expect(result.carryoverLamports).toBe("8100000000");
+    expect(result.platformLamports).toBe("0");
+    expect(result.carryoverLamports).toBe("9100000000");
   });
   it("preserves every lamport with decimal percentages and a final short batch", () => {
     const result = plan({ ...settings, budgetSol: "0.000000019", rewardPercent: "90.25", batchSol: "0.000000003" });
