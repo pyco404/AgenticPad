@@ -52,8 +52,8 @@ export function buildPayoutPlan(input: PayoutInput, winners: PayoutWinner[], sou
   return {
     id: crypto.randomUUID(), kind: input.kind, period: input.period, source, platform,
     budgetLamports: budget.toString(), rewardBps,
-    platformLamports: (budget - reward).toString(), allocatedLamports: allocated.toString(),
-    carryoverLamports: (reward - allocated).toString(), batchLamports: batches,
+    platformLamports: "0", allocatedLamports: allocated.toString(),
+    carryoverLamports: (budget - allocated).toString(), batchLamports: batches,
     delaySeconds: input.delaySeconds, slippageBps: input.slippageBps,
     createdBy: owner, createdAt: new Date().toISOString(), approvedBy: null, approvedAt: null,
     status: "draft", winners: recipients, agpMint: null,
