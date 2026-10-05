@@ -57,6 +57,9 @@ export type Funding = "seed" | "deposit" | "holder";
 
 /** A wallet's holding against the minimum, and the conviction clock it keeps. Chips throughout. */
 export type HoldingView = {
+  minimumUsd?: number;
+  valueUsd?: number | null;
+  priceReady?: boolean;
   amount: number;
   chips: number;
   minimum: number;
@@ -334,6 +337,7 @@ export const api = {
       token,
       body: JSON.stringify(input),
     }),
+  endAgent: (token: string | null, id: string) => request<{ ended: boolean }>(`/agents/${id}/end`, { method: "POST", token }),
   agent: (token: string | null, id: string) =>
     request<{
       agent: AgentView;
