@@ -25,6 +25,9 @@ const STEPS: [number, number, number][] = [
 export class Ground {
   readonly cols: number;
   readonly rows: number;
+  /** The world's top-left corner, in whole tiles: it grows round Old Town into negative coordinates. */
+  private readonly col0: number;
+  private readonly row0: number;
   private open: boolean[];
   /** Dry tiles with water beside them: somewhere to stand and look at the lake. */
   readonly shore: Point[];
@@ -42,15 +45,26 @@ export class Ground {
     /** Open ground nobody strolls to: the arena's sand is for matches. */
     reserved: Rect[] = [],
   ) {
+    this.col0 = Math.floor((map.world.x0 ?? 0) / TILE);
+    this.row0 = Math.floor((map.world.y0 ?? 0) / TILE);
     this.cols = Math.ceil(map.world.width / TILE);
     this.rows = Math.ceil(map.world.height / TILE);
     this.open = new Array(this.cols * this.rows).fill(true);
     const water = this.wet;
     for (const [col, row, set] of map.terrain) {
-      if (set.includes("water")) {
-        water.add(row * this.cols + col);
-        this.open[row * this.cols + col] = false;
-      }
+      const c = col - this.col0;
+      const r = row - this.row0;
+      if (!set.includes("water") || c < 0 || r < 0 || c >= this.cols || r >= this.rows) continue;
+      water.add(r * this.cols + c);
+      this.open[r * this.cols + c] = false;
+    }
+    // A shore tile is grass drawn over water, so its rim shows water: the grass is what is stood on.
+    for (const [col, row, set] of map.terrain) {
+      const c = col - this.col0;
+      const r = row - this.row0;
+      if (set.includes("water") || c < 0 || r < 0 || c >= this.cols || r >= this.rows) continue;
+      water.delete(r * this.cols + c);
+      this.open[r * this.cols + c] = true;
     }
     // A building is solid from a little above its foot to its roof; its door, just below, stays open.
     for (const b of buildings) {
@@ -93,14 +107,14 @@ export class Ground {
   }
 
   private index(p: Point): number | null {
-    const col = Math.floor(p.x / TILE);
-    const row = Math.floor(p.y / TILE);
+    const col = Math.floor(p.x / TILE) - this.col0;
+    const row = Math.floor(p.y / TILE) - this.row0;
     if (col < 0 || row < 0 || col >= this.cols || row >= this.rows) return null;
     return row * this.cols + col;
   }
 
   private centre(i: number): Point {
-    return { x: (i % this.cols) * TILE + TILE / 2, y: Math.floor(i / this.cols) * TILE + TILE / 2 };
+    return { x: ((i % this.cols) + this.col0) * TILE + TILE / 2, y: (Math.floor(i / this.cols) + this.row0) * TILE + TILE / 2 };
   }
 
   walkable(p: Point): boolean {
@@ -144,13 +158,41 @@ export class Ground {
       const b = this.centre(goal);
       return Math.hypot(a.x - b.x, a.y - b.y) / TILE;
     };
-    const open = new Map<number, number>([[start, h(start)]]);
-    while (open.size > 0) {
-      let current = -1;
-      let lowest = Infinity;
-      for (const [i, f] of open) if (f < lowest) [current, lowest] = [i, f];
+    // A binary heap of [f, tile]: the world is too large now to scan every open tile for the next one.
+    const heap: [number, number][] = [[h(start), start]];
+    const push = (item: [number, number]) => {
+      heap.push(item);
+      for (let i = heap.length - 1; i > 0; ) {
+        const up = (i - 1) >> 1;
+        if (heap[up]![0] <= heap[i]![0]) break;
+        [heap[up], heap[i]] = [heap[i]!, heap[up]!];
+        i = up;
+      }
+    };
+    const pop = (): [number, number] => {
+      const top = heap[0]!;
+      const last = heap.pop()!;
+      if (heap.length > 0) {
+        heap[0] = last;
+        for (let i = 0; ; ) {
+          const l = 2 * i + 1;
+          const r = l + 1;
+          let m = i;
+          if (l < heap.length && heap[l]![0] < heap[m]![0]) m = l;
+          if (r < heap.length && heap[r]![0] < heap[m]![0]) m = r;
+          if (m === i) break;
+          [heap[m], heap[i]] = [heap[i]!, heap[m]!];
+          i = m;
+        }
+      }
+      return top;
+    };
+    const done = new Set<number>();
+    while (heap.length > 0) {
+      const [, current] = pop();
+      if (done.has(current)) continue;
+      done.add(current);
       if (current === goal) break;
-      open.delete(current);
       const col = current % this.cols;
       const row = Math.floor(current / this.cols);
       for (const [dc, dr, cost] of STEPS) {
@@ -165,7 +207,7 @@ export class Ground {
         if (tentative < (g.get(n) ?? Infinity)) {
           g.set(n, tentative);
           came.set(n, current);
-          open.set(n, tentative + h(n));
+          push([tentative + h(n), n]);
         }
       }
     }
