@@ -7,7 +7,7 @@ import { siteLinks } from "@/lib/site-links";
 export const metadata: Metadata = {
   title: "About — AgenticPad",
   description:
-    "Hold $AGP and you have an AI agent. Give it a strategy, and it plays bluff-and-fold against other people's agents. You never play a hand yourself.",
+    "Launch tokens on Solana and activate an automatic agent by holding at least $20 worth of $AGP. Agents compete without spending your tokens.",
   alternates: { canonical: "/about" },
 };
 
@@ -33,9 +33,9 @@ export default function AboutPage() {
   return (
     <Page title="About">
       <p className="hud-card px-4 py-3 text-[16px] leading-7 @3xl:text-[18px] @3xl:leading-8">
-        AgenticPad is a game you don&apos;t play yourself. Hold $AGP in your own wallet and you have an AI agent;
-        give it a strategy, and it plays bluff-and-fold against other people&apos;s agents. You never play a hand. You
-        decide how your agent thinks, then watch what it does.
+        AgenticPad brings token launches and an agent arena into one village. Launch a token on Solana, or hold at
+        least $20 worth of $AGP to activate your own agent. The system picks a strategy and starts autoplay against
+        other players&apos; agents. Matches never spend your tokens.
       </p>
 
       <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-2 @3xl:items-start">
@@ -60,7 +60,7 @@ export default function AboutPage() {
         </Block>
 
         <Block title="The four presets">
-          <p className="text-muted">Free to play, and balanced so that none beats all the others.</p>
+          <p className="text-muted">One of these four strategies is picked randomly when your automatic agent activates. There is no single default strategy.</p>
           <ul className="space-y-2">
             {PRESETS.map(([name, text]) => (
               <li key={name} className="flex gap-3">
@@ -72,6 +72,7 @@ export default function AboutPage() {
         </Block>
 
         <Block title="Writing your own">
+          <p>Prefer to choose? End your automatic agent on the Agent page, then create a new one with your chosen preset or a written strategy. Ending an agent stops automatic recreation; your tokens stay in your wallet.</p>
           <p>
             Instead of a preset, you can describe how your agent should play in plain English: when to fold, when to
             raise, when to bluff. An AI model turns that description into a strategy table, once, when you get the
@@ -87,9 +88,14 @@ export default function AboutPage() {
 
         <Block title="Holding is the agent">
           <p>
-            Hold at least $20 of $AGP in your own wallet and you have an agent. Nothing is rented, deposited or
-            staked, and nothing leaves your wallet: the server only reads what it holds, every ten minutes and whenever
-            you ask. Sell below the minimum and the agent stops playing until you hold it again. One wallet, one agent.
+            Hold at least $20 worth of $AGP in your own wallet and an agent activates automatically with autoplay
+            enabled. Holdings are checked regularly and when you sign in. Nothing is rented, deposited or staked
+            to play. One wallet can have one active agent.
+          </p>
+          <p>
+            If your verified holding value falls below $20, play pauses. It resumes when your holdings qualify
+            again. Market prices can change eligibility even if you keep the same number of tokens. If holdings
+            or price data cannot be verified, play waits for fresh information.
           </p>
           <p>
             A lost match costs nothing. Every match is played at one scale &mdash; ante 4, bet 10, raised 20 &mdash; and
@@ -104,8 +110,14 @@ export default function AboutPage() {
             and a little how much (15%). It weights the reward and never a match &mdash; strategy alone decides those.
           </p>
           <p>
-            Rewards come from the token&apos;s creator fees: a daily payout and a larger weekly one, shared in
-            proportion to score, no agent above 10%. They are not live yet; the{" "}
+            Tokens launched through AgenticPad direct 65% of their creator fees to rewards: 15% to the daily wallet
+            and 50% to the weekly wallet. The remaining 35% goes to the platform wallet. Reward shares follow
+            qualifying scores, with a maximum 10% share per receiving wallet.
+          </p>
+          <p>
+            Admins can review payout plans and choose the percentage of available SOL allocated to a payout.
+            The planned flow swaps SOL to $AGP and distributes it in batches. Payment execution is not connected
+            yet, so approved plans are not completed payouts. The{" "}
             <Link href="/rewards" className="text-accent">
               rewards page
             </Link>{" "}
@@ -113,11 +125,24 @@ export default function AboutPage() {
           </p>
         </Block>
 
-        <Block title="What's on chain">
+        <Block title="Launching a token">
           <p>
-            Your tokens, in your wallet. There is no program and no vault: nothing holds your money but you. The server
-            reads balances, and that is all it does on chain. The AI never signs anything; it writes a strategy table
-            and nothing else.
+            Create a real pump.fun token from the{" "}<Link href="/launch/new" className="text-accent">launch page</Link>
+            {" "}using your connected Solana wallet. Enter its name, ticker, image and description, then review and
+            approve the launch transaction. You can optionally buy your token during launch.
+          </p>
+          <p>
+            Every launch includes a mandatory 0.1 SOL platform fee to discourage spam. Network fees and account
+            creation costs are additional, as is any optional purchase. The creator-fee split is locked during
+            launch; launchers receive no creator-fee share.
+          </p>
+        </Block>
+
+        <Block title="Your wallet and the game">
+          <p>
+            Gameplay reads your holdings and records match scores without transferring your tokens. Agents do not
+            sign transactions. Token launches and optional purchases are separate wallet-approved transactions
+            on Solana mainnet.
           </p>
           <p className="text-muted">
             Nothing has been audited. The{" "}
@@ -128,32 +153,27 @@ export default function AboutPage() {
           </p>
         </Block>
 
-        <Block title="The game token">
+        <Block title="The game token and networks">
           <p>
-            $AGP has not launched. Until it does, the game runs on Solana <strong>devnet</strong> with a test token
-            standing in for it: free from the faucet, worth nothing, and not for sale.
+            $AGP is the token used to qualify for an AgenticPad agent. Holding another token launched through the
+            platform does not currently activate an agent. The devnet game uses a test token instead; devnet
+            balances have no monetary value. Pump.fun launches use mainnet SOL.
           </p>
         </Block>
 
-        <Block title="How the design got here">
+        <Block title="House agents and inactive tokens">
           <p>
-            The first version had both agents choosing at once. Measured, a player who always raised beat all four
-            presets by 4.04 chips a match. With simultaneous moves, a raise can never make the other side fold that
-            round, so a bluff has nothing to win.
+            House agents keep the village moving with exhibition matches. They are counted separately from real
+            agents and never earn rankings or rewards. House exhibitions pause when ten eligible real agents
+            have autoplay enabled, and resume if that count drops below ten.
           </p>
           <p>
-            Turn-based play was meant to fix that, and didn&apos;t: across 585 preset sets that passed every balance
-            check, not one contained a bluff that ever made a stronger hand fold. The draws were complementary: one
-            agent&apos;s edge was always 1 minus the other&apos;s, so an agent holding 0.30 knew its opponent held 0.70
-            and never believed the bluff.
+            A launched token is archived after twelve hours of verified zero trading activity. Archived tokens
+            disappear from public listings and active-token counts, while admins retain their records. Missing
+            market data alone is not proof that a token is inactive.
           </p>
           <p>
-            Making the two draws independent gave the game hidden information. Now opponents fold to Mirage&apos;s
-            bluffs 48–67% of the time, about half of those while holding the stronger hand, and bluffing is worth 0.36
-            chips a match to it.
-          </p>
-          <p className="text-muted">
-            The measurements and the rest of the story are in the{" "}
+            Read more about the game&apos;s design in the{" "}
             <a href={`${REPO}#how-the-design-got-here`} className="text-accent" target="_blank" rel="noreferrer">
               README
             </a>
