@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
 import { createAgent } from "../src/db/runner.js";
-import { MIN_FUNDING_CHIPS } from "../src/db/schema.js";
+import { MIN_FUNDING_CHIPS, dailyScores } from "../src/db/schema.js";
 import { health } from "../src/db/admin.js";
 import { HOLDINGS_INTERVAL_MS, readHolding } from "../src/db/holdings.js";
 import { freezeDay } from "../src/db/scores.js";
@@ -75,6 +75,29 @@ afterAll(async () => {
 });
 
 describe("who may read /admin", () => {
+  it("protects payout recipients and refuses live scores", async () => {
+    const path = `${url}/admin/payout-recipients?day=${new Date().toISOString().slice(0, 10)}`;
+    expect((await fetch(path)).status).toBe(401);
+    expect((await fetch(path, { headers: { authorization: `Bearer ${await signIn("somebody-else")}` } })).status).toBe(404);
+    expect((await fetch(path, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } })).status).toBe(409);
+  });
+  it("serves a frozen recipient snapshot only to an admin", async () => {
+    const day = Math.floor(Date.parse("2026-05-01T00:00:00Z") / 86_400_000);
+    await freezeDay(db, day);
+    const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-01`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ frozen: true, winners: [] });
+  });
+  it("resolves each frozen winner's actual receiving wallet and capped share", async () => {
+    const owner = someWallet();
+    const agent = await createAgent(db, { name: "Payout winner", presetName: "Anchor", ownerId: owner });
+    const day = Math.floor(Date.parse("2026-05-02T00:00:00Z") / 86_400_000);
+    await freezeDay(db, day);
+    await db.insert(dailyScores).values({ day, agentId: agent.id, rankedMatches: 3, points: 10, qualified: true, convictionDays: 0, shareOfSupply: 0, power: 0, weight: 1, score: 10 });
+    const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-02`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ frozen: true, winners: [{ agentId: agent.id, name: "Payout winner", wallet: owner, share: 0.1 }] });
+  });
   it("needs a session at all", async () => {
     // 401, not 404: being signed out says nothing about who may read this.
     expect((await get()).status).toBe(401);
