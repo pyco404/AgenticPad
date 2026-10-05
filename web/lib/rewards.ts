@@ -11,7 +11,7 @@
  *
  * A payout is any transfer out of the reward wallet. Rank and agent are not
  * chain facts, so each payout transaction carries an SPL memo:
- *   oxude:payout:rank=<n>:agent=<agent id>
+ *   agenticpad:payout:rank=<n>:agent=<agent id>
  */
 
 export type Payout = {
@@ -59,7 +59,8 @@ type ParsedTx = {
   transaction: { message: { instructions: { program?: string; parsed?: unknown }[] } };
 };
 
-const MEMO = /oxude:payout:rank=(\d+):agent=([0-9a-f-]{36})/;
+// Existing on-chain memos cannot be renamed; retain their history as well.
+const MEMO = /(?:agenticpad|oxude):payout:rank=(\d+):agent=([0-9a-f-]{36})/;
 
 /** Balance, and every movement in and out, of one wallet's holdings of the mint. */
 async function flowsOf(url: string, owner: string, mint: string): Promise<WalletFlows> {
