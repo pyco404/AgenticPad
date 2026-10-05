@@ -14,7 +14,6 @@ import { FaucetPanel } from "@/app/faucet-panel";
 import { CharacterBlock } from "@/app/character";
 import { AutoplayPanel } from "@/app/autoplay-panel";
 import { HoldingCheck, PowerPanel } from "@/app/holder-panel";
-import { PlatformStats } from "./platform-stats";
 import { Page, PageNote } from "@/app/site-header";
 import { useCountUp } from "@/lib/motion";
 import { netFill, netTone } from "@/lib/tone";
@@ -358,7 +357,6 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
         <PreviewPanel preview={preview} previewing={previewing} tab={agent ? null : tab} />
         {session ? <Transcript text={transcript} {...(lastPlay ? { matchId: lastPlay.matchId } : {})} /> : null}
       </div>
-      <PlatformStats />
       <PageNote>Ratings shown to you are exact against the roster as it stands today.</PageNote>
     </Page>
   );
