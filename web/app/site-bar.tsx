@@ -1,5 +1,7 @@
 "use client";
 
+import { readStoredValue } from "@/lib/browser-storage";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -7,6 +9,7 @@ import { installUrl, shortKey, type WalletName } from "@/lib/wallet";
 import { PrivyOption } from "./privy-option";
 import { useWallet } from "./wallet-context";
 import { REWARDS_LINKED } from "./site-header";
+import { LAUNCHPAD } from "@/lib/launchpad";
 import { useWorld } from "./village/world";
 import { sound } from "@/lib/sound";
 import {
@@ -23,6 +26,13 @@ type Section = { href: string; label: string };
 
 const NAV: Section[] = [
   { href: "/", label: "Home" },
+  // Behind NEXT_PUBLIC_LAUNCHPAD=1 until the launchpad has a backend.
+  ...(LAUNCHPAD
+    ? [
+        { href: "/launch", label: "Launch" },
+        { href: "/explore", label: "Explore" },
+      ]
+    : []),
   { href: "/live", label: "Live" },
   { href: "/field", label: "Field" },
   { href: "/ladder", label: "Ladder" },
@@ -41,14 +51,16 @@ function sectionOf(path: string): string | null {
   if (path.startsWith("/field")) return "/field";
   if (path.startsWith("/games")) return "/games";
   if (path.startsWith("/rewards")) return "/rewards";
+  if (path.startsWith("/launch")) return "/launch";
+  if (path.startsWith("/explore")) return "/explore";
   if (path.startsWith("/about")) return "/about";
   return null;
 }
 
 function Mark() {
   return (
-    <Link href="/" aria-label="AgentClash home" className="flex shrink-0 items-center gap-2">
-      <img src="/agentclash-tb.png" alt="" width={450} height={315} className="aspect-[10/7] h-6 w-auto object-fill [image-rendering:pixelated] lg:h-8" />
+    <Link href="/" aria-label="AgenticPad home" className="flex shrink-0 items-center gap-2">
+      <img src="/agenticpad-tb.png" alt="" width={450} height={315} className="aspect-[10/7] h-6 w-auto object-fill [image-rendering:pixelated] lg:h-8" />
     </Link>
   );
 }
@@ -172,7 +184,7 @@ export function useSoundSetting(villageUp: boolean): [on: boolean, toggle: () =>
   useEffect(() => {
     let off = false;
     try {
-      off = localStorage.getItem("agentclash.sound") === "0";
+      off = readStoredValue(localStorage, "agenticpad.sound") === "0";
     } catch {
       // No storage: nothing was turned off, so it is on.
     }
@@ -200,7 +212,7 @@ export function useSoundSetting(villageUp: boolean): [on: boolean, toggle: () =>
       const now = !was;
       sound.setEnabled(now);
       try {
-        localStorage.setItem("agentclash.sound", now ? "1" : "0");
+        localStorage.setItem("agenticpad.sound", now ? "1" : "0");
       } catch {
         // Not remembered, but still switched.
       }
@@ -215,7 +227,7 @@ export function useNight(): [boolean, () => void] {
   const [night, setNight] = useState(false);
   useEffect(() => {
     try {
-      setNight(localStorage.getItem("agentclash.night") === "1");
+      setNight(readStoredValue(localStorage, "agenticpad.night") === "1");
     } catch {
       // No storage (a private window): it is day.
     }
@@ -223,7 +235,7 @@ export function useNight(): [boolean, () => void] {
   const toggle = () =>
     setNight((n) => {
       try {
-        localStorage.setItem("agentclash.night", n ? "0" : "1");
+        localStorage.setItem("agenticpad.night", n ? "0" : "1");
       } catch {
         // Not remembered, but still switched.
       }
@@ -376,7 +388,7 @@ function MenuPanel({ active, onClose }: { active: string | null; onClose: () => 
       className="rounded-panel fixed inset-x-2 top-2 z-40 flex max-h-[calc(100dvh-1rem)] flex-col overflow-y-auto border border-hud-line bg-hud px-4 pb-4 pt-3 shadow-[0_10px_32px_rgb(0_0_0/0.6)] sm:inset-x-auto sm:right-3 sm:top-16 sm:w-80"
     >
       <div className="flex items-center justify-between pb-2">
-        <img src="/agentclash-tb.png" alt="AgentClash" width={450} height={315} className="aspect-[10/7] h-12 w-auto object-fill [image-rendering:pixelated]" />
+        <img src="/agenticpad-tb.png" alt="AgenticPad" width={450} height={315} className="aspect-[10/7] h-12 w-auto object-fill [image-rendering:pixelated]" />
         <div className="flex items-center gap-3">
           <span
             aria-hidden
