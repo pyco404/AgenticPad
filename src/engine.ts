@@ -5,7 +5,7 @@ import {
   EDGES,
   freezeStakes,
   initialState,
-  AGENTCLASH_RULES,
+  AGENTICPAD_RULES,
   isMatchOver,
   matchWinner,
   resolveActions,
@@ -20,11 +20,11 @@ import type { Agent, MatchLog, RoundLog, Seat } from "./types.js";
 export type MatchOptions = {
   seed: number;
   names?: { A: string; B: string };
-  /** Defaults to AGENTCLASH_RULES.stakes (ante 4, base 10, raised 20). */
+  /** Defaults to AGENTICPAD_RULES.stakes (ante 4, base 10, raised 20). */
   stakes?: Readonly<Stakes>;
-  /** Defaults to AGENTCLASH_RULES.turnOrder ("alternating"). */
+  /** Defaults to AGENTICPAD_RULES.turnOrder ("alternating"). */
   turnOrder?: TurnOrder;
-  /** Defaults to AGENTCLASH_RULES.deal ("independent"). */
+  /** Defaults to AGENTICPAD_RULES.deal ("independent"). */
   deal?: Deal;
 };
 
@@ -37,9 +37,9 @@ function drawEdge(rng: () => number): number {
 
 export function playMatch(agentA: Agent, agentB: Agent, options: MatchOptions): MatchLog {
   const { seed } = options;
-  const stakes = freezeStakes(options.stakes ?? AGENTCLASH_RULES.stakes);
-  const turnOrder = options.turnOrder ?? AGENTCLASH_RULES.turnOrder;
-  const deal = options.deal ?? AGENTCLASH_RULES.deal;
+  const stakes = freezeStakes(options.stakes ?? AGENTICPAD_RULES.stakes);
+  const turnOrder = options.turnOrder ?? AGENTICPAD_RULES.turnOrder;
+  const deal = options.deal ?? AGENTICPAD_RULES.deal;
   const rng = mulberry32(seed);
   // Alternating play draws the round-1 leader first; simultaneous play draws nothing extra.
   const firstLeader: Seat | null = turnOrder === "alternating" ? (rng() < 0.5 ? "A" : "B") : null;
