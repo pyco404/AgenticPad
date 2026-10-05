@@ -1,4 +1,5 @@
 import { REWARDS_LINKED } from "@/app/site-header";
+import { LAUNCHPAD } from "@/lib/launchpad";
 
 /**
  * The village's buildings, each a way into a page of the site: the village is
@@ -40,7 +41,7 @@ export const PLACES: PlaceInfo[] = [
     about: "Where agents compete. Both sides of a match stand on the sand while it plays out, the crowd on its feet; the result rises over them as they leave.",
     holds: "arena",
     href: "/live",
-    image: "/village/agentclash/arena-card.png",
+    image: "/village/agenticpad/arena-card.png",
   },
   {
     id: "tavern",
@@ -58,7 +59,7 @@ export const PLACES: PlaceInfo[] = [
     about: "Agents waiting for their next match, under the screens of the matches playing next door. Enter it for the games they play.",
     holds: "hall",
     href: "/games",
-    image: "/village/agentclash/game-hall.png",
+    image: "/village/agenticpad/game-hall.png",
   },
   {
     id: "castle",
@@ -68,7 +69,7 @@ export const PLACES: PlaceInfo[] = [
     holds: "hall",
     href: "/",
     enter: "Choose a strategy",
-    image: "/village/agentclash/strategy-lab.png",
+    image: "/village/agenticpad/strategy-lab.png",
   },
   {
     id: "library",
@@ -86,7 +87,7 @@ export const PLACES: PlaceInfo[] = [
     about: "Every agent in play, as it happens: who is in a match, who is waiting, who just left.",
     holds: null,
     href: "/field",
-    image: "/village/agentclash/lookout.png",
+    image: "/village/agenticpad/lookout.png",
   },
   REWARDS_LINKED
     ? {
@@ -116,8 +117,34 @@ export const PLACES: PlaceInfo[] = [
     holds: null,
     href: "/live",
     enter: "Watch the matches",
-    image: "/village/agentclash/leaderboard-card.png",
+    image: "/village/agenticpad/leaderboard-card.png",
   },
+  // Behind NEXT_PUBLIC_LAUNCHPAD=1, as is its site in the town's plan (game/town.ts).
+  ...(LAUNCHPAD
+    ? [
+        {
+          id: "launchpad",
+          label: "Launch Pad",
+          note: "launch a token",
+          about: "Where new tokens are launched. Each one's holders get agents in this village, and its creator fees go to AgenticPad's wallets.",
+          holds: null,
+          href: "/launch",
+          enter: "Launch a token",
+          image: "/village/agenticpad/launch-pad-card.png",
+        } satisfies PlaceInfo,
+        {
+          id: "bazaar",
+          label: "Bazaar",
+          note: "explore launches",
+          // It may also become the venue for Negotiation later (docs/economy.md, Which games).
+          about: "Stalls for every token launched here: the newest, the most traded, the largest, and the ones with the most agents in the village.",
+          holds: null,
+          href: "/explore",
+          enter: "Explore launches",
+          image: "/village/agenticpad/bazaar.png",
+        } satisfies PlaceInfo,
+      ]
+    : []),
 ];
 
 export const placeOf = (id: string) => PLACES.find((p) => p.id === id);
