@@ -49,10 +49,18 @@ export async function connect(url = process.env["DATABASE_URL"]): Promise<{ db: 
  */
 export async function migrate(db: Db, dir = "drizzle"): Promise<void> {
   await db.execute(
-    sql.raw("CREATE TABLE IF NOT EXISTS oxude_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"),
+    sql.raw("CREATE TABLE IF NOT EXISTS agenticpad_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"),
   );
+  // Retain the applied migration history from existing deployments. Replaying
+  // their schema changes under a fresh ledger would fail or corrupt data.
+  await db.execute(sql.raw(`DO $$ BEGIN
+    IF to_regclass('public.oxude_migrations') IS NOT NULL THEN
+      INSERT INTO agenticpad_migrations (name, applied_at)
+      SELECT name, applied_at FROM oxude_migrations ON CONFLICT (name) DO NOTHING;
+    END IF;
+  END $$;`));
   const applied = new Set(
-    ((await db.execute(sql.raw("SELECT name FROM oxude_migrations"))) as unknown as { rows: { name: string }[] }).rows.map(
+    ((await db.execute(sql.raw("SELECT name FROM agenticpad_migrations"))) as unknown as { rows: { name: string }[] }).rows.map(
       (r) => r.name,
     ),
   );
@@ -65,7 +73,7 @@ export async function migrate(db: Db, dir = "drizzle"): Promise<void> {
         const trimmed = statement.trim();
         if (trimmed) await tx.execute(sql.raw(trimmed));
       }
-      await tx.execute(sql`INSERT INTO oxude_migrations (name) VALUES (${file})`);
+      await tx.execute(sql`INSERT INTO agenticpad_migrations (name) VALUES (${file})`);
     });
   }
 }
