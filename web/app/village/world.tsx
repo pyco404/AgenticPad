@@ -3,7 +3,7 @@
 import { createContext, useContext } from "react";
 import { isPlaying, type Arrival, type Counters } from "@/lib/live";
 import { PLACES, type PlaceInfo } from "./places";
-import { type Resident } from "./residents";
+import { inMatch, type Resident } from "./residents";
 
 /**
  * Everything the HUD reads about the world, worked out once in the frame:
@@ -18,6 +18,8 @@ export type World = {
   now: number;
   counters: Counters | null;
   online: boolean | null;
+  /** What the Arena shows, as its sign says it (arena.ts), and whether that is live. */
+  arena?: { line: string; live: boolean };
 };
 
 const Context = createContext<World>({ residents: null, arrivals: [], playMs: 0, now: 0, counters: null, online: null });
@@ -32,8 +34,10 @@ export const finished = (w: World) => w.arrivals.filter((a) => !isPlaying(a, w.p
 /** The whole village: in the arena, waiting, recent matches finished, everyone on the field. */
 export function worldTally(w: World): Tally | null {
   if (!w.residents) return null;
-  const here = w.residents.filter((r) => r.place !== "gate");
-  const active = here.filter((r) => r.place === "arena").length;
+  // A replay's stand-ins are not agents on the field.
+  const here = w.residents.filter((r) => r.place !== "gate" && !r.standIn);
+  // Every match counts, in the Arena or out in the village, drawn in full or only as a marker.
+  const active = here.filter((r) => inMatch(r.place)).length;
   return { active, idle: here.length - active, done: finished(w).length, total: here.length };
 }
 
@@ -46,7 +50,7 @@ function belongs(place: PlaceInfo, hall: string | undefined): boolean {
 export function placeTally(w: World, place: PlaceInfo): Tally | null {
   if (!w.residents || !place.holds) return null;
   const hallOf = new Map(w.residents.map((r) => [r.id, r.hall]));
-  const mine = w.residents.filter((r) => r.place !== "gate" && belongs(place, r.hall));
+  const mine = w.residents.filter((r) => r.place !== "gate" && !r.standIn && belongs(place, r.hall));
   const active = mine.filter((r) => r.place === "arena").length;
   const idle = place.holds === "arena" ? 0 : mine.filter((r) => r.place === r.hall).length;
   const done = finished(w).filter((a) => belongs(place, hallOf.get(a.match.a.id)) || belongs(place, hallOf.get(a.match.b.id))).length;
@@ -62,26 +66,30 @@ export function placeActivity(w: World, place: PlaceInfo, limit = 4): Arrival[] 
 }
 
 /**
- * The line under a building's name, on the map and in the list: how many are
- * there for the buildings agents live at, where it leads for the rest.
+ * The line under a building's name, on the map and in the list. One rule for
+ * every building: what it is, always; then, for the few with a live count,
+ * the count after it, only when it is above zero - "live matches · 3 live".
+ * No hall counts who waits there: agents are drawn walking the paths, not
+ * standing at their halls, so a count there would contradict the picture.
  */
 export function placeLine(w: World, place: PlaceInfo): { text: string; lively: boolean } {
-  const t = placeTally(w, place);
+  // The Arena always says what is on: "live: A vs B", "replay: A vs B", or that nothing has been played.
+  if (place.holds === "arena" && w.arena) return { text: w.arena.line, lively: w.arena.live };
+  const count = liveCount(w, place);
+  return count ? { text: `${place.note} · ${count}`, lively: true } : { text: place.note, lively: false };
+}
+
+/** A building's live count, as words, or null when it has none or it is zero. */
+function liveCount(w: World, place: PlaceInfo): string | null {
+  const n = (v: number, one: string, many: string) => (v > 0 ? `${v.toLocaleString("en-US")} ${v === 1 ? one : many}` : null);
   if (place.holds === "arena") {
     const matches = new Set((w.residents ?? []).filter((r) => r.place === "arena").map((r) => r.match?.id)).size;
-    return { text: t ? `${matches} live` : "live matches", lively: matches > 0 };
+    return n(matches, "live", "live");
   }
-  if (t) return { text: `${t.idle} waiting`, lively: t.idle > 0 };
-  // The Treasury shows the holders: the wallets the rewards are for, and what the village grows with.
-  if (place.id === "chapel" && w.counters?.holders !== undefined) {
-    const n = w.counters.holders;
-    return { text: `${n.toLocaleString("en-US")} ${n === 1 ? "holder" : "holders"}`, lively: n > 0 };
-  }
-  if (place.id === "watchtower") {
-    const all = worldTally(w);
-    return { text: all ? `${all.total} on the field` : place.note, lively: false };
-  }
-  return { text: place.note, lively: false };
+  // The Hiring Hall counts the holders: the wallets with an agent, which is what getting one there makes you.
+  if (place.id === "tavern") return n(w.counters?.holders ?? 0, "holder", "holders");
+  if (place.id === "watchtower") return n(worldTally(w)?.total ?? 0, "agent", "agents");
+  return null;
 }
 
 export const placeLines = (w: World) => Object.fromEntries(PLACES.map((p) => [p.id, placeLine(w, p).text]));
