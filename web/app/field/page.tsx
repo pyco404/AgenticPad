@@ -3,7 +3,7 @@ import { Page } from "@/app/site-header";
 import { BuildingsCard, GlobalStats, LiveActivity } from "@/app/village/hud";
 
 export const metadata: Metadata = {
-  title: "The field — AgentClash",
+  title: "The field — AgenticPad",
   description: "What is happening on the field now: live activity, the numbers, and the village's buildings.",
   alternates: { canonical: "/field" },
 };
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
  * buildings and the numbers. The map behind shows every agent where it stands.
  */
 export default function FieldPage() {
-  return (
+  return ( 
     <Page
       title="Field"
       intro="What is happening on the field now. The village behind shows every agent where it stands: open any agent for its record, or any building for its page."
