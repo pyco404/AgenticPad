@@ -3,7 +3,7 @@ import {
   callIsWorseThanFold,
   EDGES,
   makeStrategy,
-  AGENTCLASH_RULES,
+  AGENTICPAD_RULES,
   playMatch,
   PRESET_NAMES,
   PRESET_PARAMS,
@@ -15,7 +15,7 @@ import {
   type View,
 } from "../src/index.js";
 
-const SHIPPED: Stakes = AGENTCLASH_RULES.stakes;
+const SHIPPED: Stakes = AGENTICPAD_RULES.stakes;
 
 function view(
   myEdge: number,
