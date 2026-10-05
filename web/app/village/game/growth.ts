@@ -191,7 +191,7 @@ const BUILDINGS: PieceArt[] = ["house-a", "office", "shop", "house-b", "apartmen
 /**
  * New Town: two rows of plots round the band between the rings, one facing
  * each ring road, kept off the main roads and away from the Launch Pad and the
- * bazaar. Each plot is a modern building, a street lamp, and now and then a
+ * bazaar. Each plot is a modern building and now and then a
  * planter. They open in arrival order, from the west - the way in, past the
  * Hiring Hall - outward round both sides, the inner row first.
  */
@@ -213,7 +213,7 @@ function newTownPlan(): Plan {
     });
   });
   slots.sort((a, b) => a.row - b.row || a.turn - b.turn);
-  // Each slot's building, lamp and maybe a planter; a slot whose ground would overlap one already laid -
+  // Each slot's building and maybe a planter; a slot whose ground would overlap one already laid -
   // where a row turns a corner, or tall buildings stack up an upright side - is left as open ground.
   const laid: { id: string; door: Pt; pieces: GrowthPiece[] }[] = [];
   for (const s of slots) {
@@ -225,7 +225,6 @@ function newTownPlan(): Plan {
     const planter = rand() < 0.4;
     const pieces: GrowthPiece[] = [
       { image, x: foot.x, y: foot.y, scale: 2, flip },
-      { image: "lamp", x: foot.x + (flip ? -1 : 1) * (size.width + 12), y: foot.y + 6, scale: 2 },
     ];
     if (planter) pieces.push({ image: "planter", x: foot.x + (flip ? 1 : -1) * (size.width + 8), y: foot.y + 8, scale: 2 });
     const plot = { id: `new-town-${s.id}`, at: 0, door: { x: foot.x, y: foot.y + 20 }, pieces };
