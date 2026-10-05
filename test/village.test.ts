@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
-import { HALLS, hallOf, lookOf, placeResidents, type FieldEntry, type PlayingMatch } from "../web/app/village/residents.js";
+import { HALLS, hallOf, lookOf, placeResidents, standInId, type FieldEntry, type PlayingMatch } from "../web/app/village/residents.js";
 
 const agent = (id: string, over: Partial<FieldEntry> = {}): FieldEntry => ({
   id,
@@ -34,10 +34,34 @@ describe("placing residents", () => {
     for (const n of counts.values()) expect(n).toBeGreaterThan(60);
   });
 
-  it("puts both sides of a match in the arena, each with its own result", () => {
+  it("puts both sides of a match in a duel where they meet, each with its own result", () => {
     const [a, b] = placeResidents([agent("1"), agent("2")], [match("m", "1", "2", 14)]);
-    expect(a).toMatchObject({ place: "arena", match: { id: "m", seat: "A", opponent: { id: "2" }, net: 14 } });
-    expect(b).toMatchObject({ place: "arena", match: { id: "m", seat: "B", opponent: { id: "1" }, net: -14 } });
+    expect(a).toMatchObject({ place: "duel", match: { id: "m", seat: "A", opponent: { id: "2" }, net: 14, replay: false } });
+    expect(b).toMatchObject({ place: "duel", match: { id: "m", seat: "B", opponent: { id: "1" }, net: -14, replay: false } });
+  });
+
+  it("sends the Arena's live match to the Arena with its own agents, and only that one", () => {
+    const placed = placeResidents([agent("1"), agent("2"), agent("3"), agent("4")], [match("n", "1", "3"), match("o", "3", "4")], {
+      kind: "live",
+      match: match("m", "1", "2"),
+      key: "live:m:0",
+    });
+    expect(placed.filter((r) => r.place === "arena").map((r) => r.id)).toEqual(["1", "2"]);
+    expect(placed.find((r) => r.id === "1")?.match).toMatchObject({ id: "m", replay: false, key: "live:m:0" });
+    // The Arena's match comes first: agent 1's newer match is not shown, and 3 and 4 meet out in the village.
+    expect(placed.find((r) => r.id === "3")?.match?.id).toBe("o");
+    expect(placed.filter((r) => r.place === "duel").map((r) => r.id)).toEqual(["3", "4"]);
+  });
+
+  it("plays a replay with stand-ins, named for the agents, and leaves the real agents where they are", () => {
+    const placed = placeResidents([agent("1"), agent("2")], [match("n", "1", "2")], { kind: "replay", match: match("old", "1", "2"), key: "replay:old:0" });
+    expect(placed.slice(0, 2).map((r) => r.place)).toEqual(["duel", "duel"]);
+    const standIns = placed.filter((r) => r.place === "arena");
+    expect(standIns.map((r) => [r.id, r.name, r.standIn])).toEqual([
+      [standInId("old", "A"), "Agent 1", "1"],
+      [standInId("old", "B"), "Agent 2", "2"],
+    ]);
+    expect(standIns[0]?.match).toMatchObject({ id: "old", replay: true, opponent: { id: standInId("old", "B") } });
   });
 
   it("shows an agent in two playbacks in the newer, which comes first", () => {
