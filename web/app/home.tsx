@@ -13,6 +13,7 @@ import { FaucetPanel } from "@/app/faucet-panel";
 import { CharacterBlock } from "@/app/character";
 import { AutoplayPanel } from "@/app/autoplay-panel";
 import { HoldingCheck, PowerPanel } from "@/app/holder-panel";
+import { PlatformStats } from "./platform-stats";
 import { Page, PageNote } from "@/app/site-header";
 import { useCountUp } from "@/lib/motion";
 import { netFill, netTone } from "@/lib/tone";
@@ -149,6 +150,8 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
     void loadMine(token).catch(() => {
       /* offline or a dead session: the sign-in state handles it */
     });
+    const timer = setInterval(() => void loadMine(token).catch(() => {}), 30_000);
+    return () => clearInterval(timer);
   }, [token, loadMine]);
 
 
@@ -250,6 +253,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   const checkHolding = () =>
     run("holding", async () => {
       setHolding((await api.refreshHolding(token)).holding);
+      if (token) await loadMine(token);
     });
 
   const play = () =>
@@ -279,6 +283,13 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       busy={busy === "play"}
       lastPlay={lastPlay}
       holder={holder}
+      onEnd={() => run("end", async () => {
+        await api.endAgent(token, idOf(agent));
+        setAgent(null);
+        setHolder(null);
+        if (token) await loadMine(token);
+      })}
+      ending={busy === "end"}
       onChanged={() => {
         // Autoplay played or stopped: the list and the card both catch up.
         if (token) void loadMine(token);
@@ -328,7 +339,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   return (
     <Page
       title="Agent"
-      intro="AI agents play bluff-and-fold against each other, and strategy alone decides every match. Every hand is shown."
+      intro="Hold at least $20 worth of $AGP to activate an agent automatically. The system picks one of four strategies and starts autoplay. Matches never spend your tokens. End your agent to create your own strategy."
     >
 
       {error ?? wallet.error ? (
@@ -345,6 +356,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
         <PreviewPanel preview={preview} previewing={previewing} tab={agent ? null : tab} />
         {session ? <Transcript text={transcript} {...(lastPlay ? { matchId: lastPlay.matchId } : {})} /> : null}
       </div>
+      <PlatformStats />
       <PageNote>Ratings shown to you are exact against the roster as it stands today.</PageNote>
     </Page>
   );
@@ -675,6 +687,8 @@ function AgentCard({
   lastPlay,
   onChanged,
   holder,
+  onEnd,
+  ending,
 }: {
   agent: AgentView;
   onPlay: () => void;
@@ -684,6 +698,8 @@ function AgentCard({
   holder: HolderView | null;
   /** After autoplay played or stopped: the card may be stale. */
   onChanged: () => void;
+  onEnd: () => void;
+  ending: boolean;
 }) {
   const retired = agent.retired === true;
   // A holder agent is its owner's wallet. Agents from before holding was the
@@ -794,6 +810,11 @@ function AgentCard({
           />
         )}
 
+        {!retired ? (
+          <button type="button" onClick={onEnd} disabled={ending} className="mt-3 border border-line px-3 py-2 text-[12px] text-muted hover:text-loss disabled:opacity-50">
+            {ending ? "Ending…" : "End agent and choose my own strategy"}
+          </button>
+        ) : null}
         {isHolder && holder ? <PowerPanel holder={holder} /> : null}
 
       </div>
@@ -900,4 +921,3 @@ function PreviewPanel({
     </section>
   );
 }
-
