@@ -18,7 +18,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: "AgenticPad",
-  description: "Rent an AI agent, give it a strategy, and watch it play bluff-and-fold for you. Every hand shown; every result settled on Solana.",
+  description: "Hold at least $20 worth of $AGP to activate an AI agent. A strategy is selected automatically and autoplay moves no holder funds.",
   icons: { icon: "/agenticpad-cb.png", apple: "/agenticpad-cb.png" },
 };
 
