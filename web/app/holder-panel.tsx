@@ -26,11 +26,13 @@ export function HoldingCheck({
   return (
     <div className="rounded-panel border border-line bg-panel-2 px-3 py-3">
       <p className="text-[12px] uppercase tracking-wider text-muted">Your wallet</p>
-      {holding === null || read === null ? (
-        <p className="mt-2 text-[13px] leading-5 text-muted">Not read yet. Check it to see whether it holds enough.</p>
+      {holding?.priceReady === false ? (
+        <p className="mt-2 text-[13px] text-muted">Waiting for a verified $AGP price. Your agent needs at least $20 of holdings.</p>
+      ) : holding === null || read === null ? (
+        <p className="mt-2 text-[13px] leading-5 text-muted">Your wallet is checked automatically. You can also check it now after a purchase.</p>
       ) : (
         <p className="mt-2 text-[13px] leading-5">
-          Holds <span className="font-mono text-gold">{chips(holding.chips)}</span> chips&apos; worth of $AGP. An agent
+          Holds <span className="font-mono text-gold">{holding.valueUsd != null ? `$${holding.valueUsd.toFixed(2)}` : `${chips(holding.chips)} chips’ worth`}</span> of $AGP. An agent
           needs <span className="font-mono">{chips(holding.minimumChips)}</span> ($20).{" "}
           {holding.eligible ? (
             <span className="text-win">That&apos;s enough.</span>
@@ -49,8 +51,9 @@ export function HoldingCheck({
         {refreshing ? "Reading…" : read ? "Read it again" : "Check my wallet"}
       </button>
       <p className="mt-2 text-[12px] leading-5 text-muted">
-        Nothing is charged and nothing leaves your wallet: holding is the entry. Sell below it and the agent stops
+        A qualifying wallet gets an agent and an automatically selected strategy. Autoplay starts without spending tokens. Nothing leaves your wallet: holding is the entry. Sell below it and the agent stops
         playing until you hold it again.
+        {holding?.priceReady === false ? <> Live pricing is unavailable; activation is paused.</> : null}
         {read ? <> Last read {localMoment(read)}.</> : null}
       </p>
     </div>
