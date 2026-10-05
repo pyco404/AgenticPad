@@ -21,7 +21,10 @@ export function PayoutPanel({ token }: { token: string }) {
     if (!response.ok) throw new Error(value.error ?? "Payout request failed.");
     return value as T;
   }, [token]);
-  const load = useCallback(async () => setOverview(await call<Overview>("plans")), [call]);
+  const load = useCallback(async () => {
+    setOverview(await call<Overview>("plans"));
+    setError(null);
+  }, [call]);
   useEffect(() => { setPlan(null); setOverview(null); void load().catch((e) => setError(e.message)); }, [load]);
   async function act(approve = false) {
     setBusy(true); setError(null);
@@ -39,7 +42,7 @@ export function PayoutPanel({ token }: { token: string }) {
     <p className="mt-2 text-gold">Swap execution is not connected yet.{!overview?.agpMint ? " Set PAYOUT_AGP_MINT before approving plans." : " Approved plans wait for the payout executor."}</p>
     <div className="mt-4 grid gap-3 sm:grid-cols-2">
       <label>Reward wallet<select className={control} value={input.kind} onChange={(e) => change("kind", e.target.value as PayoutInput["kind"])}><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label>
-      <label>{input.kind === "daily" ? "Completed UTC day" : "Completed season (Monday UTC)"}<input type="date" className={control} value={input.period} onChange={(e) => change("period", e.target.value)} /></label>
+      <label>{input.kind === "daily" ? "Completed UTC day" : "Completed season (Monday UTC)"}<input type="date" className={control} value={input.period} onChange={(e) => change("period", e.target.value)} />{input.kind === "weekly" ? <span className="text-muted">Select the Monday that started the completed week.</span> : null}</label>
       <label>SOL budget (excluding network fees)<input className={control} inputMode="decimal" value={input.budgetSol} onChange={(e) => change("budgetSol", e.target.value)} placeholder="10" /></label>
       <label>Payout percentage<input className={control} inputMode="decimal" value={input.rewardPercent} onChange={(e) => change("rewardPercent", e.target.value)} /><span className="text-muted">The remaining SOL stays in this reward wallet for future payouts. The platform takes no cut.</span></label>
       <label>Maximum SOL per swap batch<input className={control} inputMode="decimal" value={input.batchSol} onChange={(e) => change("batchSol", e.target.value)} /></label>
