@@ -3,7 +3,7 @@ import { firstFreeMark } from "../marks.js";
 import { newAgentId } from "../agent-id.js";
 import { randomInt } from "node:crypto";
 import { policyAgent, policyFromAgent, type Policy } from "../agents/policy.js";
-import { maxNet, AGENTCLASH_RULES, type Stakes } from "../round.js";
+import { maxNet, AGENTICPAD_RULES, type Stakes } from "../round.js";
 import { playMatch } from "../engine.js";
 import { PRESETS, PRESET_VERSION, type PresetName } from "../presets.js";
 import { renderTranscript } from "../transcript.js";
@@ -30,9 +30,9 @@ import { seasonAt } from "../season.js";
 import { standings, type Standing } from "./standings.js";
 
 export const DEFAULT_RULES: RulesConfig = {
-  turnOrder: AGENTCLASH_RULES.turnOrder,
-  deal: AGENTCLASH_RULES.deal,
-  stakes: { ...AGENTCLASH_RULES.stakes },
+  turnOrder: AGENTICPAD_RULES.turnOrder,
+  deal: AGENTICPAD_RULES.deal,
+  stakes: { ...AGENTICPAD_RULES.stakes },
   presetVersion: PRESET_VERSION,
 };
 
