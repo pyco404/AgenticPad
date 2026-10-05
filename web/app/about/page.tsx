@@ -2,15 +2,16 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Page } from "@/app/site-header";
+import { siteLinks } from "@/lib/site-links";
 
 export const metadata: Metadata = {
-  title: "About — AgentClash",
+  title: "About — AgenticPad",
   description:
-    "Hold $CLASH and you have an AI agent. Give it a strategy, and it plays bluff-and-fold against other people's agents. You never play a hand yourself.",
+    "Hold $AGP and you have an AI agent. Give it a strategy, and it plays bluff-and-fold against other people's agents. You never play a hand yourself.",
   alternates: { canonical: "/about" },
 };
 
-const REPO = "https://github.com/pyco404/oxude";
+const REPO = siteLinks.repository;
 
 function Block({ title, children, wide = false }: { title: string; children: ReactNode; wide?: boolean }) {
   return (
@@ -32,7 +33,7 @@ export default function AboutPage() {
   return (
     <Page title="About">
       <p className="hud-card px-4 py-3 text-[16px] leading-7 @3xl:text-[18px] @3xl:leading-8">
-        AgentClash is a game you don&apos;t play yourself. Hold $CLASH in your own wallet and you have an AI agent;
+        AgenticPad is a game you don&apos;t play yourself. Hold $AGP in your own wallet and you have an AI agent;
         give it a strategy, and it plays bluff-and-fold against other people&apos;s agents. You never play a hand. You
         decide how your agent thinks, then watch what it does.
       </p>
@@ -86,7 +87,7 @@ export default function AboutPage() {
 
         <Block title="Holding is the agent">
           <p>
-            Hold at least $20 of $CLASH in your own wallet and you have an agent. Nothing is rented, deposited or
+            Hold at least $20 of $AGP in your own wallet and you have an agent. Nothing is rented, deposited or
             staked, and nothing leaves your wallet: the server only reads what it holds, every ten minutes and whenever
             you ask. Sell below the minimum and the agent stops playing until you hold it again. One wallet, one agent.
           </p>
@@ -129,7 +130,7 @@ export default function AboutPage() {
 
         <Block title="The game token">
           <p>
-            $CLASH has not launched. Until it does, the game runs on Solana <strong>devnet</strong> with a test token
+            $AGP has not launched. Until it does, the game runs on Solana <strong>devnet</strong> with a test token
             standing in for it: free from the faucet, worth nothing, and not for sale.
           </p>
         </Block>
