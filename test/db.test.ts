@@ -26,7 +26,7 @@ import {
   policyFromAgent,
   PRESETS,
   PRESET_VERSION,
-  AGENTCLASH_RULES,
+  AGENTICPAD_RULES,
   seatAveragedNet,
   type View,
 } from "../src/index.js";
@@ -72,7 +72,7 @@ const blankView: Omit<View, "myEdge" | "oppActionThisRound" | "oppRaisedLastRoun
   oppRoundsWon: 0,
   roundNumber: 1,
   oppRaiseCount: 0,
-  stakes: AGENTCLASH_RULES.stakes,
+  stakes: AGENTICPAD_RULES.stakes,
   myNet: 0,
   myActionThisRound: null,
 };
@@ -321,7 +321,7 @@ describe("true rating", () => {
     await refreshTrueRatings(fresh);
 
     const [row] = await fresh.select().from(agents).where(eq(agents.id, mine.id));
-    const half = (a: "Anchor" | "Bully") => seatAveragedNet(policyAgent(snapshotPreset("Mirage")), PRESETS[a], AGENTCLASH_RULES);
+    const half = (a: "Anchor" | "Bully") => seatAveragedNet(policyAgent(snapshotPreset("Mirage")), PRESETS[a], AGENTICPAD_RULES);
     // Roster is 4 Anchors, 4 Bullys and Mirage itself; an agent is rated against everyone but itself.
     const profile = await rosterProfile(fresh);
     const expected = (4 * half("Anchor") + 4 * half("Bully")) / 8;
@@ -363,7 +363,7 @@ describe("true rating", () => {
     await refreshTrueRatings(fresh);
 
     const mirage = policyAgent(snapshotPreset("Mirage"));
-    const vs = (a: "Anchor" | "Bully") => seatAveragedNet(mirage, PRESETS[a], AGENTCLASH_RULES);
+    const vs = (a: "Anchor" | "Bully") => seatAveragedNet(mirage, PRESETS[a], AGENTICPAD_RULES);
     const [row] = await fresh.select().from(agents).where(eq(agents.id, me.id));
     expect(row!.trueRating).toBeCloseTo((vs("Anchor") + vs("Bully")) / 2, 9);
 
@@ -389,7 +389,7 @@ describe("true rating", () => {
     expect(players.scoring).toBe(true);
     expect(players.roster).toBe(1);
     const mirage = policyAgent(snapshotPreset("Mirage"));
-    expect(players.trueRating).toBeCloseTo(seatAveragedNet(mirage, PRESETS.Bully, AGENTCLASH_RULES), 9);
+    expect(players.trueRating).toBeCloseTo(seatAveragedNet(mirage, PRESETS.Bully, AGENTICPAD_RULES), 9);
     await closeFresh();
   });
 
