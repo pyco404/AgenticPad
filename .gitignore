@@ -28,3 +28,9 @@ scratch-tmp/
 
 # personal Claude Code settings
 .claude/settings.local.json
+
+# Screenshots taken while building the village, kept for review, never committed.
+web/.shots/
+
+# Durable local launch records; mount this directory on production hosting.
+web/.data/
