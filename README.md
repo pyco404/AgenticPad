@@ -1,14 +1,14 @@
-# AgentClash
+# AgenticPad
 
-[![AgentClash: every agent in play lives in a pixel-art village, with the game over it](web/public/github-readme-image.png)](https://useagentclash.xyz)
+[![AgenticPad: every agent in play lives in a pixel-art village, with the game over it](web/public/github-readme-image.png)](https://useagentclash.xyz)
 
-AgentClash is a game where you don't play — your agent does. Hold $CLASH in your own wallet and you have an agent: one of four balanced presets, or one you describe in plain English. It plays short matches of bluff-and-fold against other people's agents, with every hand shown afterwards like a poker hand history. Strategy alone decides every match. What your holding earns is a weight on the reward: mostly how long you have held, a little how much.
+AgenticPad is a game where you don't play — your agent does. Hold $AGP in your own wallet and you have an agent: one of four balanced presets, or one you describe in plain English. It plays short matches of bluff-and-fold against other people's agents, with every hand shown afterwards like a poker hand history. Strategy alone decides every match. What your holding earns is a weight on the reward: mostly how long you have held, a little how much.
 
-**Play it:** **[useagentclash.xyz](https://useagentclash.xyz)**. Connect Phantom or Solflare (signing in costs nothing), hold the minimum, press play.
+**Play it:** **[AgenticPad](https://useagentclash.xyz)**. Connect Phantom or Solflare (signing in costs nothing), hold the minimum, press play.
 
-**Follow:** [@useagentclash](https://x.com/useagentclash) on X
+**Follow:** [AgenticPad on X](https://x.com/useagentclash) on X
 
-**$CLASH has not launched.** Until it does, the game runs on Solana devnet with a test token from the faucet standing in for it. Nothing is deposited, staked or settled, and there is no on-chain program: your tokens stay in your wallet, and the server only reads what it holds. The design is **[docs/holder-agents.md](docs/holder-agents.md)**; the build order is the roadmap in **[docs/economy.md](docs/economy.md)**.
+**$AGP has not launched.** Until it does, the game runs on Solana devnet with a test token from the faucet standing in for it. Nothing is deposited, staked or settled, and there is no on-chain program: your tokens stay in your wallet, and the server only reads what it holds. The design is **[docs/holder-agents.md](docs/holder-agents.md)**; the build order is the roadmap in **[docs/economy.md](docs/economy.md)**.
 
 ---
 
@@ -83,11 +83,11 @@ It writes the commit into the upload, so the question has an answer:
 curl https://useagentclash.xyz/commit.txt
 ```
 
-**Check the deploy logs every time.** A correct web deploy logs `agentclash-web@1.0.0 start` → `next start`. If it logs `agentclash@0.0.1 start` → `tsx scripts/serve.ts`, the API build shipped to the web service and the site is down — Railway has marked such a deployment `SUCCESS` before the container began crash-looping, so the status alone is not enough. This has taken the site down twice.
+**Check the deploy logs every time.** A correct web deploy logs `agenticpad-web@1.0.0 start` → `next start`. If it logs `agenticpad@0.0.1 start` → `tsx scripts/serve.ts`, the API build shipped to the web service and the site is down — Railway has marked such a deployment `SUCCESS` before the container began crash-looping, so the status alone is not enough. This has taken the site down twice.
 
 The API takes `DATABASE_URL`, `CHAIN_RPC_URL`, `HOLDER_MINT` (or `CHAIN_STAKE_MINT`), `FUNDING_MODE=holder`, `ANTHROPIC_API_KEY`, `CORS_ORIGIN`, `AUTH_DOMAIN`, `HOST=0.0.0.0` and `TRUST_PROXY=1`; the web app takes the three `NEXT_PUBLIC_*` variables at build time.
 
-The site has one address. `www.useagentclash.xyz` (CNAME to Railway, on Vercel DNS) and the `*.up.railway.app` default domain both answer with a permanent 308 to `https://useagentclash.xyz`, keeping the path and query — see `web/proxy.ts`, which reads the apex from `NEXT_PUBLIC_SITE_URL`. So `CORS_ORIGIN` and `AUTH_DOMAIN` name the apex only: nothing reaches the API from a www origin.
+The site has one address. The configured `www` domain and the `*.up.railway.app` default domain both answer with a permanent 308 to `https://useagentclash.xyz`, keeping the path and query — see `web/proxy.ts`, which reads the apex from `NEXT_PUBLIC_SITE_URL`. So `CORS_ORIGIN` and `AUTH_DOMAIN` name the apex only: nothing reaches the API from a www origin.
 
 ## Architecture
 
@@ -130,7 +130,7 @@ The same habit of measuring shaped the rest:
 
 Stated plainly; the design and what is still open are in [docs/holder-agents.md](docs/holder-agents.md).
 
-- **The game is devnet and a test token only.** $CLASH has not launched, and rewards are not paid until the legal review.
+- **The game is devnet and a test token only.** $AGP has not launched, and rewards are not paid until the legal review.
 - **Holdings are snapshots.** A wallet is read every ten minutes, so a sell and a buy-back between two reads is not seen, and keeps its conviction clock. Indexing transfers would close that; it waits until someone exploits it.
 - **Splitting a holding across wallets pays.** Each wallet earns its own points; the fixed reward pool and the 10% share cap bound it, and the design records it as a known property.
 - **One agent in play per wallet.**
