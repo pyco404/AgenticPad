@@ -57,8 +57,15 @@ function tableRound(r: Partial<TableRound>): TableRound | null {
   return { leader: r.leader ?? null, edges: r.edges, sequence: r.sequence, outcome: r.outcome, bet: r.bet, winner: r.winner };
 }
 
-/** The buildings agents stand at. The rest of the village is somewhere to go, not somewhere to be. */
-export type Place = "arena" | "tavern" | "forge" | "castle" | "gate";
+/**
+ * Where an agent is. The halls and the gate are buildings it stands at; a
+ * match is played in the Arena when it is the one the Arena shows (arena.ts),
+ * and otherwise in a duel, wherever its two sides meet (game/duels.ts).
+ */
+export type Place = "arena" | "duel" | "tavern" | "forge" | "castle" | "gate";
+
+/** Whether an agent is in a match, in the Arena or out in the village. */
+export const inMatch = (place: Place) => place === "arena" || place === "duel";
 
 /** The halls waiting agents gather at. Everyone plays everyone, so a hall is only where an agent waits. */
 export const HALLS = ["tavern", "forge", "castle"] as const;
@@ -83,9 +90,15 @@ export type Resident = {
     opponent: { id: string; name: string };
     net: number;
     exhibition: boolean;
+    /** The Arena's match played again by stand-ins, rather than live by its own agents. */
+    replay: boolean;
+    /** The Arena's showing of it: the same match shown twice is played twice. */
+    key?: string;
     clock: MatchClock | null;
   } | null;
   look: Look;
+  /** A replay's stand-in: the agent it stands in for, whose face it wears and whose page it opens. */
+  standIn?: string;
 };
 
 /** FNV-1a: the same id always hashes the same, in every browser. */
@@ -120,33 +133,77 @@ export function hallOf(id: string): Hall {
   return HALLS[hash(`hall:${id}`) % HALLS.length] ?? "forge";
 }
 
+/** A replay's stand-in's id: never an agent's, so the real one carries on elsewhere. */
+export const standInId = (matchId: string, seat: "A" | "B") => `stand-in:${matchId}:${seat}`;
+
+/** The match the Arena shows (arena.ts), as far as placing needs it. */
+export type ArenaPick = { kind: "live" | "replay"; match: PlayingMatch; key: string };
+
 /**
  * Everyone on the field, placed. `playing` is newest first, so an agent in two
  * playbacks at once is shown in the newer. A retiring agent heads for the gate
  * whatever it was doing: the field shows it leaving for a minute, then drops it.
+ *
+ * `arena` is the one match the Arena shows. Live, its own two agents play it
+ * there, whatever the server has them doing since; a replay is played by two
+ * stand-ins, added to the list, so the real agents carry on where they are.
+ * The Arena keeps its own clock (the scene plays the match from when both
+ * sides are in), so the clock here is only the rounds.
  */
-export function placeResidents(agents: readonly FieldEntry[], playing: readonly PlayingMatch[]): Resident[] {
-  const inMatch = new Map<string, NonNullable<Resident["match"]>>();
-  for (const m of playing) {
-    if (inMatch.has(m.a.id) || inMatch.has(m.b.id)) continue;
-    const clock =
-      m.startedAt !== undefined && m.playMs !== undefined && m.play
-        ? { startedAt: m.startedAt, playMs: m.playMs, roundsWon: m.play.map((r) => ({ ...r.roundsWon })), rounds: m.play.map(tableRound) }
-        : null;
-    inMatch.set(m.a.id, { id: m.id, seat: "A", opponent: m.b, net: m.netA, exhibition: m.exhibition, clock });
-    inMatch.set(m.b.id, { id: m.id, seat: "B", opponent: m.a, net: m.netB, exhibition: m.exhibition, clock });
+export function placeResidents(agents: readonly FieldEntry[], playing: readonly PlayingMatch[], arena: ArenaPick | null = null): Resident[] {
+  const playingIn = new Map<string, NonNullable<Resident["match"]>>();
+  const seat = (m: PlayingMatch, replay: boolean) => {
+    const clock = m.play
+      ? { startedAt: m.startedAt ?? 0, playMs: m.playMs ?? 0, roundsWon: m.play.map((r) => ({ ...r.roundsWon })), rounds: m.play.map(tableRound) }
+      : null;
+    const a = { id: m.id, seat: "A" as const, opponent: m.b, net: m.netA, exhibition: m.exhibition, replay, clock };
+    const b = { id: m.id, seat: "B" as const, opponent: m.a, net: m.netB, exhibition: m.exhibition, replay, clock };
+    return [a, b] as const;
+  };
+  const known = new Set(agents.filter((a) => !a.retiredAt).map((a) => a.id));
+  const live = arena?.kind === "live" && known.has(arena.match.a.id) && known.has(arena.match.b.id) ? arena.match : null;
+  if (live) {
+    const [a, b] = seat(live, false);
+    playingIn.set(live.a.id, { ...a, key: arena!.key });
+    playingIn.set(live.b.id, { ...b, key: arena!.key });
   }
-  return agents.map((a) => {
-    const match = a.retiredAt ? null : (inMatch.get(a.id) ?? null);
+  for (const m of playing) {
+    if (m.id === live?.id || playingIn.has(m.a.id) || playingIn.has(m.b.id)) continue;
+    const [a, b] = seat(m, false);
+    if (m.startedAt === undefined || m.playMs === undefined) {
+      a.clock = null;
+      b.clock = null;
+    }
+    playingIn.set(m.a.id, a);
+    playingIn.set(m.b.id, b);
+  }
+  const placed: Resident[] = agents.map((a) => {
+    const match = a.retiredAt ? null : (playingIn.get(a.id) ?? null);
     return {
       id: a.id,
       name: a.name,
       presetName: a.presetName,
       house: a.house,
       hall: hallOf(a.id),
-      place: a.retiredAt ? "gate" : match ? "arena" : hallOf(a.id),
+      place: a.retiredAt ? "gate" : match ? (match.id === live?.id ? "arena" : "duel") : hallOf(a.id),
       match,
       look: lookOf(a.id),
     };
   });
+  // A live match whose agents have left the field is played by stand-ins too.
+  if (!arena || live) return placed;
+  const m = arena.match;
+  const [a, b] = seat(m, arena.kind === "replay");
+  const standIn = (real: { id: string; name: string }, s: "A" | "B", match: NonNullable<Resident["match"]>): Resident => ({
+    id: standInId(m.id, s),
+    name: real.name,
+    presetName: null,
+    house: false,
+    hall: hallOf(real.id),
+    place: "arena",
+    match: { ...match, key: arena.key, opponent: { id: standInId(m.id, s === "A" ? "B" : "A"), name: match.opponent.name } },
+    look: lookOf(real.id),
+    standIn: real.id,
+  });
+  return [...placed, standIn(m.a, "A", a), standIn(m.b, "B", b)];
 }
