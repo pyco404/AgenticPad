@@ -7,7 +7,7 @@ import { explorer, readRewards, type Rewards } from "@/lib/rewards";
 import { ScoreStanding } from "@/app/rewards/score-standing";
 
 export const metadata: Metadata = {
-  title: "Rewards — AgentClash",
+  title: "Rewards — AgenticPad",
   description: "Where prize money comes from and where it goes, read from chain. Not live yet.",
   alternates: { canonical: "/rewards" },
 };
@@ -60,7 +60,7 @@ function RewardsSection({ r }: { r: Rewards }) {
         <h2 className="text-[12px] uppercase tracking-wider text-accent">Rewards</h2>
       </div>
       <p className="border-b border-gold/50 bg-gold/5 px-4 py-3 text-[13px] leading-5 text-text @3xl:px-4">
-        Not live yet. The AgentClash token, $CLASH, has not launched; rewards are funded by its creator-fee split and paid from
+        Not live yet. The AgenticPad token, $AGP, has not launched; rewards are funded by its creator-fee split and paid from
         mainnet launch. These figures read from chain and will populate then.
       </p>
       {r.error ? (
@@ -141,9 +141,9 @@ function RewardsSection({ r }: { r: Rewards }) {
       <div className="space-y-2 border-t border-line p-3 text-[13px] leading-5 @3xl:p-4">
         <h3 className="text-[12px] uppercase tracking-wider text-accent">Prize schedule</h3>
         <p>
-          Two payouts, from two wallets funded by the token&apos;s creator fees: daily, from the daily wallet (10% of
+          Two payouts, from two wallets funded by the token&apos;s creator fees: daily, from the daily wallet (15% of
           fees), and weekly at the season boundary, from the weekly wallet (50%). Each releases half its wallet, so a
-          quiet period still pays and neither wallet empties. Paid in $CLASH bought at payout.
+          quiet period still pays and neither wallet empties. Paid in $AGP bought at payout.
         </p>
         <p className="text-muted">
           Shares follow the score in the table above, in proportion, with no agent above 10%. Holding never wins a
@@ -179,7 +179,7 @@ function ActivitySection({ a }: { a: Activity | null }) {
       )}
       <p className="border-t border-line p-3 text-[13px] leading-5 text-muted @3xl:p-4">
         Matches move no money: a lost match costs nothing. Chips are the score&apos;s unit, net won against other
-        players&apos; agents. Holding $CLASH is the entry; nothing is staked, deposited or withdrawn.
+        players&apos; agents. Holding $AGP is the entry; nothing is staked, deposited or withdrawn.
       </p>
     </section>
   );
