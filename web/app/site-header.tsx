@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { siteLinks } from "@/lib/site-links";
 
 /**
  * /rewards announces the token before it exists. It is in the nav unless
@@ -38,13 +39,13 @@ export function SiteFooter() {
   return (
     <footer
       className="rounded-panel flex h-8 items-center border border-hud-line bg-hud px-2.5 text-[12px] text-muted"
-      title="The game runs on Solana devnet: balances here are test tokens with no value. AgentClash ($CLASH), the real token, has not launched yet; it becomes the game's currency at mainnet launch."
+      title="The game runs on Solana devnet: balances here are test tokens with no value. AgenticPad ($AGP), the real token, has not launched yet; it becomes the game's currency at mainnet launch."
     >
       <p className="flex flex-wrap items-center justify-end gap-x-3">
         <span>Solana</span>
-        <a href="https://x.com/useagentclash" className={link} target="_blank" rel="noreferrer">X</a>
-        <a href="https://github.com/pyco404/oxude" className={link} target="_blank" rel="noreferrer">Source</a>
-        <a href="https://github.com/pyco404/oxude/blob/main/docs/security.md" className={link} target="_blank" rel="noreferrer">Security</a>
+        <a href={siteLinks.x} className={link} target="_blank" rel="noreferrer">X</a>
+        <a href={siteLinks.repository} className={link} target="_blank" rel="noreferrer">Source</a>
+        <a href={`${siteLinks.repository}/blob/main/docs/security.md`} className={link} target="_blank" rel="noreferrer">Security</a>
       </p>
     </footer>
   );
