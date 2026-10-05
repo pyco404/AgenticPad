@@ -1,19 +1,25 @@
 // Adapted from Agent Quest (MIT, see ./LICENSE).
 import * as Phaser from "phaser";
-import type { Place, Resident } from "../residents";
+import { inMatch, type Place, type Resident } from "../residents";
+import { duelPhase, meetingSpot, pathSpots, ringsInFull, WATCH_RADIUS, type Spot } from "./duels";
 import { Building, type BuildingLabel } from "./building";
 import { Ground } from "./ground";
+import { byGardenPond, drawGardens, GARDEN_PONDS } from "./gardens";
 import { Hero } from "./hero";
 import { CardTable } from "./table";
-import { drawDressing, drawSolarLights, loadDressing, overRoad, PIECES } from "./dressing";
-import { sailShips } from "./ships";
+import { drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
+import { loadShips, sailShips } from "./ships";
 import { drawArena, loadArena, type ArenaHandle } from "./arena";
-import { ARENA_LAYOUT, GROUNDS, HIDDEN_ROADS, lots, RESERVED, ROADS, SITES, stands, townBounds } from "./town";
+import { ARENA_FIELD, GROUNDS, HIDDEN_ROADS, inTown, lots, NEW_TOWN_SITES, RESERVED, ROADS, SITES, SQUARE, stands, townBounds } from "./town";
+import { CROSSROADS, inNewTown, inOctagon, onOldGround, OUTER, PIER, WORLD } from "./world";
+import { nightOf, num, VOID, warm } from "./palette";
+import { chunkKey, chunksIn, chunkTrees, CHUNK, type ForestRules, type Tree } from "./forest";
 import { loadWeapons, weaponOf } from "./weapons";
 import { drawMap, loadMap, type VillageMap } from "./map";
-import { felled, FIXTURE_SIZE, openPlots, plotClearing, PLOTS, type Plot } from "./growth";
+import { canopy, NEW_TOWN, openPlots, overlaps, PIECE_ART, plotClearing, type Box, type Plot } from "./growth";
 import { Roads, type Point } from "./roads";
 import { crispText, MONO } from "./text";
+import { layOutNames, type NameLabel } from "./labels";
 import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
 import { bodyColours, GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
@@ -21,14 +27,38 @@ import { bodyColours, GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pi
 /** A match being played in the arena: its two sides, the table between them, the running score over it, and the timer that drives both. */
 type Brawl = { a: string; b: string; score: Phaser.GameObjects.Text; table: CardTable; ticker: Phaser.Time.TimerEvent };
 
+/**
+ * A match out in the village (duels.ts): where its two sides meet, the ring
+ * drawn there, when both had arrived - the replay runs from then - and
+ * whether its ring is one of those drawn in full.
+ */
+type Duel = {
+  spot: Spot;
+  /** The ring and its far-off marker; neither for the Arena's match, which has the Arena. */
+  ring: Phaser.GameObjects.Graphics | null;
+  marker: Phaser.GameObjects.Text | null;
+  metAt: number | null;
+  full: boolean;
+  /** The Arena's one match (arena.ts), and its match id: the shell is told when it has played out. */
+  arena: string | null;
+};
+/** What the scene keys a match's playing by: the Arena's showing of it, or the match. */
+const keyOf = (m: { id: string; key?: string }) => m.key ?? m.id;
+/** A ring's size on the ground, round the two sides and the table between them. */
+const RING = { width: 156, height: 48 };
+/** No ring goes this close to a building's door, where its agents queue. */
+const DOOR_CLEARANCE = 120;
+
 /** Agent Quest's own hero size; the map's saved 0.4 leaves them too small to tell apart. */
 const HERO_SCALE = 0.55;
 /** Space between heroes waiting at a hall. */
 const GRID_X = 50;
 const GRID_Y = 42;
-/** A match takes two spots facing each other; matches stand this far apart, in rows on the arena's sand (town.ts). */
+/** A match takes two spots facing each other, this far apart. */
 const PAIR_GAP = 72;
-const { pairX: PAIR_X, pairY: PAIR_Y, cols: ARENA_COLS } = ARENA_LAYOUT;
+/** The Arena's one match stands in the middle of the sand (town.ts); a replay's stand-ins come in by the south gate. */
+const ARENA_SPOT = { x: ARENA_FIELD.x, y: 820 };
+const ARENA_GATE = { x: ARENA_FIELD.x, y: 1010 };
 /** How long an agent called to a match takes to get there, from wherever it is. */
 const ARRIVE_MS = 2500;
 /** How far a drag goes before it is a drag and not a tap. */
@@ -43,7 +73,7 @@ const AWAY_MS: [number, number] = [6_000, 14_000];
 const STROLL_CHANCE = 0.7;
 /** A stroll's end: the agent grounds at the edge of town this often; of the rest, the lake shore this often, anywhere else in the world otherwise. */
 const GROUNDS_CHANCE = 0.4;
-const SHORE_CHANCE = 0.6;
+const SHORE_CHANCE = 0.15;
 /** Of all strolls, this share go down the south road to the dock; of those, this share go in for a swim. */
 const DOCK_CHANCE = 0.25;
 const SWIM_CHANCE = 0.6;
@@ -54,6 +84,17 @@ const SWIM_LEGS: [number, number] = [2, 4];
 const SWIM_REACH = 200;
 /** Within this of a road, a walk keeps to the roads; beyond it, it crosses open ground. */
 const NEAR_ROAD = 110;
+/** The widest the camera ever looks, in world pixels: the world runs on much further than anyone needs to see at once. */
+const MAX_VIEW = 5200;
+/** How far past the camera's view the forest is made, and how far before it is destroyed again, in chunks. */
+const FOREST_NEAR = 1;
+const FOREST_FAR = 2;
+/** How many of the forest's chunks are made in one frame, at most. */
+const FOREST_PER_FRAME = 4;
+/** How far below its chunk a tree's canopy can still show: a tree's foot is its lowest point, its crown well above. */
+const FOREST_REACH = 140;
+/** How far the forest's canopies keep off a road's edge. */
+const FOREST_VERGE = 10;
 
 const between = ([lo, hi]: [number, number]) => lo + Math.random() * (hi - lo);
 
@@ -67,6 +108,8 @@ export type VillageEvents = {
   ready: () => void;
   selectAgent: (id: string | null) => void;
   selectBuilding: (id: string) => void;
+  /** The Arena's match, by id, has played out in full. */
+  arenaDone: (matchId: string) => void;
 };
 
 export type SceneOptions = {
@@ -109,6 +152,12 @@ export class VillageScene extends Phaser.Scene {
   /** The dock at the end of the south road, and the open water near it that swimmers make for. */
   private dock: { x: number; y: number; halfWidth: number; halfHeight: number } | null = null;
   private swimSpots: Point[] = [];
+  /** Where a stroll may end: the village and the forest's near edge. */
+  private strollable: Point[] = [];
+  /** The forest's chunks now made, each its trees and the sprite drawn for each (forest.ts). */
+  private chunks = new Map<string, { tree: Tree; sprite: Phaser.GameObjects.Image }[]>();
+  private forestRules: ForestRules | null = null;
+  private forestAt = "";
   private pending: Resident[] | null = null;
   /** The map's trees, so the village can clear them as it grows (growth.ts). */
   private trees: { d: { k: string; x: number; y: number; s: number }; sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite }[] = [];
@@ -144,19 +193,20 @@ export class VillageScene extends Phaser.Scene {
       else this.load.image(`building-${b.id}`, site.art);
     }
     loadDressing(this);
-    // What the village grows with: the pack's cottages, gardens, fences and sheep (growth.ts).
-    for (const image of new Set(PLOTS.flatMap((p) => p.pieces.map((x) => x.image)))) {
+    // What the village grows with: New Town's buildings, lamps and planters (growth.ts).
+    for (const image of new Set(NEW_TOWN.plots.flatMap((p) => p.pieces.map((x) => x.image)))) {
       const key = `growth-${image}`;
-      const size = FIXTURE_SIZE[image];
-      if (size.frames) this.load.spritesheet(key, `/fixtures/${image}.png`, { frameWidth: size.width, frameHeight: size.height });
-      else this.load.image(key, `/fixtures/${image}.png`);
+      const size: { src: string; width: number; height: number; frames?: number } = PIECE_ART[image];
+      if (size.frames) this.load.spritesheet(key, warm(size.src), { frameWidth: size.width, frameHeight: size.height });
+      else this.load.image(key, warm(size.src));
     }
     loadArena(this);
     loadWeapons(this);
+    loadShips(this);
   }
 
   create(): void {
-    this.cameras.main.setBackgroundColor("#141a24");
+    this.cameras.main.setBackgroundColor(VOID);
     // The dressing (dressing.ts), then the map with the town's roads (town.ts) in place of its own: its
     // forest, less what stands where the town is - its buildings, their props, its roads.
     const { solids, placed } = drawDressing(this, this.opts.still);
@@ -164,8 +214,9 @@ export class VillageScene extends Phaser.Scene {
     this.trees = drawMap(this, {
       ...this.map,
       paths: ROADS,
-      decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS)),
+      decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS) && !byGardenPond(d)),
     });
+    drawGardens(this, taken);
 
     for (const def of this.opts.buildings) {
       const site = SITES[def.id];
@@ -184,37 +235,40 @@ export class VillageScene extends Phaser.Scene {
     // A building is solid as its picture's box, but the arena as its walls: agents fight inside it.
     const footprints = [...this.buildings].filter(([id]) => !SITES[id]?.blocks).map(([, b]) => b.footprint);
     const blocks = Object.values(SITES).flatMap((s) => s.blocks ?? []);
-    this.ground = new Ground(this.map, [...footprints, ...solids], blocks, RESERVED);
+    this.ground = new Ground(this.map, [...footprints, ...solids], [...blocks, ...GARDEN_PONDS], RESERVED);
+    // Where a match out in the village may meet: along every path.
+    this.ringSpots = pathSpots(ROADS);
+    // Open ground for a ring when the paths are full: Old Town's and New Town's, not the Wilds'.
+    this.ringClearings = this.ground.anywhere.filter((p) => inTown(p) || inNewTown(p));
+    // Strolls stay in the village and the forest's near edge: the Wilds run on a long way now.
+    this.strollable = this.ground.anywhere.filter((p) => inOctagon(OUTER, p, 420));
     this.gate = this.ground.nearestDry(this.map.spawn);
 
-    // The dock: the map's one bridge, at the end of the south road. Swimmers make for open water near it,
-    // clear of the rocks in the lake and of the dock itself.
-    const bridge = this.map.decorations.find((d) => d.k.includes("bridge"));
-    if (bridge && this.ground.inWater(bridge)) {
-      this.dock = { x: bridge.x, y: bridge.y, halfWidth: 40, halfHeight: 45 };
-      const rocks = this.map.decorations.filter((d) => d.k.includes("rocks"));
-      this.swimSpots = this.ground.water.filter(
-        (p) =>
-          Math.hypot(p.x - bridge.x, p.y - bridge.y) < SWIM_REACH &&
-          p.y > bridge.y + 50 &&
-          !rocks.some((r) => Math.hypot(r.x - p.x, r.y - p.y) < 70) &&
-          !this.onDock(p),
-      );
-    }
+    // The pier on the small lake out in the Wilds (world.ts): strollers walk out to its end, and some swim off it.
+    this.dock = { x: PIER.x, y: PIER.y + 20, halfWidth: 22, halfHeight: 70 };
+    this.swimSpots = this.ground.water.filter((p) => Math.hypot(p.x - PIER.x, p.y - PIER.y) < SWIM_REACH && p.y > PIER.y + 40 && !this.onDock(p));
 
-    // Two ships under sail on the lake, clear of the one moored off the dock and of the rocks.
-    const moored = PIECES.find((p) => p.key === "dress-ship");
-    sailShips(this, this.ground, {
-      count: 2,
-      still: this.opts.still,
-      moored: moored ? { x: moored.x, y: moored.y } : null,
-      rocks: this.map.decorations.filter((d) => d.k.includes("rocks")),
-      dock: bridge ?? null,
-    });
+    // One sailboat on the lake, clear of the pier.
+    sailShips(this, this.ground, { count: 1, still: this.opts.still, moored: null, rocks: [], dock: PIER });
 
-    // Night: a blue dark over the world, under the names so they still read.
-    const { width, height } = this.map.world;
-    this.night = this.add.rectangle(width / 2, height / 2, width * 3, height * 3, 0x0a1030, 0.45).setDepth(9_000);
+    // The forest beyond Old Town (forest.ts): made a chunk at a time round the camera, and destroyed away from it.
+    this.forestRules = {
+      inOldTown: (p) => onOldGround(p),
+      // A small verge either side of every road, so the forest reads as cut back from it.
+      onRoad: (p, s) => overRoad({ k: "tree", x: p.x, y: p.y, s }, ROADS, FOREST_VERGE) || CROSSROADS.some((c) => Math.hypot(c.x - p.x, c.y - p.y) < 110),
+      taken: [...taken, ...this.newTownLots(), ...GARDEN_PONDS],
+      cleared: [],
+    };
+    this.events.on("update", () => this.tendForest());
+
+    // Night: the palette's own (palette.ts nightOf) - every colour multiplied darker and a little cooler,
+    // so the same hues hold - over the world, under the names so they still read.
+    const w = WORLD.x1 - WORLD.x0;
+    const h = WORLD.y1 - WORLD.y0;
+    this.night = this.add
+      .rectangle(WORLD.x0 + w / 2, WORLD.y0 + h / 2, w * 2, h * 2, num(nightOf("#ffffff")), 1)
+      .setBlendMode(Phaser.BlendModes.MULTIPLY)
+      .setDepth(9_000);
     this.night.setVisible(this.isNight);
     this.solarLights = drawSolarLights(this, this.opts.still);
     this.solarLights.setNight(this.isNight);
@@ -242,21 +296,92 @@ export class VillageScene extends Phaser.Scene {
     if (!this.roads) return;
     const live = this.grownOnce && !this.opts.still;
     this.grownOnce = true;
-    const fresh = openPlots(count).filter((p) => !this.grown.has(p.id));
+    const fresh = openPlots(NEW_TOWN, count).filter((p) => !this.grown.has(p.id));
     for (const plot of fresh) {
       this.grown.add(plot.id);
       const pieces = this.build(plot);
-      for (const i of felled(this.trees.map((t) => t.d), [plot])) {
-        if (this.cleared.has(i)) continue;
-        this.cleared.add(i);
-        const tree = this.trees[i]!.sprite;
-        if (live) this.tweens.add({ targets: tree, alpha: 0, duration: 1_500, onComplete: () => tree.setVisible(false) });
-        else tree.setVisible(false);
+      // Its ground is cleared for good: the forest never grows a tree there again (forest.ts), and the
+      // trees standing there now come down.
+      const clearing = plotClearing(plot);
+      if (this.forestRules) this.forestRules = { ...this.forestRules, cleared: [...this.forestRules.cleared, clearing] };
+      for (const chunk of this.chunks.values()) {
+        for (const t of chunk) {
+          if (!t.sprite.active || !overlaps(canopy(t.tree), clearing)) continue;
+          const sprite = t.sprite;
+          if (live) this.tweens.add({ targets: sprite, alpha: 0, duration: 1_500, onComplete: () => sprite.destroy() });
+          else sprite.destroy();
+        }
       }
+      for (const t of this.trees) if (overlaps(canopy(t.d), clearing)) t.sprite.setVisible(false);
       if (live) this.rise(plot, pieces);
     }
     // The land has grown: frame it all, unless someone has moved the view, which is theirs.
     if (fresh.length > 0 && !this.moved) this.fit();
+  }
+
+  /** New Town's ground nothing grows on: its fixed buildings and their forecourts (the plots clear their own as they open). */
+  private newTownLots(): Box[] {
+    return [...NEW_TOWN_SITES].flatMap((id) => {
+      const s = SITES[id];
+      return s ? [{ x0: s.x - 160, y0: s.y - 230, x1: s.x + 160, y1: s.y + 90 }] : [];
+    });
+  }
+
+  /**
+   * The forest round the camera (forest.ts): every chunk the view comes near
+   * is made, and every chunk it has left far behind is destroyed - its
+   * sprites gone, not hidden - and made again, the same, if it comes back.
+   * The Wilds are thick, so only the chunks in view are drawn: those made
+   * ahead of the camera wait hidden, and a few are made a frame, nearest
+   * first, so zooming out never stalls a phone on a whole ring of them.
+   */
+  private tendForest(): void {
+    const rules = this.forestRules;
+    if (!rules) return;
+    const v = this.cameras.main.worldView;
+    // In view: a tree's canopy rises above its foot, so a chunk just below the view can show in it.
+    const seen: Box = { x0: v.x - 80, y0: v.y - 40, x1: v.right + 80, y1: v.bottom + FOREST_REACH };
+    const at = [seen.x0, seen.y0, seen.x1, seen.y1].map((n) => Math.floor(n / CHUNK)).join();
+    if (at === this.forestAt) return;
+    const grow = (n: number): Box => ({ x0: v.x - n * CHUNK, y0: v.y - n * CHUNK, x1: v.right + n * CHUNK, y1: v.bottom + n * CHUNK });
+    const shown = new Set(chunksIn(seen).map((c) => chunkKey(c.cx, c.cy)));
+    const keep = new Set(chunksIn(grow(FOREST_FAR)).map((c) => chunkKey(c.cx, c.cy)));
+    for (const [key, trees] of this.chunks) {
+      if (keep.has(key)) continue;
+      for (const t of trees) t.sprite.destroy();
+      this.chunks.delete(key);
+    }
+    const mid = { x: (v.x + v.right) / 2 / CHUNK, y: (v.y + v.bottom) / 2 / CHUNK };
+    const missing = chunksIn(grow(FOREST_NEAR))
+      .filter(({ cx, cy }) => !this.chunks.has(chunkKey(cx, cy)))
+      .sort((a, b) => Math.hypot(a.cx + 0.5 - mid.x, a.cy + 0.5 - mid.y) - Math.hypot(b.cx + 0.5 - mid.x, b.cy + 0.5 - mid.y));
+    for (const { cx, cy } of missing.slice(0, FOREST_PER_FRAME)) {
+      this.chunks.set(
+        chunkKey(cx, cy),
+        chunkTrees(cx, cy, rules).map((tree) => {
+          const sprite = this.add.image(tree.x, tree.y, tree.k, tree.f).setScale(tree.s);
+          sprite.setDepth(tree.y + sprite.displayHeight * 0.5);
+          return { tree, sprite };
+        }),
+      );
+    }
+    for (const [key, trees] of this.chunks) {
+      const on = shown.has(key);
+      for (const t of trees) if (t.sprite.active && t.sprite.visible !== on) t.sprite.setVisible(on);
+    }
+    // Done for this view only once every chunk near it is made; until then, a few more next frame.
+    if (missing.length <= FOREST_PER_FRAME) this.forestAt = at;
+    this.debugCount();
+  }
+
+  /** In development, what the forest holds now, for checking memory on a phone-sized run. Never in a production build. */
+  private debugCount(): void {
+    if (process.env.NODE_ENV === "production") return;
+    let trees = 0;
+    for (const c of this.chunks.values()) trees += c.length;
+    let drawn = 0;
+    for (const c of this.chunks.values()) for (const t of c) if (t.sprite.visible) drawn++;
+    (window as unknown as { __village?: object }).__village = { chunks: this.chunks.size, trees, drawn, objects: this.children.length, textures: this.textures.getTextureKeys().length };
   }
 
   /** Draws a plot's pieces at the depth of their feet, like everything else on the ground. */
@@ -264,7 +389,7 @@ export class VillageScene extends Phaser.Scene {
     return plot.pieces.flatMap((p) => {
       const key = `growth-${p.image}`;
       if (!this.textures.exists(key)) return [];
-      const size = FIXTURE_SIZE[p.image];
+      const size: { foot: number; frames?: number } = PIECE_ART[p.image];
       const obj = size.frames ? this.add.sprite(p.x, p.y, key, 0) : this.add.image(p.x, p.y, key);
       obj.setOrigin(0.5, size.foot).setScale(p.scale).setFlipX(p.flip ?? false).setDepth(p.y);
       if (size.frames && obj instanceof Phaser.GameObjects.Sprite && !this.opts.still) {
@@ -305,13 +430,10 @@ export class VillageScene extends Phaser.Scene {
 
   /** The part of the world with the buildings and the people in front of them, and whatever the village has grown into. */
   private villageBounds(): Phaser.Geom.Rectangle {
-    let b = townBounds();
-    for (const plot of PLOTS) {
-      if (!this.grown.has(plot.id)) continue;
-      const c = plotClearing(plot);
-      b = { x0: Math.min(b.x0, c.x0), y0: Math.min(b.y0, c.y0), x1: Math.max(b.x1, c.x1), y1: Math.max(b.y1, c.y1) };
-    }
-    return new Phaser.Geom.Rectangle(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+    // Arrive in the landscaped town centre. Outlying districts stay a pan
+    // away, rather than shrinking every landmark as the holder count grows.
+    const b = townBounds();
+    return new Phaser.Geom.Rectangle(b.x0 - 160, b.y0 - 100, b.x1 - b.x0 + 320, b.y1 - b.y0 + 330);
   }
 
   /**
@@ -321,7 +443,8 @@ export class VillageScene extends Phaser.Scene {
    */
   private minZoom(): number {
     const cam = this.cameras.main;
-    return Math.max(cam.width / this.map.world.width, cam.height / this.map.world.height);
+    // The world is larger than anyone needs to see at once: no further out than MAX_VIEW across.
+    return Math.max(cam.width / (WORLD.x1 - WORLD.x0), cam.height / (WORLD.y1 - WORLD.y0), cam.width / MAX_VIEW);
   }
 
   /**
@@ -331,7 +454,7 @@ export class VillageScene extends Phaser.Scene {
    * world allows.
    */
   private updateBounds(): void {
-    this.cameras.main.setBounds(0, 0, this.map.world.width, this.map.world.height);
+    this.cameras.main.setBounds(WORLD.x0, WORLD.y0, WORLD.x1 - WORLD.x0, WORLD.y1 - WORLD.y0);
     this.rescaleLabels();
   }
 
@@ -377,7 +500,15 @@ export class VillageScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const v = this.villageBounds();
     const { width, height } = this.visible();
-    cam.setZoom(Phaser.Math.Clamp(Math.min(width / v.width, height / v.height), this.minZoom(), this.maxZoom()));
+    let zoom = Math.min(width / v.width, height / v.height);
+    // On a portrait screen - a phone - fitting all of New Town's width would show nearly the whole world's
+    // height, tiny: Old Town fills the width instead, and New Town's rows above and below it are in view,
+    // its sides a swipe away.
+    if (height > width) {
+      const old = townBounds();
+      zoom = Math.max(zoom, width / Math.min(1100, old.x1 - old.x0));
+    }
+    cam.setZoom(Phaser.Math.Clamp(zoom, this.minZoom(), this.maxZoom()));
     this.updateBounds();
     this.centreOn(v.centerX, v.centerY);
   }
@@ -454,6 +585,12 @@ export class VillageScene extends Phaser.Scene {
       this.zoomAround(p.x, p.y, cam.zoom * Math.exp(-dy * 0.002));
     });
 
+    // Names kept apart every frame: agents walk, and the camera moves and zooms. Rings too.
+    this.events.on("update", () => {
+      this.frameDuels();
+      this.layOutNames();
+    });
+
     // Pinch to zoom on touch, about the point between the fingers.
     this.input.addPointer(1);
     let pinch = { dist: 0, zoom: 0 };
@@ -468,6 +605,28 @@ export class VillageScene extends Phaser.Scene {
       if (pinch.dist === 0) pinch = { dist, zoom: cam.zoom };
       else this.zoomAround((a.x + b.x) / 2, (a.y + b.y) / 2, pinch.zoom * (dist / pinch.dist));
     });
+  }
+
+  /**
+   * No two names overlap (labels.ts): building names stay put and win; agents'
+   * names are nudged up or down, or hidden until hovered, nearest the middle of
+   * the screen first.
+   */
+  private layOutNames(): void {
+    const names: NameLabel[] = [];
+    for (const [id, hero] of this.heroes) {
+      const n = hero.nameLabel(id);
+      if (n) names.push(n);
+    }
+    // Building names, and the running score over each match, stay put: agents' names move off them.
+    const fixed = [...this.buildings.values()].map((b) => b.labelBounds());
+    for (const b of this.brawls.values()) {
+      if (!b.score.visible) continue;
+      const r = b.score.getBounds();
+      fixed.push({ x0: r.x, y0: r.y, x1: r.right, y1: r.bottom });
+    }
+    const placed = layOutNames(names, fixed, this.cameras.main.midPoint);
+    for (const [id, p] of placed) this.heroes.get(id)?.placeName(p);
   }
 
   // --- Residents ----------------------------------------------------------
@@ -513,12 +672,14 @@ export class VillageScene extends Phaser.Scene {
     if (hero && pan) this.centreOn(hero.x, hero.y, this.opts.still ? 0 : 600);
   }
 
-  setResidents(list: Resident[]): void {
+  setResidents(incoming: Resident[]): void {
     if (!this.roads) {
-      this.pending = list;
+      this.pending = incoming;
       return;
     }
     this.pending = null;
+    this.latest = incoming;
+    const list = this.withHeld(incoming);
     const ids = new Set(list.map((r) => r.id));
 
     for (const [id, hero] of this.heroes) {
@@ -537,18 +698,18 @@ export class VillageScene extends Phaser.Scene {
       const before = this.residents.get(r.id);
       let hero = this.heroes.get(r.id);
       if (!hero) {
-        hero = new Hero(this, this.route, r.look, r.name, spawn, HERO_SCALE, {
+        hero = new Hero(this, this.route, r.look, r.name, r.standIn ? ARENA_GATE : spawn, HERO_SCALE, {
           named: !r.house,
           nameColour: r.house ? COLOUR.text : COLOUR.accent,
           still: this.opts.still,
           onClick: () => {
-            if (!this.dragged) this.opts.events.selectAgent(r.id);
+            if (!this.dragged) this.opts.events.selectAgent(r.standIn ?? r.id);
           },
           inWater: (p) => this.ground.inWater(p) && !this.onDock(p),
         });
         this.heroes.set(r.id, hero);
-        this.giveFace(r.id);
-        hero.setWeapon(weaponOf(r.id));
+        this.giveFace(r.id, r.standIn);
+        hero.setWeapon(weaponOf(r.standIn ?? r.id));
         hero.setLabelScale(this.heroLabelScale());
         if (this.mine.has(r.id)) hero.setMine(true);
         if (r.id === this.selected) hero.setSelected(true);
@@ -557,7 +718,7 @@ export class VillageScene extends Phaser.Scene {
       }
       // A match has played out when its sides stop playing it - back to a hall,
       // or straight into the next one: its result then, and not before.
-      if (before?.match && before.place === "arena" && r.match?.id !== before.match.id) {
+      if (before?.match && inMatch(before.place) && (r.match ? keyOf(r.match) : null) !== keyOf(before.match)) {
         hero.float(...this.result(before.match));
         // The side that lost goes down, and gets up a few seconds later.
         if (before.match.net < 0) hero.knockDown();
@@ -596,7 +757,7 @@ export class VillageScene extends Phaser.Scene {
       const then = waiting ? () => this.routine.has(id) || this.standAWhile(id) : undefined;
       // The first time the village fills, everyone is already where they belong.
       // To a match, at a run: it lasts seconds, and the fight is the point.
-      const toFight = this.residents.get(id)?.place === "arena";
+      const toFight = inMatch(this.residents.get(id)?.place ?? "gate");
       if (this.placed) hero.walkTo(spot, spot.facing, { then, ...(toFight ? { within: ARRIVE_MS } : {}) });
       else {
         hero.standAt(spot, spot.facing);
@@ -650,7 +811,7 @@ export class VillageScene extends Phaser.Scene {
     if (this.dock && Math.random() < DOCK_CHANCE) return this.toTheDock(id);
     const hero = this.heroes.get(id);
     const places =
-      Math.random() < GROUNDS_CHANCE ? GROUNDS : Math.random() < SHORE_CHANCE && this.ground.shore.length > 0 ? this.ground.shore : this.ground.anywhere;
+      Math.random() < GROUNDS_CHANCE ? GROUNDS : Math.random() < SHORE_CHANCE && this.ground.shore.length > 0 ? this.ground.shore : this.strollable;
     const to = places[Math.floor(Math.random() * places.length)];
     if (!hero || !to) return this.standAWhile(id);
     this.roam(id, true);
@@ -737,12 +898,12 @@ export class VillageScene extends Phaser.Scene {
         ids.forEach((id, i) => out.set(id, { x: this.gate.x + ((i % 5) - 2) * 18, y: this.gate.y + Math.floor(i / 5) * 18 }));
         continue;
       }
-      const door = this.doors.get(place);
-      if (!door) continue;
-      if (place === "arena") {
-        this.layOutArena(ids, door, out);
+      if (place === "duel" || place === "arena") {
+        this.layOutDuels(ids, out);
         continue;
       }
+      const door = this.doors.get(place);
+      if (!door) continue;
       const cols = Math.ceil(Math.sqrt(ids.length));
       ids.forEach((id, i) => {
         out.set(id, { x: door.x - ((cols - 1) * GRID_X) / 2 + (i % cols) * GRID_X, y: door.y + Math.floor(i / cols) * GRID_Y });
@@ -760,14 +921,14 @@ export class VillageScene extends Phaser.Scene {
   /** Each character's body colours, kept with its textures. */
   private bodies = new Map<string, { main: number; dark: number }>();
 
-  private giveFace(id: string): void {
-    const views = { front: `head-${id}`, side: `head-${id}-side`, back: `head-${id}-back` };
-    const known = this.bodies.get(id);
+  private giveFace(id: string, face = id): void {
+    const views = { front: `head-${face}`, side: `head-${face}-side`, back: `head-${face}-back` };
+    const known = this.bodies.get(face);
     if (known && this.textures.exists(views.back)) {
       this.heroes.get(id)?.setFace(views, known);
       return;
     }
-    pixelate(portraitUrl(id, false), GRID_LARGE, true).then((data) => {
+    pixelate(portraitUrl(face, false), GRID_LARGE, true).then((data) => {
       if (!this.sys.isActive()) return;
       if (!data) {
         this.heroes.get(id)?.useSprite();
@@ -783,7 +944,7 @@ export class VillageScene extends Phaser.Scene {
         }
       }
       const colours = bodyColours(data);
-      this.bodies.set(id, colours);
+      this.bodies.set(face, colours);
       this.heroes.get(id)?.setFace(views, colours);
     });
   }
@@ -801,10 +962,12 @@ export class VillageScene extends Phaser.Scene {
   private syncBrawls(): void {
     const fights = new Map<string, [string, string]>();
     for (const r of this.residents.values()) {
-      if (r.place !== "arena" || r.match?.seat !== "A") continue;
+      if (!inMatch(r.place) || r.match?.seat !== "A") continue;
       const o = this.residents.get(r.match.opponent.id);
-      if (o?.place === "arena" && o.match?.id === r.match.id) fights.set(r.match.id, [r.id, o.id]);
+      if (o?.place === r.place && o.match && keyOf(o.match) === keyOf(r.match)) fights.set(keyOf(r.match), [r.id, o.id]);
     }
+    // A ring whose match is over for both its sides - one of them pulled into a newer match - goes.
+    for (const id of this.duels.keys()) if (!fights.has(id)) this.removeDuel(id);
     for (const [id, b] of this.brawls) {
       if (fights.has(id)) continue;
       b.ticker.remove();
@@ -813,8 +976,8 @@ export class VillageScene extends Phaser.Scene {
       this.brawls.delete(id);
     }
     for (const [id, [a, b]] of fights) if (!this.brawls.has(id)) this.startBrawl(id, a, b);
-    // The crowd is on its feet while a match is on.
-    this.arena?.setCheering(this.brawls.size > 0);
+    // The crowd is on its feet while the Arena's match is on.
+    this.arena?.setCheering([...this.duels.values()].some((d) => d.arena !== null && d.metAt !== null));
   }
 
   private startBrawl(id: string, a: string, b: string): void {
@@ -854,60 +1017,191 @@ export class VillageScene extends Phaser.Scene {
     if (!brawl || !ha || !hb) return;
     // Over them once they have squared up; not while they are still on their way.
     const together = ha.idle && hb.idle && Math.abs(ha.y - hb.y) < 10;
+    // Out in the village the replay starts when both have arrived, whenever the server finished the match;
+    // in the Arena it keeps the live feed's clock.
+    const duel = this.duels.get(id);
+    let startedAt = clock?.startedAt ?? 0;
+    // The Arena's match, out in the village or in the Arena, plays from when both sides are in.
+    if (duel) {
+      if (together && duel.metAt === null) duel.metAt = Date.now();
+      if (duelPhase(Date.now(), duel.metAt, clock?.playMs ?? null) === "done") return this.endDuel(id);
+      if (!duel.full) {
+        brawl.score.setVisible(false);
+        brawl.table.hide();
+        return;
+      }
+      startedAt = duel.metAt ?? 0;
+    }
     brawl.score.setVisible(together && clock !== null && clock !== undefined);
     if (!together || !clock) return;
-    const { round, phase, within } = playhead(clock.roundsWon.length, Date.now() - clock.startedAt, clock.playMs);
+    const { round, phase, within } = playhead(clock.roundsWon.length, Date.now() - startedAt, clock.playMs);
     brawl.table.place({ x: ha.x, y: ha.y }, { x: hb.x, y: hb.y }, this.heroLabelScale());
     brawl.table.show(round, phase, within, clock.rounds[round] ?? null);
     const shown = phase === "outcome" || phase === "final" ? clock.roundsWon[round] : clock.roundsWon[round - 1];
     const won = shown ?? { A: 0, B: 0 };
     // Seat A stands on the left. At the end a star marks the side that took the match; a level match has none.
     const star = (s: "A" | "B") => (phase === "final" && won[s] > won[s === "A" ? "B" : "A"] ? "★" : "");
-    brawl.score.setText(phase === "final" ? `${star("A")}${won.A} – ${won.B}${star("B")}` : `R${round + 1}  ${won.A} – ${won.B}`);
+    const text = phase === "final" ? `${star("A")}${won.A} – ${won.B}${star("B")}` : `R${round + 1}  ${won.A} – ${won.B}`;
+    // A replay in the Arena says so over the fighters, as the Arena's sign does.
+    brawl.score.setText(this.residents.get(brawl.a)?.match?.replay ? `REPLAY  ${text}` : text);
     brawl.score.setColor(phase === "final" ? COLOUR.live : COLOUR.accent);
     brawl.score.setScale(this.heroLabelScale());
     // High enough to clear the choices said over each side's head.
     brawl.score.setPosition((ha.x + hb.x) / 2, Math.min(ha.y, hb.y) - 58);
   }
 
-  /** Each match's spot in the arena, kept for as long as it lasts: when one ends its spot frees, and nobody else moves. */
-  private arenaSlots = new Map<string, number>();
+  // --- Duels ---------------------------------------------------------------
 
-  private layOutArena(ids: string[], door: Point, out: Map<string, Point & { facing?: "left" | "right" }>): void {
-    // Both sides of a match stand together; a side whose opponent isn't on the field stands alone.
-    const units: { key: string; ids: string[] }[] = [];
-    const done = new Set<string>();
-    for (const id of ids) {
-      if (done.has(id)) continue;
-      const match = this.residents.get(id)?.match;
-      const other = match ? ids.find((o) => o !== id && this.residents.get(o)?.match?.id === match.id) : undefined;
-      const pair = other ? [id, other] : [id];
-      pair.forEach((p) => done.add(p));
-      // Seat A on the left.
-      units.push({ key: match?.id ?? id, ids: other && match?.seat === "B" ? [other, id] : pair });
-    }
-    const live = new Set(units.map((u) => u.key));
-    for (const key of this.arenaSlots.keys()) if (!live.has(key)) this.arenaSlots.delete(key);
-    const taken = new Set(this.arenaSlots.values());
-    for (const u of units) {
-      if (this.arenaSlots.has(u.key)) continue;
-      let slot = 0;
-      while (taken.has(slot)) slot++;
-      taken.add(slot);
-      this.arenaSlots.set(u.key, slot);
-    }
-    for (const u of units) {
-      const slot = this.arenaSlots.get(u.key)!;
-      const col = slot % ARENA_COLS;
-      const cx = door.x - ((ARENA_COLS - 1) * PAIR_X) / 2 + col * PAIR_X;
-      const y = door.y + Math.floor(slot / ARENA_COLS) * PAIR_Y;
-      const [left, right] = u.ids;
-      if (right === undefined) out.set(left!, { x: cx, y });
-      else {
-        out.set(left!, { x: cx - PAIR_GAP / 2, y, facing: "right" });
-        out.set(right, { x: cx + PAIR_GAP / 2, y, facing: "left" });
+  /** Matches out in the village, by match id (duels.ts). */
+  private duels = new Map<string, Duel>();
+  /** Agents kept at their duel after the server has moved on, until its replay is done. */
+  private held = new Map<string, Resident>();
+  /** Duels already replayed: a match still in the page's list after its replay is not played again. */
+  private replayed = new Set<string>();
+  /** What the page last sent, to apply again when a duel lets its agents go. */
+  private latest: Resident[] = [];
+  /** The spots on the paths a ring may go (duels.ts), and the open ground in town for when the paths are full. */
+  private ringSpots: Spot[] = [];
+  private ringClearings: Spot[] = [];
+
+  /**
+   * The page's list, with each agent at a duel kept there until its replay is
+   * done: the server's playback can end before the two sides have even met, and
+   * the village plays the match out after, never cutting it short.
+   */
+  private withHeld(list: Resident[]): Resident[] {
+    return list.map((r) => {
+      if (r.match && this.replayed.has(keyOf(r.match))) return { ...r, place: r.hall, match: null };
+      if (r.match) {
+        if (r.place === "duel") this.held.set(r.id, r);
+        else this.held.delete(r.id);
+        return r;
       }
+      const kept = this.held.get(r.id);
+      if (!kept || r.place === "gate") {
+        this.held.delete(r.id);
+        return r;
+      }
+      return { ...r, place: "duel", match: kept.match };
+    });
+  }
+
+  /** Whether a ring may go at p: clear ground for both sides, off the Arena's sand, away from every door. */
+  private ringOpen = (p: Spot): boolean => {
+    const half = PAIR_GAP / 2;
+    if (![p, { x: p.x - half, y: p.y }, { x: p.x + half, y: p.y }].every((q) => this.ground.walkable(q))) return false;
+    if (RESERVED.some((r) => p.x > r.x0 - 40 && p.x < r.x1 + 40 && p.y > r.y0 - 40 && p.y < r.y1 + 40)) return false;
+    // Not on the fountain's plaza: a ring there would sit round the fountain.
+    if (((p.x - SQUARE.x) / (SQUARE.rx + 90)) ** 2 + ((p.y - SQUARE.y) / (SQUARE.ry + 50)) ** 2 < 1) return false;
+    return [...this.doors.values()].every((d) => Math.hypot(d.x - p.x, d.y - p.y) > DOOR_CLEARANCE);
+  };
+
+  /**
+   * Each match out in the village at its meeting spot, and the Arena's in the
+   * middle of the sand: seat A on the left, the two facing each other.
+   */
+  private layOutDuels(ids: string[], out: Map<string, Point & { facing?: "left" | "right" }>): void {
+    const seen = new Set<string>();
+    for (const id of ids) {
+      const r = this.residents.get(id);
+      const match = r?.match;
+      if (!match || seen.has(keyOf(match))) continue;
+      seen.add(keyOf(match));
+      const other = match.opponent.id;
+      const [a, b] = match.seat === "A" ? [id, other] : [other, id];
+      const duel = this.duels.get(keyOf(match)) ?? (r.place === "arena" ? this.openArena(keyOf(match), match.id) : this.openDuel(keyOf(match), a, b));
+      if (!duel) continue;
+      out.set(a, { x: duel.spot.x - PAIR_GAP / 2, y: duel.spot.y, facing: "right" });
+      if (ids.includes(b)) out.set(b, { x: duel.spot.x + PAIR_GAP / 2, y: duel.spot.y, facing: "left" });
     }
   }
 
+  /** Where two agents meet, and the ring drawn there. */
+  private openDuel(matchId: string, a: string, b: string): Duel | null {
+    const at = (id: string) => this.heroes.get(id) ?? this.gate;
+    const taken = [...this.duels.values()].filter((d) => d.arena === null).map((d) => d.spot);
+    const spot = meetingSpot(at(a), at(b), this.ringSpots, taken, this.ringOpen, undefined, this.ringClearings);
+    if (!spot) return null;
+    const ring = this.add.graphics().setDepth(spot.y - 30).setAlpha(this.opts.still ? 1 : 0);
+    const cy = spot.y + 12;
+    ring.fillStyle(0x0c1018, 0.3).fillEllipse(spot.x, cy, RING.width, RING.height);
+    ring.lineStyle(3, 0xe8b84b, 0.9).strokeEllipse(spot.x, cy, RING.width, RING.height);
+    ring.lineStyle(1, 0x5c4a22, 0.9).strokeEllipse(spot.x, cy, RING.width - 10, RING.height - 6);
+    if (!this.opts.still) this.tweens.add({ targets: ring, alpha: 1, duration: 400 });
+    const marker = crispText(this, spot.x, spot.y - 24, "⚔", {
+      fontSize: "16px",
+      fontFamily: MONO,
+      color: COLOUR.accent,
+      stroke: "#000000",
+      strokeThickness: 4,
+    })
+      .setOrigin(0.5, 1)
+      .setDepth(19_000)
+      .setVisible(false);
+    const duel: Duel = { spot, ring, marker, metAt: null, full: true, arena: null };
+    this.duels.set(matchId, duel);
+    return duel;
+  }
+
+  /** The Arena's match: in the middle of the sand, always drawn in full, and no ring - the Arena is its ring. */
+  private openArena(key: string, matchId: string): Duel {
+    const duel: Duel = { spot: ARENA_SPOT, ring: null, marker: null, metAt: null, full: true, arena: matchId };
+    this.duels.set(key, duel);
+    return duel;
+  }
+
+  /** The replay is over: its ring fades, its two sides are let go, and the result shows over them. */
+  private endDuel(id: string): void {
+    const brawl = this.brawls.get(id);
+    const arena = this.duels.get(id)?.arena ?? null;
+    this.replayed.add(id);
+    if (this.replayed.size > 500) this.replayed.clear();
+    if (brawl) {
+      this.held.delete(brawl.a);
+      this.held.delete(brawl.b);
+    }
+    this.removeDuel(id);
+    this.setResidents(this.latest);
+    // The shell picks what the Arena shows next (arena.ts) and sends everyone again.
+    if (arena) this.opts.events.arenaDone(arena);
+  }
+
+  private removeDuel(id: string): void {
+    const duel = this.duels.get(id);
+    if (!duel) return;
+    this.duels.delete(id);
+    duel.marker?.destroy();
+    const ring = duel.ring;
+    if (!ring) return;
+    if (this.opts.still) ring.destroy();
+    else this.tweens.add({ targets: ring, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
+  }
+
+  /**
+   * Every frame: the RING_CAP rings nearest the middle of the screen drawn in
+   * full and the rest as a marker; and idle agents near a ring in play turn to
+   * watch it.
+   */
+  private frameDuels(): void {
+    if (this.duels.size === 0) return;
+    const full = ringsInFull(
+      [...this.duels].filter(([, d]) => d.arena === null).map(([id, d]) => ({ id, ...d.spot })),
+      this.cameras.main.midPoint,
+    );
+    const scale = this.heroLabelScale();
+    for (const [id, d] of this.duels) {
+      if (d.arena !== null) continue;
+      d.full = full.has(id);
+      d.ring?.setVisible(d.full);
+      d.marker?.setVisible(!d.full).setScale(scale);
+    }
+    const watched = [...this.duels.values()].filter((d) => d.full && d.metAt !== null);
+    if (watched.length === 0) return;
+    for (const [id, hero] of this.heroes) {
+      const r = this.residents.get(id);
+      if (!r || inMatch(r.place) || r.place === "gate" || !hero.idle) continue;
+      const ring = watched.find((d) => Math.hypot(d.spot.x - hero.x, d.spot.y - hero.y) < WATCH_RADIUS);
+      if (ring) hero.face(ring.spot.x < hero.x ? "left" : "right");
+    }
+  }
 }
