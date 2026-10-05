@@ -21,12 +21,14 @@ for review are 90% rewards, 0.25 SOL per batch, 60 seconds between batches,
 and 50 basis points (0.5%) slippage. These are starting settings, not liquidity
 estimates or promises that a trade will succeed.
 
-For a 10 SOL budget at 90%, 9 SOL is the reward allocation and 1 SOL is retained
-for the platform wallet in SOL. The existing 10% per-winner cap still applies.
-Allocation withheld by that cap and rounding stays in the reward wallet,
-separate from the platform's percentage. Rent, transaction costs and swap fees
-must be accounted for separately; the selected budget is not the entire wallet
-balance. The locked Pump 15% daily / 50% weekly / 35% platform split is unchanged.
+For a 10 SOL budget at 80%, up to 8 SOL is allocated to winners and at least
+2 SOL stays in the same reward wallet, accumulating alongside new fees for
+future payouts. The platform takes no cut from reward wallets. The existing
+10% per-winner cap still applies; capped or rounded allocations also stay in
+the reward wallet. Rent, transaction costs and swap fees must be accounted for
+separately. The Pump 15% daily / 50% weekly / 35% platform split is unchanged.
+Older plans with a platform cut remain in history but cannot be approved;
+preview a new plan using these rules.
 
 ## Execution still to connect
 
@@ -50,8 +52,8 @@ The executor must process one batch at a time:
 Persist signed bytes and identifiers before submission. A timeout leaves a
 batch pending; resume/check its original signatures rather than creating another
 buy or payment. Never mark a swap or payout complete based only on a browser
-assertion. A partial payout transfers only the corresponding platform portion;
-the full platform share cannot be taken while winners remain unpaid.
+assertion. A partial payout spends only the completed batches; all remaining
+SOL stays in the reward wallet. There is no platform transfer from rewards.
 
 Batching limits individual order size and can reduce price impact, but does not
 guarantee protection from front-running. Use conservative slippage, fresh quotes,
