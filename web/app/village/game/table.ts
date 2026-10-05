@@ -122,6 +122,14 @@ export class CardTable {
     if (phase === "action") this.speak(data, Math.min(data.sequence.length, Math.floor(within * (data.sequence.length + 1))));
   }
 
+  /** Off the map for now - a ring drawn only as a marker. Shown again, it deals the round afresh. */
+  hide(): void {
+    this.clear();
+    this.top.clear();
+    this.at = "";
+    this.mid = { x: Number.NaN, y: Number.NaN };
+  }
+
   destroy(): void {
     this.clear();
     this.top.destroy();
