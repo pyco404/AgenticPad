@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type AdminHealth } from "@/lib/api";
 import { useWallet } from "@/app/wallet-context";
+import { TokenMonitor } from "./tokens";
 import { PayoutPanel } from "./payouts";
 
 /**
@@ -107,6 +108,7 @@ export function AdminPanel() {
   return (
     <div className="flex flex-col gap-4">
       <PayoutPanel token={session.token} />
+      <TokenMonitor token={session.token} />
       <p className="text-[11px] text-muted">
         Read {new Date(health.at).toISOString().replace("T", " ").slice(0, 19)}Z, again every 30s
         {loading ? " · reading…" : ""}
