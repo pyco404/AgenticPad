@@ -6,7 +6,7 @@
 #   scripts/deploy.sh api rehearsal      another environment of the project
 #
 # Why it exists: `railway up` uploads the *working tree*, not the commit. With
-# two sessions editing one checkout that is not a theory - useagentclash.xyz has
+# two sessions editing one checkout that is not a theory - useagenticpad.xyz has
 # already run code that was in nobody's git history, which means "what is
 # live?" had no answer but "look at the files as they were at 16:27".
 #
