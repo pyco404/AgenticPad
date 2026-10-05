@@ -49,7 +49,30 @@ const BAR = 56;
  * of it. The world is the site's map: an
  * agent opens its record, a building its card, and the card its page.
  */
-export function Shell({ children, chip }: { children: ReactNode; chip: ReactNode }) {
+type ShellProps = { children: ReactNode; chip: ReactNode };
+
+/** Admin opens as a dashboard, without the village's loading cover or hidden sheet. */
+export function Shell({ children, chip }: ShellProps) {
+  const path = usePathname() ?? "/";
+  return path === "/admin" || path.startsWith("/admin/")
+    ? <AdminShell chip={chip}>{children}</AdminShell>
+    : <VillageShell chip={chip}>{children}</VillageShell>;
+}
+
+function AdminShell({ children, chip }: ShellProps) {
+  const [night, toggleNight] = useNight();
+  return (
+    <div className="h-dvh overflow-y-auto bg-ink">
+      <SiteBar night={night} onNight={toggleNight} showing villageUp={false} />
+      <div className="hud-page mx-auto w-full max-w-6xl px-3 pb-6 pt-20 sm:px-6">
+        {children}
+        <div className="mt-4 flex justify-end">{chip}</div>
+      </div>
+    </div>
+  );
+}
+
+function VillageShell({ children, chip }: ShellProps) {
   const path = usePathname() ?? "/";
   const router = useRouter();
   // Closed on arrival: the village first, and a page only once someone asks for one.
