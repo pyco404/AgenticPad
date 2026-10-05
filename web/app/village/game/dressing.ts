@@ -85,17 +85,10 @@ export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bou
  * dark, charging; at night they come on, a warm pool on the ground and a glow
  * drawn over the night's blue so it reads as light rather than as paint.
  */
-const SOLAR_LIGHTS: { x: number; y: number }[] = [
-  { x: 1238, y: 1128 },
-  { x: 1562, y: 1186 },
-  { x: 1238, y: 1196 },
+export const SOLAR_LIGHTS: { x: number; y: number }[] = [
   { x: 1100, y: 1192 },
   { x: 1700, y: 1192 },
-  { x: 1372, y: 1300 },
-  { x: 1428, y: 1300 },
-  { x: 1372, y: 1036 },
-  { x: 1428, y: 1036 },
-]
+];
 
 /** The lamp, a row to a string, in art pixels: panel, lamp, cap, post, foot. */
 const LAMP_ART = [
