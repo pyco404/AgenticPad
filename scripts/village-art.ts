@@ -353,8 +353,8 @@ function banner(cloth: RGBA, shade: RGBA, trim: RGBA, cw = 14, ch = 26): Raster 
     }
   }
   img.rect(x0, y0, cw, 1, trim);
-  const c = crest(cw - 2);
-  img.blit(c, x0 + 1, y0 + 3);
+  const c = crest(Math.min(cw - 2, Math.floor((ch - 9) * CREST.w / CREST.h)));
+  img.blit(c, x0 + Math.floor((cw - c.w) / 2), y0 + 3);
   return img.outline();
 }
 
@@ -712,8 +712,8 @@ function ovalArena(): { back: Raster; front: Raster; crowd: [Raster, Raster] } {
   }
   // A ring marked in the sand, and the crest painted in the middle of it.
   for (let a = 0; a < Math.PI * 2; a += 0.01) img.put(cx + Math.cos(a) * 44, fy + 2 + Math.sin(a) * 19, hex("#189b68", 120));
-  const mark = crest(48);
-  img.blit(mark, cx - 24, fy + 2 - Math.round(mark.h / 2), 0.45);
+  const mark = crest(Math.min(48, Math.floor(32 * CREST.w / CREST.h)));
+  img.blit(mark, cx - Math.round(mark.w / 2), fy + 2 - Math.round(mark.h / 2), 0.45);
 
   // Gates east and west: tunnels into the stands, a torch beside each.
   const torches: { x: number; y: number }[] = [];
@@ -1359,7 +1359,8 @@ function arena(): { back: Raster; front: Raster; crowd: [Raster, Raster] } {
   }
   img.rect(cx - frx, fy - fry, frx * 2, 5, hex("#856842", 55));
   for (let a = 0; a < Math.PI * 2; a += 0.01) img.put(cx + Math.cos(a) * 46, fy + Math.sin(a) * 35, hex("#4f9361", 165));
-  const mark = crest(72); img.blit(mark, cx - 36, fy - Math.round(mark.h / 2), 0.45);
+  const mark = crest(Math.min(72, Math.floor(54 * CREST.w / CREST.h)));
+  img.blit(mark, cx - Math.round(mark.w / 2), fy - Math.round(mark.h / 2), 0.45);
   // The royal box, with an embroidered canopy and the great crest.
   block(cx - 29, 42, 58, 29);
   img.rect(cx - 25, 47, 50, 17, P.deep).rect(cx - 24, 47, 48, 2, P.gold);
@@ -1401,9 +1402,11 @@ const modernBuildings: [string, ModernRole][] = [
   ["hiring-hall", "hiring"], ["strategy-lab", "strategy"], ["game-hall", "games"],
   ["hall-of-fame", "fame"], ["treasury", "treasury"], ["lookout", "lookout"], ["rulebook-house", "rulebook"],
 ];
-for (const [name, role] of modernBuildings) save(`modern-${name}`, modernVillageHouse(role));
-for (const [name, accent] of [["blue", hex("#397d9a")], ["red", hex("#b77357")], ["yellow", P.goldLo], ["purple", hex("#756899")]] as const) {
-  save(`modern-villa-${name}`, modernVilla(accent, name));
+if (!process.argv.includes("--arena-only")) {
+  for (const [name, role] of modernBuildings) save(`modern-${name}`, modernVillageHouse(role));
+  for (const [name, accent] of [["blue", hex("#397d9a")], ["red", hex("#b77357")], ["yellow", P.goldLo], ["purple", hex("#756899")]] as const) {
+    save(`modern-villa-${name}`, modernVilla(accent, name));
+  }
 }
 if (process.argv.includes("--modern-only")) process.exit(0);
 
