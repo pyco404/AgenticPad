@@ -13,8 +13,13 @@ import type { Point } from "./roads";
 
 /** The water tiles, as Ground cuts the map. */
 const TILE = 64;
-/** The ship picture's key and size, as the moored one is drawn. */
-const SHIP = { key: "dress-ship", scale: 0.62 };
+/** The ship picture: the pack's own (public/fixtures). */
+const SHIP = { key: "dress-ship", src: "/fixtures/Ship.png", scale: 0.62 };
+
+/** Queues the ship picture; with the old lake's moored ship gone, nothing else loads it. */
+export function loadShips(scene: Phaser.Scene): void {
+  if (!scene.textures.exists(SHIP.key)) scene.load.image(SHIP.key, SHIP.src);
+}
 /** World pixels a second: a lazy drift, slower than anyone walks. */
 const SPEED = 22;
 /** How long a ship rides at a spot before it sets off again. */
