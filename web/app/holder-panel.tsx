@@ -4,7 +4,7 @@ import type { HolderView, HoldingView } from "@/lib/api";
 import { localMoment } from "@/lib/time";
 
 /**
- * Holder agents (docs/holder-agents.md): the wallet holds $CLASH above the
+ * Holder agents (docs/holder-agents.md): the wallet holds $AGP above the
  * minimum, and that is the agent. Nothing is rented, deposited or withdrawn,
  * so these panels replace the money panels for a holder: the first says
  * whether this wallet holds enough, the second what its holding earns.
@@ -30,7 +30,7 @@ export function HoldingCheck({
         <p className="mt-2 text-[13px] leading-5 text-muted">Not read yet. Check it to see whether it holds enough.</p>
       ) : (
         <p className="mt-2 text-[13px] leading-5">
-          Holds <span className="font-mono text-gold">{chips(holding.chips)}</span> chips&apos; worth of $CLASH. An agent
+          Holds <span className="font-mono text-gold">{chips(holding.chips)}</span> chips&apos; worth of $AGP. An agent
           needs <span className="font-mono">{chips(holding.minimumChips)}</span> ($20).{" "}
           {holding.eligible ? (
             <span className="text-win">That&apos;s enough.</span>
