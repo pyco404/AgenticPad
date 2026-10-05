@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, type AdminHealth } from "@/lib/api";
+import { API, api, ApiError, type AdminHealth } from "@/lib/api";
 import { useWallet } from "@/app/wallet-context";
 import { TokenMonitor } from "./tokens";
 import { PayoutPanel } from "./payouts";
@@ -95,9 +95,19 @@ export function AdminPanel() {
     );
   }
   if (error?.status === 404) {
-    // The API says 404 for a wallet that is not on the list, and this says the
-    // same thing: no hint that there is a page here for somebody else.
-    return <p className="text-[13px] text-muted">Not found.</p>;
+    // Keep the API's access check intact; show only the caller's own connection.
+    return (
+      <section className="hud-card space-y-3 p-5">
+        <h2 className="text-lg font-semibold text-text">Admin access unavailable</h2>
+        <p className="text-[13px] leading-6 text-muted">This API has not granted admin access to your signed-in wallet, or its admin route is unavailable.</p>
+        <dl className="space-y-2 text-[12px]">
+          <div><dt className="text-muted">API</dt><dd className="break-all font-mono text-text">{API}</dd></div>
+          <div><dt className="text-muted">Signed-in wallet</dt><dd className="break-all font-mono text-text">{session.ownerId}</dd></div>
+        </dl>
+        <p className="text-[13px] leading-6 text-muted">Check ADMIN_WALLETS on this API. Local settings belong in the project root .env and are loaded when the API starts. Restart the API after changing them.</p>
+        <button type="button" onClick={() => void load()} disabled={loading} className="rounded-panel border border-hud-line px-3 py-2 text-[13px] text-accent disabled:opacity-50">{loading ? "Checking…" : "Check access again"}</button>
+      </section>
+    );
   }
   if (error) {
     return (
