@@ -3,6 +3,7 @@ import * as Phaser from "phaser";
 import type { Look } from "../residents";
 import type { Point } from "./roads";
 import { crispText, MONO } from "./text";
+import { shortName, type NameLabel, type Placement } from "./labels";
 import { sound } from "@/lib/sound";
 import { WEAPONS, weaponTexture, type WeaponName } from "./weapons";
 
@@ -149,6 +150,12 @@ export class Hero {
   /** How far the marker has bobbed, in pixels. */
   markerBob = 0;
   private labelOffset: number;
+  /** The name in full, "Pitchfork-1113": shown on hover or when selected. Otherwise the short one, "Pitchfork". */
+  private fullName: string;
+  /** Where the name would sit, before the layout (labels.ts) nudges it or hides it to keep names apart. */
+  private nameSpot = { x: 0, y: 0 };
+  private nameNudge = 0;
+  private nameAllowed = true;
   /** The agent's character: its portrait, as pixel art, standing where a knight would. */
   private portrait: Phaser.GameObjects.Image | null = null;
   private shadow: Phaser.GameObjects.Ellipse | null = null;
@@ -201,7 +208,8 @@ export class Hero {
     // The sheets pad each figure generously, so the name sits well inside the frame.
     this.labelOffset = -this.sprite.displayHeight * 0.3;
     this.footOffset = this.sprite.displayHeight * 0.17;
-    this.label = crispText(scene, at.x, at.y + this.labelOffset, name, {
+    this.fullName = name;
+    this.label = crispText(scene, at.x, at.y + this.labelOffset, shortName(name), {
       fontSize: "12px",
       fontFamily: MONO,
       color: opts.nameColour,
@@ -371,7 +379,28 @@ export class Hero {
   }
 
   setName(name: string): void {
-    if (this.label.text !== name) this.label.setText(name);
+    this.fullName = name;
+    this.refreshLabel();
+  }
+
+  /** Hovered, selected or the owner's own: its name shows even where it would overlap another. */
+  private get nameForced(): boolean {
+    return this.mine || this.hovered || this.selected;
+  }
+
+  /** The name as it would sit, for the layout to place; null when it would not show at all. */
+  nameLabel(id: string): NameLabel | null {
+    if (!this.wantsName()) return null;
+    return { id, x: this.nameSpot.x, y: this.nameSpot.y, width: this.label.displayWidth, height: this.label.displayHeight, forced: this.nameForced };
+  }
+
+  /** Where the layout put the name: nudged up or down, or hidden for another's. */
+  placeName(p: Placement): void {
+    if (p.dy === this.nameNudge && p.shown === this.nameAllowed) return;
+    this.nameNudge = p.dy;
+    this.nameAllowed = p.shown;
+    this.refreshLabel();
+    this.label.setPosition(this.nameSpot.x, this.nameSpot.y + this.nameNudge);
   }
 
   setSelected(selected: boolean): void {
@@ -413,9 +442,16 @@ export class Hero {
     this.refreshLabel();
   }
 
-  private refreshLabel(): void {
+  /** Whether its name would show at all, before names are kept apart. */
+  private wantsName(): boolean {
     // Standing at its hall, a house agent's name waits for the pointer: a dozen names there at once would bury the hall.
-    this.label.setVisible(this.opts.named || this.mine || this.hovered || this.selected || this.walking || this.roaming);
+    return this.opts.named || this.mine || this.hovered || this.selected || this.walking || this.roaming;
+  }
+
+  private refreshLabel(): void {
+    const text = this.hovered || this.selected ? this.fullName : shortName(this.fullName);
+    if (this.label.text !== text) this.label.setText(text);
+    this.label.setVisible(this.wantsName() && (this.nameAllowed || this.nameForced));
     this.label.setStroke(this.selected ? "#5c4a22" : "#000000", this.selected ? 5 : 3);
   }
 
@@ -511,10 +547,11 @@ export class Hero {
       // Lying down, the head is on its side: half its height above the ground rather than all of it.
       nameAt = (this.swimming ? y + this.waterline() - HEAD * ABOVE_WATER : foot.y - HEAD * (1 - 0.5 * this.fall)) - 2;
     }
-    this.label.setPosition(x, nameAt);
+    this.nameSpot = { x, y: nameAt };
+    this.label.setPosition(x, nameAt + this.nameNudge);
     // Over the name, bobbing, so an owner can find their agent in a crowd.
     const nameTop = this.label.visible ? this.label.displayHeight + 2 : 2;
-    this.marker?.setPosition(x, nameAt - nameTop + this.markerBob).setDepth(10_001 + this.y);
+    this.marker?.setPosition(x, nameAt + this.nameNudge - nameTop + this.markerBob).setDepth(10_001 + this.y);
     this.halo?.setPosition(this.x, this.y);
     // The frame's foot, as decorations and buildings sort, so all three interleave.
     const feet = this.y + this.sprite.displayHeight * 0.5;
