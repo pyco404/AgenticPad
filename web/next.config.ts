@@ -4,6 +4,7 @@ import type { NextConfig } from "next";
 const config: NextConfig = {
   reactStrictMode: true,
   devIndicators: false,
+  serverExternalPackages: ["@pump-fun/pump-sdk"],
   // /how was the explainer's first address; it became /about.
   redirects: async () => [{ source: "/how", destination: "/about", permanent: true }],
   // The standalone exit is a static folder in public/, not a route, so a bare
