@@ -98,7 +98,7 @@ if (autoplayMs > 0) {
 }
 
 const rpc = process.env["CHAIN_RPC_URL"];
-// The token holders hold: $CLASH on mainnet, the faucet's test token on devnet.
+// The token holders hold: $AGP on mainnet, the faucet's test token on devnet.
 const mint = process.env["HOLDER_MINT"] ?? process.env["CHAIN_STAKE_MINT"];
 
 // The devnet faucet, when there is a treasury to hand out from. It refuses any
@@ -183,7 +183,7 @@ if (characterModel) {
   });
 }
 
-console.log(`AgentClash on ${url}`);
+console.log(`AgenticPad on ${url}`);
 console.log(process.env["ANTHROPIC_API_KEY"] ? "Briefs: on" : "Briefs: off, no ANTHROPIC_API_KEY in the environment or .env; presets only");
 console.log(`  POST ${url}/agents         wallet session required; {name, presetName} or {name, brief}`);
 console.log(`  GET  ${url}/agents/:id     public, or the owner view for its signed-in owner`);
