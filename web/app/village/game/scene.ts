@@ -5,6 +5,8 @@ import { duelPhase, meetingSpot, pathSpots, ringsInFull, WATCH_RADIUS, type Spot
 import { Building, type BuildingLabel } from "./building";
 import { Ground } from "./ground";
 import { byGardenPond, drawGardens, GARDEN_PONDS } from "./gardens";
+import { byLandscape, LANDSCAPE_BOXES, MOUNTAIN_BOXES, oceanTerrain } from "./landscape";
+import { drawScenery } from "./scenery";
 import { Hero } from "./hero";
 import { CardTable } from "./table";
 import { drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
@@ -207,6 +209,10 @@ export class VillageScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Water is real terrain: navigation treats the ocean as wet ground.
+    const scenicTerrain = oceanTerrain();
+    const scenicTiles = new Set(scenicTerrain.map(([c, r]) => `${c},${r}`));
+    this.map = { ...this.map, terrain: [...this.map.terrain.filter(([c, r]) => !scenicTiles.has(`${c},${r}`)), ...scenicTerrain] };
     this.cameras.main.setBackgroundColor(VOID);
     // The dressing (dressing.ts), then the map with the town's roads (town.ts) in place of its own: its
     // forest, less what stands where the town is - its buildings, their props, its roads.
@@ -215,9 +221,10 @@ export class VillageScene extends Phaser.Scene {
     this.trees = drawMap(this, {
       ...this.map,
       paths: ROADS,
-      decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS) && !byGardenPond(d)),
+      decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS) && !byGardenPond(d) && !byLandscape(d)),
     });
     drawGardens(this, taken);
+    drawScenery(this, this.opts.still);
 
     for (const def of this.opts.buildings) {
       const site = SITES[def.id];
@@ -236,7 +243,7 @@ export class VillageScene extends Phaser.Scene {
     // A building is solid as its picture's box, but the arena as its walls: agents fight inside it.
     const footprints = [...this.buildings].filter(([id]) => !SITES[id]?.blocks).map(([, b]) => b.footprint);
     const blocks = Object.values(SITES).flatMap((s) => s.blocks ?? []);
-    this.ground = new Ground(this.map, [...footprints, ...solids], [...blocks, ...GARDEN_PONDS], RESERVED);
+    this.ground = new Ground(this.map, [...footprints, ...solids], [...blocks, ...GARDEN_PONDS, ...MOUNTAIN_BOXES], RESERVED);
     // Where a match out in the village may meet: along every path.
     this.ringSpots = pathSpots(ROADS);
     // Open ground for a ring when the paths are full: Old Town's and New Town's, not the Wilds'.
@@ -257,7 +264,7 @@ export class VillageScene extends Phaser.Scene {
       inOldTown: (p) => onOldGround(p),
       // A small verge either side of every road, so the forest reads as cut back from it.
       onRoad: (p, s) => overRoad({ k: "tree", x: p.x, y: p.y, s }, ROADS, FOREST_VERGE) || CROSSROADS.some((c) => Math.hypot(c.x - p.x, c.y - p.y) < 110),
-      taken: [...taken, ...this.newTownLots(), ...GARDEN_PONDS],
+      taken: [...taken, ...this.newTownLots(), ...GARDEN_PONDS, ...LANDSCAPE_BOXES],
       cleared: [],
     };
     this.events.on("update", () => this.tendForest());
