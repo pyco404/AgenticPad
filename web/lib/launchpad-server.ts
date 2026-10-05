@@ -1,3 +1,4 @@
+import { MarketStore } from "./token-market";
 import { Connection, Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { pump } from "./pump-sdk";
@@ -206,10 +207,12 @@ export async function statusOfLaunch(id: string, owner: string, connection?: Con
 }
 
 function tokenOf(record: StoredLaunch): TokenDetail {
+  const market = new MarketStore().get(record.mint);
+  const fresh = market?.health === "ok" && Date.now() - market.observedAt! <= 15 * 60_000;
   return {
     mint: record.mint, name: record.form.name, ticker: record.form.ticker, image: record.imageUrl,
     description: record.form.description, links: record.form.links, launchedAt: new Date(record.createdAt).toISOString(),
-    holders: null, agentsInPlay: 0, marketCapUsd: null, volume24hUsd: null, bondingProgress: null,
+    holders: null, agentsInPlay: 0, marketCapUsd: fresh ? market.marketCapUsd : null, volume24hUsd: fresh ? market.volume24hUsd : null, bondingProgress: null,
     verification: "verified", feeSplit: launchConfig.feeSplit, launcherShare: 0,
     verifyUrl: `https://solscan.io/account/${pump.feeSharingConfigPda(new PublicKey(record.mint)).toBase58()}`,
     pumpUrl: `https://pump.fun/coin/${record.mint}`, removedReason: null, agents: [],
@@ -218,17 +221,18 @@ function tokenOf(record: StoredLaunch): TokenDetail {
 
 export function listPumpTokens(query: LaunchQuery) {
   const search = (query.search ?? "").replace(/^\$/, "").toLowerCase();
-  const tokens = launchStore().list().filter((record) => record.confirmed && (!search || [record.form.name, record.form.ticker, record.mint].some((value) => value.toLowerCase().includes(search)))).map(tokenOf);
+  const markets = new MarketStore();
+  const tokens = launchStore().list().filter((record) => record.confirmed && markets.visible(record.mint) && (!search || [record.form.name, record.form.ticker, record.mint].some((value) => value.toLowerCase().includes(search)))).map(tokenOf);
   const offset = Math.max(0, query.offset ?? 0);
   const limit = Math.max(1, Math.min(100, query.limit ?? 20));
-  // Market/holder indexing is not connected yet. Unknown figures are null,
-  // and tokens are listed newest-first until real statistics are available.
+  const rank = (token: TokenDetail) => query.sort === "marketCap" ? token.marketCapUsd : query.sort === "volume" ? token.volume24hUsd : query.sort === "holders" ? token.holders : query.sort === "graduating" ? token.bondingProgress : token.agentsInPlay;
+  if (query.sort !== "newest") tokens.sort((a, b) => (rank(b) ?? -1) - (rank(a) ?? -1));
   return { tokens: tokens.slice(offset, offset + limit), total: tokens.length };
 }
 
 export async function getPumpToken(mint: string): Promise<TokenDetail | null> {
   const record = launchStore().getMint(mint);
-  if (!record?.confirmed) return null;
+  if (!record?.confirmed || !new MarketStore().visible(mint)) return null;
   const token = tokenOf(record);
   const connection = pumpConnection();
   await mainnet(connection);
