@@ -1,0 +1,21 @@
+import { DAILY_REWARDS_WALLET, WEEKLY_REWARDS_WALLET, LAUNCH_FEE_LAMPORTS, LAUNCH_FEE_RECIPIENT } from "./launchpad-fees";
+import type { LaunchpadConfig } from "./launchpad";
+
+export const launchConfig: LaunchpadConfig = {
+  launchFeeLamports: LAUNCH_FEE_LAMPORTS,
+  launchFeeRecipient: LAUNCH_FEE_RECIPIENT,
+  minimumUsd: 20,
+  feeSplit: { daily: 15, weekly: 50, platform: 35 },
+  launcherShare: 0,
+  perTokenCap: null,
+  agpMultiplier: 1.3,
+  launchMultiplier: 1,
+  maxImageBytes: 2_000_000,
+  agentsEnabled: false,
+};
+
+export const feeWallets = [
+  { address: DAILY_REWARDS_WALLET, shareBps: 1500 },
+  { address: WEEKLY_REWARDS_WALLET, shareBps: 5000 },
+  { address: LAUNCH_FEE_RECIPIENT, shareBps: 3500 },
+];
