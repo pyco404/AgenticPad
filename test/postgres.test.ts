@@ -34,7 +34,7 @@ const URL = process.env["PG_URL"];
 let n = 0;
 async function fresh(): Promise<{ db: Db; close: () => Promise<void> }> {
   const base = new pg.Pool({ connectionString: URL });
-  const name = `agentclash_test_${process.pid}_${n++}`;
+  const name = `agenticpad_test_${process.pid}_${n++}`;
   await base.query(`drop database if exists ${name}`);
   await base.query(`create database ${name}`);
   await base.end();
