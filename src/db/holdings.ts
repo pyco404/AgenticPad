@@ -1,3 +1,4 @@
+import { holderPriceReady, holderQuote, liveHolderMinimum, liveHolderPricing } from "../holder-policy.js";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { baseUnits, chips, seasonRate } from "../chips.js";
 import type { Db } from "./client.js";
@@ -28,6 +29,9 @@ export type HoldingsChain = {
   balanceOf(wallet: string): Promise<number>;
   /** The token's total supply in base units. */
   supply(): Promise<number>;
+  /** Mainnet pricing and mint-wide discovery are read-only provider operations. */
+  refreshMinimum?(): Promise<void>;
+  discoverWallets?(): Promise<string[]>;
 };
 
 /** One wallet's reading off chain. */
@@ -70,9 +74,10 @@ export function convictionDays(since: Date | null, at: Date): number {
  * qualified keeps its agent as long as it keeps what it qualified with, so a
  * retune that raises the minimum takes nobody out who has not sold.
  */
-export function keeps(holding: Pick<Holding, "amount" | "convictionAmount"> | null, minimum: number = holdingMinimum()): boolean {
+export function keeps(holding: (Pick<Holding, "amount" | "convictionAmount"> & { readAt?: Date }) | null, minimum: number = holdingMinimum()): boolean {
   if (!holding) return false;
-  return holding.amount >= Math.min(holding.convictionAmount ?? minimum, minimum);
+  if (liveHolderPricing() && (!holding.readAt || Date.now() - holding.readAt.getTime() > 20 * 60_000)) return false;
+  return holderPriceReady() && holding.amount >= (liveHolderPricing() ? minimum : Math.min(holding.convictionAmount ?? minimum, minimum));
 }
 
 /**
@@ -80,7 +85,7 @@ export function keeps(holding: Pick<Holding, "amount" | "convictionAmount"> | nu
  * season's rate. Pegged in dollars through the chips (MIN_FUNDING_CHIPS), so
  * it is retuned when the rate is, at a season boundary, and never in between.
  */
-export const holdingMinimum = (rate: number = seasonRate()): number => baseUnits(MIN_FUNDING_CHIPS, rate);
+export const holdingMinimum = (rate: number = seasonRate()): number => liveHolderMinimum(baseUnits(MIN_FUNDING_CHIPS, rate));
 
 /** A holding as the owner reads it: in chips, beside the minimum it is measured against, with its clock. */
 export function holdingView(holding: Holding | null, rate: number = seasonRate(), now = new Date()) {
@@ -91,7 +96,10 @@ export function holdingView(holding: Holding | null, rate: number = seasonRate()
     amount,
     chips: chips(amount, rate),
     minimum,
-    minimumChips: MIN_FUNDING_CHIPS,
+    minimumChips: chips(minimum, rate),
+    minimumUsd: 20,
+    valueUsd: liveHolderPricing() && holderPriceReady() && holderQuote() ? amount / 10 ** holderQuote()!.decimals * holderQuote()!.priceUsd : null,
+    priceReady: holderPriceReady(),
     eligible: keeps(holding, minimum),
     /** Null when this wallet has never been read. */
     readAt: holding?.readAt.toISOString() ?? null,
@@ -157,10 +165,11 @@ export async function readHolding(
   chain: HoldingsChain,
   wallet: string,
   now = new Date(),
-  minimum: number = holdingMinimum(),
+  minimum?: number,
 ): Promise<Holding> {
+  await chain.refreshMinimum?.();
   const [amount, supply] = await Promise.all([chain.balanceOf(wallet), chain.supply()]);
-  return store(db, { wallet, amount, supply, readAt: now }, minimum);
+  return store(db, { wallet, amount, supply, readAt: now }, minimum ?? holdingMinimum());
 }
 
 export type RefreshResult = { read: number; failed: { wallet: string; why: string }[] };
@@ -177,13 +186,21 @@ export async function refreshHolders(
   now = new Date(),
   minimum: number = holdingMinimum(),
 ): Promise<RefreshResult> {
+  await chain.refreshMinimum?.();
+  if (chain.refreshMinimum) minimum = holdingMinimum();
+  let discoveryFailed = false;
+  const discovered = chain.discoverWallets ? await chain.discoverWallets().catch(() => {
+    discoveryFailed = true;
+    return [] as string[];
+  }) : [];
   const wallets = (
     await db
       .selectDistinct({ wallet: agents.ownerId })
       .from(agents)
       .where(and(eq(agents.funding, "holder"), isNull(agents.retiredAt), isNotNull(agents.ownerId)))
   ).map((r) => r.wallet!);
-  if (wallets.length === 0) return { read: 0, failed: [] };
+  for (const wallet of discovered) if (!wallets.includes(wallet)) wallets.push(wallet);
+  if (wallets.length === 0) return { read: 0, failed: discoveryFailed ? [{ wallet: "discovery", why: "Holder discovery unavailable" }] : [] };
 
   // Supply once per pass: every wallet's position is divided by the same figure.
   let supply: number;
@@ -193,10 +210,12 @@ export async function refreshHolders(
     const why = String(error).slice(0, 200);
     return { read: 0, failed: wallets.map((wallet) => ({ wallet, why })) };
   }
-  const result: RefreshResult = { read: 0, failed: [] };
+  const result: RefreshResult = { read: 0, failed: discoveryFailed ? [{ wallet: "discovery", why: "Holder discovery unavailable; known holders still checked" }] : [] };
   for (const wallet of wallets) {
     try {
       await store(db, { wallet, amount: await chain.balanceOf(wallet), supply, readAt: now }, minimum);
+      const { activateHolder } = await import("./holder-activation.js");
+      await activateHolder(db, wallet);
       result.read++;
     } catch (error) {
       result.failed.push({ wallet, why: String(error).slice(0, 200) });
