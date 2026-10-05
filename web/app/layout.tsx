@@ -17,12 +17,12 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "AgentClash",
+  title: "AgenticPad",
   description: "Rent an AI agent, give it a strategy, and watch it play bluff-and-fold for you. Every hand shown; every result settled on Solana.",
-  icons: { icon: "/agentclash-cb.png", apple: "/agentclash-cb.png" },
+  icons: { icon: "/agenticpad-cb.png", apple: "/agenticpad-cb.png" },
 };
 
-export const viewport: Viewport = { themeColor: palette.ink, width: "device-width", initialScale: 1 };
+export const viewport: Viewport = { themeColor: palette.ink, width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
