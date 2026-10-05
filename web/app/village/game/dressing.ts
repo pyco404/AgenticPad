@@ -31,8 +31,10 @@ export function loadDressing(scene: Phaser.Scene): void {
     if (p.mapped || seen.has(p.key) || scene.textures.exists(p.key)) continue;
     seen.add(p.key);
     // The pack's own pictures come recoloured to the terrain palette where they need it (palette.ts).
-    if (p.sheet) scene.load.spritesheet(p.key, warm(p.image), { frameWidth: p.sheet.frameWidth, frameHeight: p.sheet.frameHeight });
-    else scene.load.image(p.key, warm(p.image));
+    const art = warm(p.image);
+    const url = ["ac-banner", "ac-banner-fame", "ac-banner-gold", "ac-flag"].includes(p.key) ? `${art}?v=agp-logo-1` : art;
+    if (p.sheet) scene.load.spritesheet(p.key, url, { frameWidth: p.sheet.frameWidth, frameHeight: p.sheet.frameHeight });
+    else scene.load.image(p.key, url);
   }
 }
 
