@@ -25,7 +25,6 @@ import {
 type Section = { href: string; label: string };
 
 const NAV: Section[] = [
-  { href: "/", label: "Home" },
   // Behind NEXT_PUBLIC_LAUNCHPAD=1 until the launchpad has a backend.
   ...(LAUNCHPAD
     ? [
@@ -33,6 +32,7 @@ const NAV: Section[] = [
         { href: "/explore", label: "Explore" },
       ]
     : []),
+  { href: "/", label: "Agent" },
   { href: "/live", label: "Live" },
   { href: "/field", label: "Field" },
   { href: "/ladder", label: "Ladder" },
