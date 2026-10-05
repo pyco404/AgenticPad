@@ -1398,6 +1398,15 @@ function arena(): { back: Raster; front: Raster; crowd: [Raster, Raster] } {
 mkdirSync(out, { recursive: true });
 const save = (name: string, img: Raster) => writePng(join(out, `${name}.png`), img);
 
+// Rebuild the standalone flags without regenerating buildings or terrain.
+if (process.argv.includes("--flags-only")) {
+  save("banner", banner(P.teal, P.dteal, P.gold));
+  save("banner-fame", banner(P.navy, P.deep, P.gold));
+  save("banner-gold", banner(P.gold, P.goldLo, P.teal));
+  save("flag", flagSheet());
+  process.exit(0);
+}
+
 const modernBuildings: [string, ModernRole][] = [
   ["hiring-hall", "hiring"], ["strategy-lab", "strategy"], ["game-hall", "games"],
   ["hall-of-fame", "fame"], ["treasury", "treasury"], ["lookout", "lookout"], ["rulebook-house", "rulebook"],
