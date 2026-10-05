@@ -181,7 +181,6 @@ export const ROADS: Path[] = [
   { style: "secondary", width: ROAD_WIDTH, points: [[1090, 488], [1090, 455]] },
   { style: "secondary", width: ROAD_WIDTH, points: [[1705, 488], [1705, 457]] },
   // Trails out to the agent grounds.
-  { style: "trail", width: ROAD_WIDTH, points: [[1000, 560], [870, 560], [860, 600]] },
   { style: "trail", width: ROAD_WIDTH, points: [[665, 790], [655, 860], [650, 930]] },
   { style: "trail", width: ROAD_WIDTH, points: [[1800, 560], [1960, 560], [1975, 610]] },
   { style: "trail", width: ROAD_WIDTH, points: [[700, 1150], [660, 1210], [650, 1270]] },
