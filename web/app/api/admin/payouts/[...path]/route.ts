@@ -10,7 +10,14 @@ export const dynamic = "force-dynamic";
 const apiUrl = () => process.env.LAUNCHPAD_AUTH_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 async function adminRead(request: Request, path: string) {
   const response = await fetch(`${apiUrl()}${path}`, { headers: { authorization: request.headers.get("authorization") ?? "" }, cache: "no-store", signal: AbortSignal.timeout(10_000) });
-  if (!response.ok) throw new LaunchError(response.status === 409 ? "This payout needs frozen scores and valid receiving wallets." : "Admin access is unavailable.", response.status);
+  if (!response.ok) {
+    const message = response.status === 400 ? "Invalid payout date. Weekly seasons must start on a Monday (UTC)."
+      : response.status === 409 ? "This payout needs frozen scores and valid receiving wallets."
+      : response.status === 401 ? "Your sign-in expired. Sign out and sign in again."
+      : response.status === 403 || response.status === 404 ? "The payout API has not granted admin access to this wallet. Check that it uses the same API as the dashboard."
+      : "The payout API is unavailable. Try again shortly.";
+    throw new LaunchError(message, response.status);
+  }
   return response.json();
 }
 function agpMint() {
@@ -39,6 +46,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       const input = body as unknown as PayoutInput;
       const date = new Date(`${input.period}T00:00:00Z`);
       if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== input.period) throw new LaunchError("Choose a valid calendar date.");
+      if (input.kind === "weekly" && date.getUTCDay() !== 1) throw new LaunchError("Choose the Monday that started a completed weekly season.");
       const frozen = await adminRead(request, `/admin/payout-recipients?${input.kind === "daily" ? "day" : "season"}=${encodeURIComponent(input.period)}`) as { frozen: boolean; winners: PayoutWinner[] };
       if (!frozen.frozen) throw new LaunchError("Only frozen scores can be paid.", 409);
       for (const winner of frozen.winners) {
