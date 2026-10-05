@@ -8,7 +8,7 @@ import { SITES } from "./town";
  * torches, lit at night. The art is scripts/village-art.ts's.
  */
 
-const ART = "/village/agentclash";
+const ART = "/village/agenticpad";
 /** The arena's picture in art pixels, drawn at two world pixels to one. */
 const W = 330;
 const H = 230;
