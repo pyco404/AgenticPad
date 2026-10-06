@@ -1407,62 +1407,64 @@ if (process.argv.includes("--flags-only")) {
   process.exit(0);
 }
 
-const modernBuildings: [string, ModernRole][] = [
-  ["hiring-hall", "hiring"], ["strategy-lab", "strategy"], ["game-hall", "games"],
-  ["hall-of-fame", "fame"], ["treasury", "treasury"], ["lookout", "lookout"], ["rulebook-house", "rulebook"],
-];
-if (!process.argv.includes("--arena-only")) {
-  for (const [name, role] of modernBuildings) save(`modern-${name}`, modernVillageHouse(role));
-  for (const [name, accent] of [["blue", hex("#397d9a")], ["red", hex("#b77357")], ["yellow", P.goldLo], ["purple", hex("#756899")]] as const) {
-    save(`modern-villa-${name}`, modernVilla(accent, name));
+if (!process.argv.includes("--terrain-only")) {
+  const modernBuildings: [string, ModernRole][] = [
+    ["hiring-hall", "hiring"], ["strategy-lab", "strategy"], ["game-hall", "games"],
+    ["hall-of-fame", "fame"], ["treasury", "treasury"], ["lookout", "lookout"], ["rulebook-house", "rulebook"],
+  ];
+  if (!process.argv.includes("--arena-only")) {
+    for (const [name, role] of modernBuildings) save(`modern-${name}`, modernVillageHouse(role));
+    for (const [name, accent] of [["blue", hex("#397d9a")], ["red", hex("#b77357")], ["yellow", P.goldLo], ["purple", hex("#756899")]] as const) {
+      save(`modern-villa-${name}`, modernVilla(accent, name));
+    }
   }
-}
-if (process.argv.includes("--modern-only")) process.exit(0);
+  if (process.argv.includes("--modern-only")) process.exit(0);
 
-const a = process.argv.includes("--oval") ? ovalArena() : arena();
-save("arena", a.back);
-save("arena-front", a.front);
-save("arena-crowd", a.crowd[0]);
-save("arena-cheer", a.crowd[1]);
-save("arena-card", a.back.clone().blit(a.crowd[0], 0, 0));
-// A focused rebuild preserves unrelated artwork in an active checkout.
-if (process.argv.includes("--arena-only")) process.exit(0);
-save("banner", banner(P.teal, P.dteal, P.gold));
-save("banner-fame", banner(P.navy, P.deep, P.gold));
-save("banner-gold", banner(P.gold, P.goldLo, P.teal));
-save("flag", flagSheet());
-const board = leaderboardSheet();
-save("leaderboard", board);
-save("leaderboard-card", new Raster(board.w / 2, board.h).blit(board, 0, 0));
-save("scoreboard", scoreboardSheet());
-save("war-table", warTable());
-save("strategy-board", strategyBoard());
-save("hiring-board", hiringBoard());
-save("statue", statue());
-save("trophy", trophy());
-save("chest", chest(true));
-save("chest-shut", chest(false));
-save("coins", coins());
-save("tent", tent());
-save("bench", bench());
-save("dummy", dummy());
-save("log", logSeat());
-save("strategy-lab", strategyLab());
-save("lookout", lookout());
-save("game-hall", gameHall());
-save("launch-pad", launchPadSheet());
-save("modern-office", modernOffice());
-save("modern-house-a", modernHouse(P.teal));
-save("modern-house-b", modernHouse(P.red));
-save("modern-shop", modernShop());
-save("modern-apartments", modernApartments());
-save("modern-kiosk", modernKiosk());
-save("modern-lamp", modernLamp());
-save("modern-planter", modernPlanter());
-save("bazaar", bazaar());
-save("pier", pier());
-save("launch-pad-card", launchPadFrame(true));
-console.log(`Wrote the village's AgenticPad art to ${out}`);
+  const a = process.argv.includes("--oval") ? ovalArena() : arena();
+  save("arena", a.back);
+  save("arena-front", a.front);
+  save("arena-crowd", a.crowd[0]);
+  save("arena-cheer", a.crowd[1]);
+  save("arena-card", a.back.clone().blit(a.crowd[0], 0, 0));
+  // A focused rebuild preserves unrelated artwork in an active checkout.
+  if (process.argv.includes("--arena-only")) process.exit(0);
+  save("banner", banner(P.teal, P.dteal, P.gold));
+  save("banner-fame", banner(P.navy, P.deep, P.gold));
+  save("banner-gold", banner(P.gold, P.goldLo, P.teal));
+  save("flag", flagSheet());
+  const board = leaderboardSheet();
+  save("leaderboard", board);
+  save("leaderboard-card", new Raster(board.w / 2, board.h).blit(board, 0, 0));
+  save("scoreboard", scoreboardSheet());
+  save("war-table", warTable());
+  save("strategy-board", strategyBoard());
+  save("hiring-board", hiringBoard());
+  save("statue", statue());
+  save("trophy", trophy());
+  save("chest", chest(true));
+  save("chest-shut", chest(false));
+  save("coins", coins());
+  save("tent", tent());
+  save("bench", bench());
+  save("dummy", dummy());
+  save("log", logSeat());
+  save("strategy-lab", strategyLab());
+  save("lookout", lookout());
+  save("game-hall", gameHall());
+  save("launch-pad", launchPadSheet());
+  save("modern-office", modernOffice());
+  save("modern-house-a", modernHouse(P.teal));
+  save("modern-house-b", modernHouse(P.red));
+  save("modern-shop", modernShop());
+  save("modern-apartments", modernApartments());
+  save("modern-kiosk", modernKiosk());
+  save("modern-lamp", modernLamp());
+  save("modern-planter", modernPlanter());
+  save("bazaar", bazaar());
+  save("pier", pier());
+  save("launch-pad-card", launchPadFrame(true));
+  console.log(`Wrote the village's AgenticPad art to ${out}`);
+}
 
 // --- The pack, recoloured ----------------------------------------------------
 

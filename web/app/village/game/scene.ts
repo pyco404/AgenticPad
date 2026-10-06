@@ -20,6 +20,9 @@ import { loadWeapons, weaponOf } from "./weapons";
 import { drawMap, loadMap, type VillageMap } from "./map";
 import { canopy, NEW_TOWN, openPlots, overlaps, PIECE_ART, plotClearing, type Box, type Plot } from "./growth";
 import { Roads, type Point } from "./roads";
+import { referenceArt } from "./reference-art";
+import { byRiver, RIVER_BANKS, riverTerrain } from "./river";
+import { drawRiver } from "./river-scenery";
 import { crispText, MONO } from "./text";
 import { layOutNames, type NameLabel } from "./labels";
 import { playhead } from "@/lib/playhead";
@@ -191,7 +194,7 @@ export class VillageScene extends Phaser.Scene {
     for (const b of this.opts.buildings) {
       const site = SITES[b.id];
       if (!site) continue;
-      const art = b.id === "arena" ? `${site.art}?v=agp-logo-1` : site.art;
+      const art = b.id === "arena" ? `${site.art}?v=agp-logo-1` : referenceArt(site.art);
       if (site.sheet) this.load.spritesheet(`building-${b.id}`, art, { frameWidth: site.sheet.width, frameHeight: site.sheet.height });
       else this.load.image(`building-${b.id}`, art);
     }
@@ -201,7 +204,7 @@ export class VillageScene extends Phaser.Scene {
       const key = `growth-${image}`;
       const size: { src: string; width: number; height: number; frames?: number } = PIECE_ART[image];
       if (size.frames) this.load.spritesheet(key, warm(size.src), { frameWidth: size.width, frameHeight: size.height });
-      else this.load.image(key, warm(size.src));
+      else this.load.image(key, referenceArt(warm(size.src)));
     }
     loadArena(this);
     loadWeapons(this);
@@ -210,7 +213,7 @@ export class VillageScene extends Phaser.Scene {
 
   create(): void {
     // Water is real terrain: navigation treats the ocean as wet ground.
-    const scenicTerrain = oceanTerrain();
+    const scenicTerrain = [...oceanTerrain(), ...riverTerrain()];
     const scenicTiles = new Set(scenicTerrain.map(([c, r]) => `${c},${r}`));
     this.map = { ...this.map, terrain: [...this.map.terrain.filter(([c, r]) => !scenicTiles.has(`${c},${r}`)), ...scenicTerrain] };
     this.cameras.main.setBackgroundColor(VOID);
@@ -221,10 +224,11 @@ export class VillageScene extends Phaser.Scene {
     this.trees = drawMap(this, {
       ...this.map,
       paths: ROADS,
-      decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS) && !byGardenPond(d) && !byLandscape(d)),
+      decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS) && !byGardenPond(d) && !byLandscape(d) && !byRiver(d)),
     });
     drawGardens(this, taken);
     drawScenery(this, this.opts.still);
+    drawRiver(this, this.opts.still);
 
     for (const def of this.opts.buildings) {
       const site = SITES[def.id];
@@ -264,7 +268,7 @@ export class VillageScene extends Phaser.Scene {
       inOldTown: (p) => onOldGround(p),
       // A small verge either side of every road, so the forest reads as cut back from it.
       onRoad: (p, s) => overRoad({ k: "tree", x: p.x, y: p.y, s }, ROADS, FOREST_VERGE) || CROSSROADS.some((c) => Math.hypot(c.x - p.x, c.y - p.y) < 110),
-      taken: [...taken, ...this.newTownLots(), ...GARDEN_PONDS, ...LANDSCAPE_BOXES],
+      taken: [...taken, ...this.newTownLots(), ...GARDEN_PONDS, ...LANDSCAPE_BOXES, ...RIVER_BANKS],
       cleared: [],
     };
     this.events.on("update", () => this.tendForest());

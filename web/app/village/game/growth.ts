@@ -15,6 +15,7 @@
  */
 
 import { CENTRE, fromEdge, inNewTown, INNER, OUTER, SPOKES, type Octagon, type Pt } from "./world";
+import { RIVER_BANKS } from './river';
 
 /** Every picture a plot can be built from, with where it comes from and how it stands. */
 export const PIECE_ART = {
@@ -229,6 +230,7 @@ function newTownPlan(): Plan {
     if (planter) pieces.push({ image: "planter", x: foot.x + (flip ? 1 : -1) * (size.width + 8), y: foot.y + 8, scale: 2 });
     const plot = { id: `new-town-${s.id}`, at: 0, door: { x: foot.x, y: foot.y + 20 }, pieces };
     const ground = plotClearing(plot, 0);
+    if (RIVER_BANKS.some((bank) => overlaps(ground, bank))) continue;
     if (laid.some((other) => overlaps(ground, plotClearing({ ...other, at: 0 }, 0)))) continue;
     if (NEW_TOWN_FIXED.some((f) => overlaps(ground, { x0: f.at.x - 140, y0: f.at.y - 220, x1: f.at.x + 140, y1: f.at.y + 60 }))) continue;
     laid.push(plot);

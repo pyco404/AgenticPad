@@ -2,12 +2,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PIECES } from "../web/app/village/game/pieces.js";
 import { ARENA_FIELD, CARPET, GROUNDS, ROADS, SITES, SQUARE } from "../web/app/village/game/town.js";
+import { nearRoad, NEW_TOWN_SITES } from "../web/app/village/game/town.js";
+import { Roads } from "../web/app/village/game/roads.js";
 
 /**
  * Old Town is the village players know: the world grows round it and never
- * moves it. test/fixtures/old-town.json is Old Town as it stood before the
- * world was laid out round it (2026-10-05), every building, road, prop and
- * camp relative to the Arena; this checks it still stands exactly so.
+ * moves it without an intentional redesign. The fixture records the user's
+ * more spacious layout (2026-10-06), including paths and each hall's props.
  */
 
 type Rel = { dx: number; dy: number };
@@ -25,11 +26,26 @@ const arena = SITES.arena!;
 const rel = (p: { x: number; y: number }): Rel => ({ dx: p.x - arena.x, dy: p.y - arena.y });
 
 describe("Old Town", () => {
-  it("keeps every building where it stood, relative to the Arena, drawn as it was", () => {
+  it("keeps the spacious landmarks anchored relative to the Arena as the world grows", () => {
     for (const [id, was] of Object.entries(fixture.sites)) {
       const site = SITES[id];
       expect(site, id).toBeDefined();
       expect({ ...rel(site!), scale: site!.scale, art: site!.art, door: site!.door ? rel(site!.door) : null }, id).toEqual(was);
+    }
+  });
+
+  it("spaces landmarks apart and connects each entrance to the arena's approach", () => {
+    const halls = Object.entries(SITES).filter(([id]) => id !== "arena" && !NEW_TOWN_SITES.has(id));
+    for (let i = 0; i < halls.length; i++) for (let j = i + 1; j < halls.length; j++) {
+      const [aId, a] = halls[i]!, [bId, b] = halls[j]!;
+      expect(Math.hypot(a.x - b.x, a.y - b.y), `${aId} and ${bId}`).toBeGreaterThan(280);
+    }
+    const doors = halls.map(([, s]) => s.door ?? { x: s.x, y: s.y + 5 });
+    const roads = new Roads(ROADS.map((p) => p.points.map(([x, y]) => ({ x, y }))), doors);
+    for (const door of doors) {
+      const route = roads.route({ x: 1400, y: 1010 }, door);
+      expect(route.at(-1)).toEqual(door);
+      for (const p of route) expect(nearRoad(p, 32), `route to ${door.x},${door.y}`).toBe(true);
     }
   });
 

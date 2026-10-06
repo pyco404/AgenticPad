@@ -2,6 +2,7 @@ import type * as Phaser from "phaser";
 import { nearRoad, ROADS, SITES, type Rect } from "./town";
 import { CROSSROADS } from "./world";
 import { SOLAR_LIGHTS } from "./dressing";
+import { byRiver } from './river';
 
 /** Hand tended gardens around the playable village; never inputs to a match. */
 export const GARDEN_PONDS: Rect[] = [
@@ -87,7 +88,7 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
   // a building, the match floor, or a pond.
   for (let i = 0; i < 2400; i++) {
     const p = { x: 230 + rand() * 2310, y: -120 + rand() * 1990 };
-    if (nearRoad(p, 15) || byGardenPond(p) || taken.some((b) => inside(p, b, 2))) continue;
+    if (nearRoad(p, 15) || byRiver(p) || byGardenPond(p) || taken.some((b) => inside(p, b, 2))) continue;
     scene.add.image(Math.round(p.x), Math.round(p.y), `garden-flowers-${i % 4}`).setScale(1.15).setDepth(-390);
   }
   for (const b of GARDEN_PONDS) {
@@ -97,7 +98,7 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
   // Low timber rails and benches divide the gardens into tended little
   // clearings without closing any of the walking routes.
   for (const [x, y, width] of [[660, 285, 120], [1850, 285, 145], [1050, 1380, 150], [1570, 1400, 160], [440, 1050, 85], [2270, 1060, 90]]) {
-    if (nearRoad({ x: x! + width! / 2, y: y! }, 25)) continue;
+    if (nearRoad({ x: x! + width! / 2, y: y! }, 25) || byRiver({ x: x! + width! / 2, y: y! })) continue;
     const fence = scene.add.graphics().setDepth(y!);
     fence.fillStyle(0x473b2b).fillRect(x!, y! - 17, width!, 5).fillRect(x!, y! - 8, width!, 4);
     fence.fillStyle(0xc08b46).fillRect(x!, y! - 17, width!, 2).fillRect(x!, y! - 8, width!, 1);
@@ -108,7 +109,7 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
     }
   }
   for (const [x, y] of [[1160, 235], [1550, 215], [1230, 1310], [1570, 1320], [770, 1400], [2040, 1420]]) {
-    if (!nearRoad({ x: x!, y: y! }, 15) && scene.textures.exists("ac-bench")) {
+    if (!nearRoad({ x: x!, y: y! }, 15) && !byRiver({ x: x!, y: y! }) && !taken.some((b) => inside({ x: x!, y: y! }, b)) && scene.textures.exists("ac-bench")) {
       scene.add.image(x!, y!, "ac-bench").setOrigin(0.5, 1).setScale(2).setDepth(y!);
     }
   }
@@ -126,7 +127,7 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
         for (const side of [-1, 1]) {
           const x = ax + (bx - ax) * d / len + nx * side * (road.width / 2 + 13);
           const y = ay + (by - ay) * d / len + ny * side * (road.width / 2 + 13);
-          if (x < 200 || x > 2600 || y < -180 || y > 1840 || byGardenPond({ x, y })) continue;
+          if (x < 200 || x > 2600 || y < -180 || y > 1840 || byGardenPond({ x, y }) || byRiver({ x, y })) continue;
           if (Object.values(SITES).some((s) => Math.abs(x - s.x) < 110 && y < s.y && y > s.y - 230)) continue;
           const key = `${Math.round(x / 35)},${Math.round(y / 35)}`;
           if (used.has(key)) continue;

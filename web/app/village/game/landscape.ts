@@ -7,7 +7,7 @@ export const ROUGH_SEA = { x: 1400, y: -1500, rx: 900, ry: 550 };
 export const ROUGH_SEA_BOX: Box = { x0: 430, y0: -2120, x1: 2370, y1: -880 };
 export const MOUNTAINS = [
   // The clearing southwest of the northwest outer-ring crossroads.
-  { x: -960, y: -20, width: 800, height: 820 },
+  { x: -960, y: -20, width: 280, height: 287 },
 ];
 export const MOUNTAIN_BOXES: Box[] = MOUNTAINS.map((m) => ({ x0: m.x - m.width / 2, y0: m.y - m.height, x1: m.x + m.width / 2, y1: m.y + 15 }));
 export const LANDSCAPE_BOXES = [OCEAN_BOX, ROUGH_SEA_BOX, ...MOUNTAIN_BOXES];

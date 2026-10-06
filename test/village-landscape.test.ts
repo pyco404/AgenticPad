@@ -4,6 +4,33 @@ import { CENTRE, lakeTerrain, OUTER, SPOKES, WORLD } from "../web/app/village/ga
 import { Ground } from "../web/app/village/game/ground.js";
 import type { VillageMap } from "../web/app/village/game/map.js";
 import { nearRoad } from "../web/app/village/game/town.js";
+import { RIVER_BANKS, RIVER_BRIDGES, riverTerrain } from "../web/app/village/game/river.js";
+import { NEW_TOWN, plotClearing, overlaps } from "../web/app/village/game/growth.js";
+
+it("keeps the river wet, crosses on dry bridges, and keeps future housing off its banks", () => {
+  const ground = new Ground({
+    world: { x0: WORLD.x0, y0: WORLD.y0, width: WORLD.x1 - WORLD.x0, height: WORLD.y1 - WORLD.y0 },
+    base: "terrain-color1", terrain: riverTerrain(), paths: [], decorations: [], buildings: [],
+    spawn: CENTRE, heroScale: 1, textures: [], animations: [],
+  }, []);
+  expect(ground.water.length).toBeGreaterThan(100);
+  expect(RIVER_BRIDGES.length).toBeGreaterThan(0);
+  for (const bridge of RIVER_BRIDGES) {
+    expect(ground.inWater(bridge)).toBe(false);
+    expect(ground.walkable(bridge)).toBe(true);
+  }
+  const goal = ground.nearestDry({ x: 2850, y: 1150 });
+  const route = ground.route({ x: 2000, y: 1150 }, goal);
+  expect(route.at(-1)).toEqual(goal);
+  for (let i = 1; i < route.length; i++) {
+    const a = route[i - 1]!, b = route[i]!;
+    const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 16);
+    for (let step = 0; step <= steps; step++) expect(ground.walkable({
+      x: a.x + (b.x - a.x) * step / steps, y: a.y + (b.y - a.y) * step / steps,
+    })).toBe(true);
+  }
+  for (const plot of NEW_TOWN.plots) expect(RIVER_BANKS.some((bank) => overlaps(plotClearing(plot, 0), bank))).toBe(false);
+});
 
 describe("village ocean and mountains", () => {
   const terrain = oceanTerrain();

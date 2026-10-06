@@ -12,9 +12,9 @@ export type VillageMap = {
   baseFrame?: number;
   /** [column, row, tileset, frame] */
   terrain: [number, number, string, number][];
-  /** Its style is kept as the map names it; every road is drawn alike, in one grey (PAVED). */
+  /** Retains routing styles; every road uses the shared sandy trail colours. */
   paths: { style: string; width: number; points: [number, number][] }[];
-  /** Paved plazas, one at each crossroads of the world's roads. */
+  /** Sandy plazas, one at each crossroads of the world's roads. */
   plazas?: [number, number][];
   /** k: texture, f: frame, s: scale, d: fixed depth, a: animation to play. */
   decorations: { k: string; f?: number; x: number; y: number; s: number; d?: number; a?: string }[];
@@ -28,11 +28,10 @@ export type VillageMap = {
 const TILE = 64;
 
 /**
- * Every road's colours, from the terrain palette (palette.ts): one grey for
- * all of them, Old Town's and the world's alike, with a darker kerb.
+ * Every road shares the small trail's sandy colour and darker earthen edge.
  */
-const PAVED = ROAD_COLOURS.paved;
-/** A paved plaza at every crossroads, this wide across. */
+const PATH_COLOURS = ROAD_COLOURS.dirt;
+/** A plaza at every crossroads, this wide across. */
 const PLAZA = 150;
 
 /**
@@ -42,7 +41,7 @@ const PLAZA = 150;
  */
 export function loadMap(scene: Phaser.Scene, map: VillageMap): void {
   for (const t of map.textures) {
-    const path = warmMap(t.path);
+    const path = t.key === "resources-trees-tree" ? "reference/trees.png" : warmMap(t.path);
     if (t.frameWidth !== undefined && t.frameHeight !== undefined) {
       scene.load.spritesheet(t.key, path, { frameWidth: t.frameWidth, frameHeight: t.frameHeight });
     } else {
@@ -81,14 +80,12 @@ export function drawMap(
     if (scene.textures.exists(set)) ground.add(scene.add.sprite(col * TILE + TILE / 2, row * TILE + TILE / 2, set, frame));
   }
 
-  // Layer by layer across every road of a kind at once, not road by road: where two meet, neither's edge or
-  // shadow is drawn over the other, and they join as one. A disc at every vertex rounds each corner and
-  // fills each junction. Earth first, then paving over it, so a paved road crossing a path stays whole.
+  // Draw layers across all roads together so edges never cut across junctions.
+  // Discs at the vertices round the corners and connect the paths.
   const roads = scene.add.container(0, 0).setDepth(-400);
-  stoneTexture(scene);
   const all = map.paths.filter((p) => p.points.length >= 2);
-  // Every road is drawn alike now, whatever its style: one width, one grey (palette.ts, town.ts ROAD_WIDTH).
-  const kinds: [typeof PAVED, typeof all][] = [[PAVED, all]];
+  // Every road shares the small trail's existing sandy palette and edge treatment.
+  const kinds: [typeof PATH_COLOURS, typeof all][] = [[PATH_COLOURS, all]];
   for (const [colours, paths] of kinds) {
     const layer = (width: (w: number) => number, colour: number, alpha: number) => {
       const g = scene.add.graphics();
@@ -102,38 +99,15 @@ export function drawMap(
       }
       roads.add(g);
     };
-    const paved = colours === PAVED;
     layer((w) => w + 6, colours.shadow, colours.shadowAlpha);
     layer((w) => w, colours.edge, 1);
-    // Paving: a highlight just inside the kerb, the surface within it. Earth: the surface down the middle.
-    if (paved) layer((w) => Math.round(w * 0.8), colours.hi, 1);
-    layer((w) => Math.max(4, Math.round(paved ? w * 0.8 - 5 : w * 0.6)), colours.surface, 1);
+    layer((w) => Math.max(4, Math.round(w * 0.6)), colours.surface, 1);
   }
-  // The courses follow each street, with staggered joints and a worn stone
-  // surface. A small repeating texture keeps the large world inexpensive.
-  for (const path of all) {
-    for (let i = 1; i < path.points.length; i++) {
-      const [ax, ay] = path.points[i - 1]!;
-      const [bx, by] = path.points[i]!;
-      const length = Math.hypot(bx - ax, by - ay);
-      if (length < 1) continue;
-      roads.add(scene.add.tileSprite((ax + bx) / 2, (ay + by) / 2, length, path.width - 14, "village-stone")
-        .setRotation(Math.atan2(by - ay, bx - ax)));
-    }
-  }
-  // A paved plaza at every crossroads, with a kerb.
+  // Roundabouts use the same sand, with the darker trail edge.
   const plazas = scene.add.graphics();
   for (const [x, y] of map.plazas ?? []) {
-    plazas.fillStyle(PAVED.edge, 1).fillCircle(x, y, PLAZA / 2);
-    plazas.fillStyle(PAVED.hi, 1).fillCircle(x, y, PLAZA / 2 - 6);
-    plazas.fillStyle(PAVED.surface, 1).fillCircle(x, y, PLAZA / 2 - 9);
-    // Concentric cobbles, as a garden roundabout rather than an asphalt disc.
-    for (let r = 28; r < PLAZA / 2 - 8; r += 12) {
-      plazas.lineStyle(1.5, PAVED.line, 0.8).strokeCircle(x, y, r);
-      for (let a = 0; a < Math.PI * 2; a += 0.28) {
-        plazas.lineBetween(x + Math.cos(a) * r, y + Math.sin(a) * r, x + Math.cos(a) * (r + 11), y + Math.sin(a) * (r + 11));
-      }
-    }
+    plazas.fillStyle(PATH_COLOURS.edge, 1).fillCircle(x, y, PLAZA / 2);
+    plazas.fillStyle(PATH_COLOURS.surface, 1).fillCircle(x, y, PLAZA / 2 - 9);
   }
   roads.add(plazas);
 
@@ -146,26 +120,4 @@ export function drawMap(
     if (d.k.includes("tree")) trees.push({ d, sprite });
   }
   return trees;
-}
-
-function stoneTexture(scene: Phaser.Scene): void {
-  if (scene.textures.exists("village-stone")) return;
-  const texture = scene.textures.createCanvas("village-stone", 48, 32)!;
-  const ctx = texture.getContext();
-  ctx.fillStyle = "#8d887c";
-  ctx.fillRect(0, 0, 48, 32);
-  const shades = ["#b9b2a3", "#bdb6a8", "#c7beb0", "#b3ad9f"];
-  for (let row = 0; row < 4; row++) {
-    for (let col = -1; col < 4; col++) {
-      const x = col * 16 + (row % 2) * 8;
-      const y = row * 8;
-      ctx.fillStyle = shades[(row * 3 + col + 4) % shades.length]!;
-      ctx.fillRect(x + 1, y + 1, 15, 7);
-      ctx.fillStyle = "#d4cbbc";
-      ctx.fillRect(x + 1, y + 1, 15, 1);
-      ctx.fillStyle = "#a6a093";
-      ctx.fillRect(x + 2, y + 6, 12, 1);
-    }
-  }
-  texture.refresh();
 }

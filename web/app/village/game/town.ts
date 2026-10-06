@@ -107,14 +107,14 @@ export const SITES: Record<string, Site> = {
   },
   // Each sign follows its building's individual roofline, including the low
   // recruitment pavilion and the observation tower's mast.
-  tavern: { x: 850, y: 1125, art: `${ART}/modern-hiring-hall.png`, scale: 1.2, labelY: 1005 },
-  castle: { x: 800, y: 760, art: `${ART}/modern-strategy-lab.png`, scale: 1.2, labelY: 614 },
-  forge: { x: 2010, y: 765, art: `${ART}/modern-game-hall.png`, scale: 1.2, labelY: 632 },
-  library: { x: 1400, y: 452, art: `${ART}/modern-hall-of-fame.png`, scale: 1.2, labelY: 302 },
-  chapel: { x: 1705, y: 452, art: `${ART}/modern-treasury.png`, scale: 1.2, labelY: 285 },
-  watchtower: { x: 1090, y: 450, art: `${ART}/modern-lookout.png`, scale: 1.2, labelY: 275 },
-  alchemist: { x: 1770, y: 1125, art: `${ART}/modern-rulebook-house.png`, scale: 1.2, labelY: 981 },
-  board: { x: 1595, y: 1128, art: `${ART}/leaderboard.png`, scale: 1.6, sheet: { width: 84, height: 74, frameRate: 1.5 } },
+  tavern: { x: 650, y: 1125, art: `${ART}/modern-hiring-hall.png`, scale: 1.2, labelY: 1005 },
+  castle: { x: 650, y: 680, art: `${ART}/modern-strategy-lab.png`, scale: 1.2, labelY: 534 },
+  forge: { x: 2070, y: 765, art: `${ART}/modern-game-hall.png`, scale: 1.2, labelY: 632 },
+  library: { x: 1400, y: 300, art: `${ART}/modern-hall-of-fame.png`, scale: 1.2, labelY: 150 },
+  chapel: { x: 1900, y: 300, art: `${ART}/modern-treasury.png`, scale: 1.2, labelY: 133 },
+  watchtower: { x: 900, y: 300, art: `${ART}/modern-lookout.png`, scale: 1.2, labelY: 125 },
+  alchemist: { x: 1800, y: 1400, art: `${ART}/modern-rulebook-house.png`, scale: 1.2, labelY: 1256 },
+  board: { x: 1900, y: 1128, art: `${ART}/leaderboard.png`, scale: 1.6, sheet: { width: 84, height: 74, frameRate: 1.5 } },
   ...(LAUNCHPAD ? { launchpad: LAUNCH_SITE, bazaar: BAZAAR_SITE } : {}),
 };
 
@@ -161,6 +161,7 @@ export const ROADS: Path[] = [
     style: "main",
     width: ROAD_WIDTH,
     points: [
+      [650, 1150],
       [700, 1150],
       [850, 1150],
       [1000, 1150],
@@ -168,20 +169,23 @@ export const ROADS: Path[] = [
       [1595, 1150],
       [1770, 1150],
       [1800, 1150],
+      [1900, 1150],
       [1966, 1150],
     ],
   },
   { style: "main", width: ROAD_WIDTH, points: [[1000, 1010], [1000, 1150]] },
   { style: "main", width: ROAD_WIDTH, points: [[1800, 1010], [1800, 1150]] },
-  { style: "main", width: ROAD_WIDTH, points: [[1966, 1150], [1966, 1472]] },
+  { style: "main", width: ROAD_WIDTH, points: [[1966, 1150], [1966, 1290], [1966, 1435], [1966, 1472]] },
   // To the halls either side of the arena.
-  { style: "secondary", width: ROAD_WIDTH, points: [[1000, 790], [800, 790], [665, 790]] },
-  { style: "secondary", width: ROAD_WIDTH, points: [[1800, 790], [2010, 790], [2130, 790]] },
+  { style: "secondary", width: ROAD_WIDTH, points: [[1000, 790], [930, 710], [650, 710]] },
+  { style: "secondary", width: ROAD_WIDTH, points: [[1800, 790], [2070, 790], [2130, 790]] },
   // To the buildings behind it.
-  { style: "secondary", width: ROAD_WIDTH, points: [[1090, 488], [1090, 455]] },
-  { style: "secondary", width: ROAD_WIDTH, points: [[1705, 488], [1705, 457]] },
+  { style: "secondary", width: ROAD_WIDTH, points: [[1000, 488], [1000, 305], [900, 305]] },
+  { style: "secondary", width: ROAD_WIDTH, points: [[1400, 488], [1400, 305]] },
+  { style: "secondary", width: ROAD_WIDTH, points: [[1800, 488], [1900, 488], [1900, 305]] },
+  { style: "secondary", width: ROAD_WIDTH, points: [[1966, 1435], [1800, 1435], [1800, 1405]] },
   // Trails out to the agent grounds.
-  { style: "trail", width: ROAD_WIDTH, points: [[665, 790], [655, 860], [650, 930]] },
+  { style: "trail", width: ROAD_WIDTH, points: [[650, 710], [650, 790], [665, 790], [655, 860], [650, 930]] },
   { style: "trail", width: ROAD_WIDTH, points: [[1800, 560], [1960, 560], [1975, 610]] },
   { style: "trail", width: ROAD_WIDTH, points: [[700, 1150], [660, 1210], [650, 1270]] },
   { style: "trail", width: ROAD_WIDTH, points: [[1400, 1150], [1400, 1370]] },
@@ -210,7 +214,7 @@ export const HIDDEN_ROADS: Point[][] = [
 
 /** Paving the roads do not draw: the town square round the fountain, and a carpet up to the Hall of Fame. */
 export const SQUARE = { x: 1400, y: 1160, rx: 150, ry: 58 };
-export const CARPET = { x: 1400, y0: 454, y1: 490, width: 28 };
+export const CARPET = { x: 1400, y0: 302, y1: 490, width: 28 };
 
 /** Where waiting agents wander to at the edge of town: camps, the training yard, the square, the lakeside. */
 export const GROUNDS: Point[] = [
@@ -229,7 +233,7 @@ export const GROUNDS: Point[] = [
 ];
 
 /** The settlement: inside it, the forest gives way to the town. */
-const TOWN = { x: 1400, y: 860, rx: 880, ry: 540 };
+const TOWN = { x: 1400, y: 840, rx: 1050, ry: 700 };
 export const inTown = (p: Point) => ((p.x - TOWN.x) / TOWN.rx) ** 2 + ((p.y - TOWN.y) / TOWN.ry) ** 2 <= 1;
 
 const segmentDistance = (p: Point, a: [number, number], b: [number, number]) => {

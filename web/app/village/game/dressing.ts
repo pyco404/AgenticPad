@@ -43,16 +43,18 @@ export type Bounds = { x: number; y: number; width: number; height: number };
 
 /** Draw the dressing, each piece at the depth of its foot like the map's own; return what is solid, and where everything is. */
 export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bounds[]; placed: Bounds[] } {
+  // An earthen market clearing beneath the two awnings and the avenue.
+  const market = scene.add.graphics().setDepth(-410);
+  market.fillStyle(ROAD_COLOURS.dirt.edge).fillEllipse(1400, 1295, 470, 214);
+  market.fillStyle(ROAD_COLOURS.dirt.surface).fillEllipse(1400, 1295, 450, 196);
   // The square and the carpet first, just over the map's roads, so they join them without a seam.
   const g = scene.add.graphics().setDepth(-399);
   const sq = SQUARE;
-  // In the roads' own grey (palette.ts), so they run into it without a seam.
-  const road = ROAD_COLOURS.paved;
+  // The same sand as the roads, so they join without a colour change.
+  const road = ROAD_COLOURS.dirt;
   g.fillStyle(road.shadow, road.shadowAlpha).fillEllipse(sq.x, sq.y, sq.rx * 2 + 6, sq.ry * 2 + 6);
   g.fillStyle(road.edge, 1).fillEllipse(sq.x, sq.y, sq.rx * 2, sq.ry * 2);
   g.fillStyle(road.surface, 1).fillEllipse(sq.x, sq.y, sq.rx * 2 - 26, sq.ry * 2 - 16);
-  // A ring of teal stone set in it, the crest's colour.
-  g.lineStyle(4, 0x189b68, 0.8).strokeEllipse(sq.x, sq.y, sq.rx * 2 - 44, sq.ry * 2 - 26);
   const c = CARPET;
   g.fillStyle(road.edge, 1).fillRect(c.x - c.width / 2 - 3, c.y0, c.width + 6, c.y1 - c.y0);
   g.fillStyle(road.surface, 1).fillRect(c.x - c.width / 2 + 2, c.y0, c.width - 4, c.y1 - c.y0);

@@ -5,6 +5,7 @@
  */
 
 import { PIER } from "./world";
+import { SITES } from "./town";
 
 export type Piece = {
   key: string;
@@ -55,18 +56,26 @@ const fire = (x: number, y: number): Piece => ({
 });
 const cottage = (colour: "Blue" | "Red" | "Purple" | "Yellow", x: number, y: number, flip = false): Piece => ({
   key: `dress-house-${colour.toLowerCase()}`,
-  image: `${ART}/modern-villa-${colour.toLowerCase()}.png`,
+  image: `/village/reference/cottage-${colour === "Red" ? "red" : colour === "Purple" ? "green" : "gold"}.png`,
   x,
   y,
   scale: 0.55,
-  foot: 172 / 192,
+  foot: 1,
   flip,
   solid: { width: 56, height: 70 },
 });
 const bush = (key: string, x: number, y: number): Piece => ({ key, image: "", x, y, scale: 0.6, mapped: true });
 const gold = (x: number, y: number, scale: number): Piece => ({ key: "prop-gold", image: "/fixtures/Gold.png", x, y, scale });
 
+/** Move each landmark's props together with its door and sign. */
+const atBuilding = (id: string, from: { x: number; y: number }, pieces: Piece[]): Piece[] => {
+  const site = SITES[id]!;
+  return pieces.map((p) => ({ ...p, x: p.x + site.x - from.x, y: p.y + site.y - from.y }));
+};
+
 export const PIECES: Piece[] = [
+  { key: 'market-blue', image: '/village/reference/market-blue.png', x: 1230, y: 1305, scale: 1, solid: { width: 98, height: 64 } },
+  { key: 'market-red', image: '/village/reference/market-red.png', x: 1565, y: 1325, scale: 1, solid: { width: 98, height: 64 } },
   // The town's flags: at the ring road's corners and either side of the avenue up to the arena.
   flag(975, 468),
   flag(1825, 468, 1),
@@ -76,33 +85,44 @@ export const PIECES: Piece[] = [
   flag(1450, 1075),
 
   // The Hiring Hall: the agents for hire on a board, one picked out.
-  art("hiring-board", 738, 1128, 1.6),
-  banner(925, 1126),
-  banner(778, 1126),
+  ...atBuilding("tavern", { x: 850, y: 1125 }, [
+    art("hiring-board", 738, 1128, 1.6),
+    banner(925, 1126),
+    banner(778, 1126),
+  ]),
 
   // The Strategy Lab: a decision tree on an easel and a planning table.
-  art("strategy-board", 662, 768, 1.6),
-  art("war-table", 935, 702, 1.5),
-  banner(712, 762),
+  ...atBuilding("castle", { x: 800, y: 760 }, [
+    art("strategy-board", 662, 768, 1.6),
+    art("war-table", 935, 702, 1.5),
+    banner(712, 762),
+  ]),
 
   // The Game Hall: screens of the matches playing.
-  art("scoreboard", 2168, 772, 1.6, { sheet: { frameWidth: 66, frameHeight: 66, frameRate: 1.2 } }),
-  banner(1925, 770),
-  banner(2095, 770),
+  ...atBuilding("forge", { x: 2010, y: 765 }, [
+    // The screen sits on the north terrace, clear of the river bank.
+    art("scoreboard", 2060, 580, 1.6, { sheet: { frameWidth: 66, frameHeight: 66, frameRate: 1.2 } }),
+    banner(1925, 770),
+    banner(2095, 770),
+  ]),
 
   // The Hall of Fame: a champion in gold and a cup, a banner of navy and gold, a path to the door.
-  art("statue", 1300, 474, 1.6),
-  art("trophy", 1465, 482, 1.4),
-  banner(1538, 456, "banner-fame"),
+  ...atBuilding("library", { x: 1400, y: 452 }, [
+    art("statue", 1300, 474, 1.6),
+    art("trophy", 1465, 482, 1.4),
+    banner(1538, 456, "banner-fame"),
+  ]),
 
   // The Treasury: a chest, coins and a sack of gold at its door.
-  art("chest", 1640, 476, 1.6),
-  art("coins", 1752, 490, 1.4),
-  gold(1792, 478, 0.36),
-  banner(1602, 456, "banner-gold"),
+  ...atBuilding("chapel", { x: 1705, y: 452 }, [
+    art("chest", 1640, 476, 1.6),
+    art("coins", 1752, 490, 1.4),
+    gold(1792, 478, 0.36),
+    banner(1602, 456, "banner-gold"),
+  ]),
 
   // The Lookout.
-  banner(1135, 452),
+  ...atBuilding("watchtower", { x: 1090, y: 450 }, [banner(1135, 452)]),
 
   // Bushes in the corners the arena leaves inside the ring road, the pack's own.
   bush("bush-1", 1046, 548),
