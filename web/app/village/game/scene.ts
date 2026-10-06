@@ -13,7 +13,7 @@ import { drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressin
 import { loadShips, sailShips } from "./ships";
 import { drawArena, loadArena, type ArenaHandle } from "./arena";
 import { ARENA_FIELD, GROUNDS, HIDDEN_ROADS, inTown, lots, NEW_TOWN_SITES, RESERVED, ROADS, SITES, SQUARE, stands, townBounds } from "./town";
-import { CROSSROADS, inNewTown, inOctagon, onOldGround, OUTER, PIER, WORLD } from "./world";
+import { CROSSROADS, inNewTown, onOldGround, PIER, WORLD } from "./world";
 import { nightOf, num, VOID, warm } from "./palette";
 import { chunkKey, chunksIn, chunkTrees, CHUNK, type ForestRules, type Tree } from "./forest";
 import { loadWeapons, weaponOf } from "./weapons";
@@ -248,8 +248,8 @@ export class VillageScene extends Phaser.Scene {
     this.ringSpots = pathSpots(ROADS);
     // Open ground for a ring when the paths are full: Old Town's and New Town's, not the Wilds'.
     this.ringClearings = this.ground.anywhere.filter((p) => inTown(p) || inNewTown(p));
-    // Strolls stay in the village and the forest's near edge: the Wilds run on a long way now.
-    this.strollable = this.ground.anywhere.filter((p) => inOctagon(OUTER, p, 420));
+    // Every safe open tile is a destination, including the world's far edges.
+    this.strollable = this.ground.anywhere;
     this.gate = this.ground.nearestDry(this.map.spawn);
 
     // The pier on the small lake out in the Wilds (world.ts): strollers walk out to its end, and some swim off it.
