@@ -117,8 +117,8 @@ export default function AboutPage() {
           <p>
             Admins can review payout plans and choose the percentage of available SOL allocated to a payout.
             Unpaid SOL stays in the reward wallet and continues accumulating for future payouts; the platform takes no cut from rewards.
-            The planned flow swaps SOL to $AGP and distributes it in batches. Payment execution is not connected
-            yet, so approved plans are not completed payouts. The{" "}
+            Payouts swap SOL to $AGP and distribute it in batches with reward-wallet approval for each swap and transfer.
+            Payments count only after on-chain confirmation; approved plans are not completed payouts. The{" "}
             <Link href="/rewards" className="text-accent">
               rewards page
             </Link>{" "}

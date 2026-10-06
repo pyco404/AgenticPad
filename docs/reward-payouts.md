@@ -30,30 +30,65 @@ separately. The Pump 15% daily / 50% weekly / 35% platform split is unchanged.
 Older plans with a platform cut remain in history but cannot be approved;
 preview a new plan using these rules.
 
-## Execution still to connect
+## Wallet-approved execution
 
-Approval currently records a plan only. **No swap, fee claim, SOL transfer or
-$AGP payment is executed by this dashboard yet.** It labels this limitation
-explicitly. Set `PAYOUT_AGP_MINT` to the real mainnet mint before approving a
-plan; a plan records its mint and must be previewed again after a mint change.
-`JUPITER_API_KEY` is reserved for the forthcoming server-side swap adapter.
+The executor prepares real mainnet swaps and winner transfers. **Approval records
+a plan only.** Start the approved plan, then use **Check progress / approve next
+step**. Each swap and each winner transfer needs a wallet transaction signature;
+there are no server-held private keys. Choose Phantom or Solflare and switch that
+extension to the source reward wallet. The admin session may remain on the
+operator's wallet: admin authorization and the reward wallet's spending signature
+are checked independently. An embedded wallet can sign only if it is itself the
+source reward wallet.
 
-The executor must process one batch at a time:
+Set these on Railway's **web** service, or `web/.env.local` locally:
+
+- `PUMP_RPC_URL`: verified Solana mainnet RPC.
+- `PUMP_DAILY_REWARDS_WALLET`, `PUMP_WEEKLY_REWARDS_WALLET`: actual signing-wallet addresses.
+- `PAYOUT_AGP_MINT`: real mainnet $AGP mint; preview again after changing it.
+- `JUPITER_API_KEY`: server-only key from Jupiter's developer portal.
+- `PUMP_LAUNCH_DB_PATH`: SQLite file on one persistent volume, retaining launches and payout journals.
+- `PAYOUT_EXECUTION_ENABLED=true`: enable preparation and confirmation processing.
+- `PAYOUT_FEE_RESERVE_SOL=0.05`: minimum SOL beyond the payout budget for costs.
+- `PAYOUT_MAX_TX_COST_SOL=0.01`: maximum extra SOL cost per simulated transaction.
+- `PAYOUT_MAX_PRICE_IMPACT_BPS=200`: maximum absolute quoted price impact (2%).
+
+Do not put reward-wallet keys in Railway or a `NEXT_PUBLIC_*` variable. The RPC,
+mint and a viable liquid Jupiter route must be verified before real payments;
+the automated tests use fake providers and do not send funds. The initial wallet
+balance must cover the full budget plus reserve. Fees/rent consume that extra
+reserve; they do not give the platform a share of retained rewards. Insufficient
+funds pause the process. One unfinished payout reserves each source wallet, and
+an approved period stays unique even after payment completes.
+
+Standard SPL tokens and Token-2022 metadata extensions are supported. Transfer-fee,
+transfer-hook and confidential-transfer mints are rejected rather than miscounting
+recipient receipts. The worker checks finalized receipts every five seconds while
+enabled. It may re-submit an already wallet-signed transaction, but it cannot
+prepare or sign another payment without the operator using the dashboard.
+
+The executor processes one batch at a time:
 
 1. Confirm the approved source wallet, SOL budget and network-fee reserve.
 2. Get a fresh SOL-to-$AGP quote only when the batch is ready. Enforce the
    approved spending, slippage and price-impact limits, or pause for review.
 3. Submit through a managed/protected transaction path, not a public fallback.
-4. Confirm the swap on chain and measure the actual $AGP received after fees.
+4. Wait for finalized confirmation and measure actual $AGP received from the transaction's token-balance changes.
 5. Distribute that batch to the snapshotted winners, with integer token amounts.
-6. Confirm transfers, persist their signatures and wait at least the approved
-   delay plus a randomized interval before the next swap.
+6. Confirm every transfer, persist its signature and wait at least the approved
+   delay plus a randomized 0–15 seconds before the next swap.
 
 Persist signed bytes and identifiers before submission. A timeout leaves a
 batch pending; resume/check its original signatures rather than creating another
 buy or payment. Never mark a swap or payout complete based only on a browser
 assertion. A partial payout spends only the completed batches; all remaining
 SOL stays in the reward wallet. There is no platform transfer from rewards.
+Pause/resume retains signed bytes. Fresh transaction bytes are permitted only
+after a finalized failure or finalized block-height expiry with no transaction
+status. Expired unsigned wallet prompts can be refreshed without sending anything.
+History retains failed attempt signatures. Confirmed transfer totals include
+partial payouts exactly once. There is no fee-claim operation: payout sources
+must already contain their accumulated SOL.
 
 Batching limits individual order size and can reduce price impact, but does not
 guarantee protection from front-running. Use conservative slippage, fresh quotes,

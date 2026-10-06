@@ -3,6 +3,7 @@ import { launchStore } from "@/lib/launchpad-store";
 import { MarketStore } from "@/lib/token-market";
 import { DAILY_REWARDS_WALLET, WEEKLY_REWARDS_WALLET } from "@/lib/launchpad-fees";
 import type { PlatformTotals } from "@/lib/platform-stats";
+import { ExecutionStore } from "@/lib/payout-execution-store";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 let cached: { at: number; value: PlatformTotals } | null = null;
@@ -24,7 +25,8 @@ async function totals(): Promise<PlatformTotals> {
       rewardPoolSol = accounts.reduce((sum, a) => sum + (a?.lamports ?? 0), 0) / 1e9;
     })(),
   ]);
-  return { activeTokens: active.length, activeAgents, volume24hUsd: complete ? readings.reduce((sum, r) => sum + r!.volume24hUsd!, 0) : null, rewardPoolSol, totalPaidAgp: null, at: new Date().toISOString() };
+  const totalPaidAgp = process.env.PAYOUT_AGP_MINT ? new ExecutionStore().paidAgp(process.env.PAYOUT_AGP_MINT) : null;
+  return { activeTokens: active.length, activeAgents, volume24hUsd: complete ? readings.reduce((sum, r) => sum + r!.volume24hUsd!, 0) : null, rewardPoolSol, totalPaidAgp, at: new Date().toISOString() };
 }
 export async function GET() {
   try {

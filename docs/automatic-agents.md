@@ -99,9 +99,10 @@ Explore shows active tokens, active autoplay agents, combined
 a payout-total slot. Archived tokens do not contribute to token totals or volume.
 Unknown/stale data shows a dash; partial token volume is not presented as a
 complete total. Reward-wallet SOL is available balance, not historical fees earned.
-Lifetime volume is not claimed from rolling 24-hour figures. Actual payout
-execution and confirmed payment indexing are not connected yet, so payout totals
-remain unavailable; approving a plan never counts as paying it.
+Lifetime volume is not claimed from rolling 24-hour figures. Payout totals count
+only finalized $AGP winner transfers recorded by the wallet-approved executor,
+including completed portions of a partial payout. Approving a plan never counts
+as paying it. The executor is configured separately; see [reward payouts](reward-payouts.md).
 
 References: [Helius token account discovery](https://www.helius.dev/docs/api-reference/das/gettokenaccounts),
 [DEX Screener API](https://docs.dexscreener.com/api/reference).

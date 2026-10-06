@@ -3,6 +3,9 @@ import { LAUNCH_FEE_RECIPIENT, DAILY_REWARDS_WALLET, WEEKLY_REWARDS_WALLET } fro
 import { LaunchError, ownerOf, readLaunchBody } from "@/lib/launchpad-server";
 import { buildPayoutPlan, type PayoutInput, type PayoutWinner } from "@/lib/payout-plan";
 import { PayoutStore } from "@/lib/payout-store";
+import { ExecutionStore } from "@/lib/payout-execution-store";
+import { executionConfig } from "@/lib/payout-adapter";
+import { payoutStep, startExecution, startPayoutWorker } from "@/lib/payout-runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,9 +35,12 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
     await adminRead(request, "/admin");
     const { path } = await context.params;
     const store = new PayoutStore();
+    const executions = new ExecutionStore(store.db);
+    startPayoutWorker();
     let result: unknown;
     if (request.method === "GET" && path.join("/") === "plans") result = {
-      plans: store.list(), agpMint: agpMint(), executionConnected: false,
+      plans: store.list(), agpMint: agpMint(), executionConnected: executionConfig().ready,
+      executionMissing: executionConfig().missing, executions: executions.views(),
       sourceWallets: { daily: DAILY_REWARDS_WALLET, weekly: WEEKLY_REWARDS_WALLET }, platform: LAUNCH_FEE_RECIPIENT,
     };
     else if (request.method === "POST" && path.join("/") === "preview") {
@@ -64,6 +70,26 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       if (!plan.agpMint || plan.agpMint !== agpMint()) throw new LaunchError("Configure the $AGP mint and preview again before approving this plan.", 409);
       try { result = store.approve(plan.id, owner); }
       catch (error) { throw new LaunchError((error as Error).message, 409); }
+    } else if (request.method === "POST" && path.length === 2 && ["start", "prepare", "submit", "pause", "resume"].includes(path[1]!)) {
+      if (!executionConfig().ready && path[1] !== "pause") throw new LaunchError("Configure payout execution before starting or resuming payments.", 503);
+      const id = path[0]!; const action = path[1]!;
+      if (!store.get(id)) throw new LaunchError("Payout plan not found.", 404);
+      try {
+        if (action === "start") result = await startExecution(id, owner, undefined, executions);
+        else if (action === "pause" || action === "resume") result = executions.control(id, action);
+        else if (action === "prepare") result = await payoutStep(id, true, undefined, undefined, executions);
+        else {
+          const body = await readLaunchBody(request);
+          if (typeof body.signed !== "string" || body.signed.length > 10_000) throw new LaunchError("Invalid signed payout transaction.");
+          result = await payoutStep(id, false, body.signed, undefined, executions);
+        }
+      } catch (error) {
+        if (error instanceof LaunchError) throw error;
+        // Local verification errors are useful; do not return external provider errors.
+        const message = error instanceof Error ? error.message : "";
+        const known = ["Approve a payout", "This reward wallet", "A payout step", "A batch step", "Payout execution not found", "No payout transaction", "Only the reward wallet", "The signed launch", "The launch transaction"];
+        throw new LaunchError(known.some(prefix => message.startsWith(prefix)) ? message.replaceAll("launch", "payout") : "Payout step could not be verified. Check progress and configuration before retrying.", 409);
+      }
     } else throw new LaunchError("Not found.", 404);
     return Response.json(result, { headers: { "cache-control": "no-store" } });
   } catch (error) {

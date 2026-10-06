@@ -64,8 +64,9 @@ each other for score. Each token has its own holding clock and pricing checks.
 Deploy both services; API startup applies `0034_multi_token_holders.sql` while
 preserving existing agents and histories. The trusted web mint registry includes
 confirmed launches only. Archived market listings retain their mint identity;
-missing catalog/market data never invents eligibility. Reward payment execution
-is still pending. See [automatic agents](docs/automatic-agents.md).
+missing catalog/market data never invents eligibility. Reward payments use
+wallet-approved swaps and transfers; enable and configure the executor separately.
+See [automatic agents](docs/automatic-agents.md) and [reward payouts](docs/reward-payouts.md).
 
 ### No program
 
