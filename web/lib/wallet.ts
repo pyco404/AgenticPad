@@ -82,18 +82,33 @@ async function post<T>(path: string, body: unknown, token?: string): Promise<T> 
     method: "POST",
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
   });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) throw new Error(typeof json["error"] === "string" ? json["error"] : `request failed (${res.status})`);
   return json as T;
 }
 
-/** Connect, fetch a nonce for this key, sign the server's message, exchange it for a session. */
-export async function signInWith(name: WalletName): Promise<Session> {
+function walletResponse<T>(request: Promise<T>, name: WalletName, action: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${name} did not respond to ${action}. Open and unlock the wallet, close any pending request, then try again.`)), 90_000);
+    request.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
+export type PendingWalletSignIn = {
+  wallet: WalletName;
+  publicKey: string;
+  nonce: string;
+  message: string;
+};
+
+/** Prepare the challenge first; request its signature from a fresh button click. */
+export async function prepareWalletSignIn(name: WalletName): Promise<PendingWalletSignIn> {
   const provider = providerFor(name);
   if (!provider) throw new Error(`${name} is not installed`);
 
-  const connected = await provider.connect();
+  const connected = await walletResponse(provider.connect(), name, "connection");
   const key =
     (connected && typeof connected === "object" && "publicKey" in connected ? connected.publicKey : undefined) ??
     provider.publicKey;
@@ -101,17 +116,30 @@ export async function signInWith(name: WalletName): Promise<Session> {
   const publicKey = key.toBase58 ? key.toBase58() : key.toString();
 
   const issued = await post<{ nonce: string; message: string }>("/auth/nonce", { publicKey });
-  const signed = await provider.signMessage(new TextEncoder().encode(issued.message), "utf8");
+  return { wallet: name, publicKey, ...issued };
+}
+
+/** No network request precedes the wallet prompt: preserve the user's click. */
+export async function completeWalletSignIn(issued: PendingWalletSignIn): Promise<Session> {
+  const provider = providerFor(issued.wallet);
+  if (!provider) throw new Error(`${issued.wallet} is not installed`);
+  const key = provider.publicKey?.toBase58?.() ?? provider.publicKey?.toString();
+  if (key !== issued.publicKey) throw new Error("Your wallet account changed. Cancel and connect again.");
+  const signed = await walletResponse(provider.signMessage(new TextEncoder().encode(issued.message), "utf8"), issued.wallet, "message signing");
   const signature = bs58.encode(signed instanceof Uint8Array ? signed : signed.signature);
 
   const verified = await post<{ token: string; ownerId: string; expiresAt: string }>("/auth/verify", {
-    publicKey,
+    publicKey: issued.publicKey,
     nonce: issued.nonce,
     signature,
   });
-  const session: Session = { ...verified, wallet: name };
+  const session: Session = { ...verified, wallet: issued.wallet };
   saveSession(session);
   return session;
+}
+
+export async function signInWith(name: WalletName): Promise<Session> {
+  return completeWalletSignIn(await prepareWalletSignIn(name));
 }
 
 /**

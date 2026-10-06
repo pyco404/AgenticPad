@@ -5,7 +5,8 @@ import { Component, createContext, useCallback, useContext, useEffect, useState,
 import {
   installedWallets,
   loadSession,
-  signInWith,
+  prepareWalletSignIn,
+  completeWalletSignIn,
   signInWithSigner,
   signOut,
   signTransactionWith,
@@ -13,6 +14,7 @@ import {
   toBase64,
   type Session,
   type WalletName,
+  type PendingWalletSignIn,
 } from "@/lib/wallet";
 import type { PrivyApi } from "./privy-bridge";
 
@@ -94,6 +96,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [wallets, setWallets] = useState<WalletName[]>([]);
   const [busy, setBusy] = useState<WalletState["busy"]>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingWalletSignIn | null>(null);
   const [privy, setPrivy] = useState<PrivyApi | null>(null);
   const [privyStatus, setPrivyStatus] = useState<PrivyStatus>(PRIVY_APP_ID ? "loading" : "off");
   const [privyReason, setPrivyReason] = useState<string | null>(null);
@@ -130,14 +133,29 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const connect = useCallback(async (name: WalletName) => {
     setBusy("connect");
     setError(null);
+    setPending(null);
     try {
-      setSession(await signInWith(name));
+      setPending(await prepareWalletSignIn(name));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(null);
     }
   }, []);
+
+  const confirmSignIn = async () => {
+    if (!pending || busy) return;
+    setBusy("connect");
+    setError(null);
+    try {
+      setSession(await completeWalletSignIn(pending));
+      setPending(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const connectPrivy = useCallback(async () => {
     if (!privy) return;
@@ -194,6 +212,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      {pending ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="wallet-sign-in-title" className="rounded-panel w-full max-w-md border border-hud-line bg-ink p-6 text-text">
+            <h2 id="wallet-sign-in-title" className="text-xl text-accent">Sign in with {pending.wallet}</h2>
+            <p className="mt-3 text-muted">Click Sign message to open your wallet approval. This login costs nothing and moves no funds.</p>
+            <p className="mt-2 break-all font-mono text-xs">{pending.publicKey}</p>
+            {error ? <p role="alert" className="mt-3 text-loss">{error}</p> : null}
+            <div className="mt-5 flex gap-3">
+              <button type="button" disabled={busy !== null} onClick={() => void confirmSignIn()} className="rounded-panel bg-accent px-4 py-2 text-ink disabled:opacity-50">{busy ? "Approve in your wallet…" : "Sign message"}</button>
+              <button type="button" disabled={busy !== null} onClick={() => { setPending(null); setError(null); }} className="rounded-panel border border-line px-4 py-2 disabled:opacity-50">Cancel</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {PrivyBridge ? (
         <Contained onError={(reason) => reportPrivy("failed", reason)}>
           <PrivyBridge appId={PRIVY_APP_ID} onReady={onPrivyReady} />
