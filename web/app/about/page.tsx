@@ -146,11 +146,7 @@ export default function AboutPage() {
             on Solana mainnet.
           </p>
           <p className="text-muted">
-            Nothing has been audited. The{" "}
-            <a href={`${REPO}/blob/main/docs/holder-agents.md`} className="text-accent" target="_blank" rel="noreferrer">
-              design
-            </a>{" "}
-            says how holding, power and rewards work, and what is still open.
+            Nothing has been audited. Holding requirements and reward rules are described above.
           </p>
         </Block>
 
@@ -173,11 +169,10 @@ export default function AboutPage() {
             market data alone is not proof that a token is inactive.
           </p>
           <p>
-            Read more about the game&apos;s design in the{" "}
-            <a href={`${REPO}#how-the-design-got-here`} className="text-accent" target="_blank" rel="noreferrer">
-              README
+            The source repository will be shared when ready.{" "}
+            <a href={REPO} className="text-accent" target="_blank" rel="noreferrer">
+              GitHub ↗
             </a>
-            .
           </p>
         </Block>
       </div>

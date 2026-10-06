@@ -45,7 +45,7 @@ export function SiteFooter() {
         <span>Solana</span>
         <a href={siteLinks.x} className={link} target="_blank" rel="noreferrer">X</a>
         <a href={siteLinks.repository} className={link} target="_blank" rel="noreferrer">Source</a>
-        <a href={`${siteLinks.repository}/blob/main/docs/security.md`} className={link} target="_blank" rel="noreferrer">Security</a>
+        <a href={siteLinks.repository} className={link} target="_blank" rel="noreferrer">Security</a>
       </p>
     </footer>
   );
