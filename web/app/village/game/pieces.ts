@@ -74,13 +74,28 @@ const atBuilding = (id: string, from: { x: number; y: number }, pieces: Piece[])
 };
 
 export const PIECES: Piece[] = [
-  { key: 'market-blue', image: '/village/reference/market-blue.png', x: 1230, y: 1305, scale: 1, solid: { width: 98, height: 64 } },
-  { key: 'market-red', image: '/village/reference/market-red.png', x: 1565, y: 1325, scale: 1, solid: { width: 98, height: 64 } },
+  cottage("Yellow", 230, 1090),
+  cottage("Blue", 200, 1350),
+  cottage("Red", 650, 1570),
+  cottage("Yellow", 870, 1460),
+  {key:"village-smithy", image:"/village/reference/smithy.png", x:2810, y:1020, scale:0.8, solid:{width:76,height:70}},
+  art("bench", 330, 1180, 1.6),
+  art("log", 400, 1700, 1.6),
+  tent(480, 1780),
+  fire(530, 1810),
+  // Farm beds and fences follow a small clearing off the strategy lane.
+  ...[[330,490],[440,505],[350,560],[460,575]].map(([x,y]) => ({key:"farm-bed", image:"/fixtures/Plot.png",x:x!,y:y!,scale:1.1})),
+  {key:"farm-fence",image:"/fixtures/Fence.png",x:330,y:600,scale:1.1},
+  {key:"farm-fence",image:"/fixtures/Fence.png",x:460,y:615,scale:1.1},
+  {key:"farm-pumpkin",image:"/fixtures/Pumpkin.png",x:520,y:560,scale:0.55},
+
+  { key: 'market-blue', image: '/village/reference/market-blue.png', x: 1250, y: 1440, scale: 1, solid: { width: 98, height: 64 } },
+  { key: 'market-red', image: '/village/reference/market-red.png', x: 1510, y: 1460, scale: 1, solid: { width: 98, height: 64 } },
   // The town's flags: at the ring road's corners and either side of the avenue up to the arena.
-  flag(975, 468),
-  flag(1825, 468, 1),
-  flag(975, 1040, 1),
-  flag(1825, 1040),
+  flag(1070, 465),
+  flag(1875, 735, 1),
+  flag(900, 1060, 1),
+  flag(1760, 1340),
   flag(1372, 1075, 1),
   flag(1450, 1075),
 
@@ -135,9 +150,9 @@ export const PIECES: Piece[] = [
   bush("bush-2", 1734, 958),
 
   // The town square: the fountain, benches round it.
-  { key: "dress-fountain", image: "/fixtures/Fountain.png", x: 1400, y: 1172, scale: 0.6, solid: { width: 52, height: 26 } },
-  art("bench", 1300, 1204, 1.6),
-  art("bench", 1500, 1204, 1.6),
+  { key: "dress-fountain", image: "/fixtures/Fountain.png", x: 1300, y: 1222, scale: 0.6, solid: { width: 52, height: 26 } },
+  art("bench", 1200, 1244, 1.6),
+  art("bench", 1400, 1244, 1.6),
 
   // The agent grounds. North-west, a camp: tents round a fire.
   tent(795, 560),
@@ -166,13 +181,13 @@ export const PIECES: Piece[] = [
   // South-east, cottages off the dock road, a fire between them.
   cottage("Blue", 2085, 1250),
   cottage("Yellow", 2160, 1365, true),
-  cottage("Red", 1880, 1300),
+  cottage("Red", 1990, 1480),
   fire(2100, 1318),
   art("bench", 2036, 1345, 1.6),
 
   // The lakeside, at the end of the trail south from the square.
-  art("bench", 1340, 1428, 1.6),
-  art("bench", 1460, 1428, 1.6),
+  art("bench", 1100, 1580, 1.6),
+  art("bench", 1470, 1550, 1.6),
 
   // A ship moored off the dock.
   // The pier on the small lake out in the Wilds (world.ts), from its north shore into the water. The old lake

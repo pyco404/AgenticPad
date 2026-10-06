@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GARDEN_PONDS } from "../web/app/village/game/landmarks.js";
 import { chunksIn, chunkTrees, type ForestRules } from "../web/app/village/game/forest.js";
 import { canopy, felled, NEW_TOWN, NEW_TOWN_FIXED, nextPlot, openPlots, overlaps, plotClearing, thresholds } from "../web/app/village/game/growth.js";
 import { BAZAAR_SITE, LAUNCH_SITE, nearRoad, SITES } from "../web/app/village/game/town.js";
@@ -53,6 +54,7 @@ describe("New Town's growth", () => {
     const sites = Object.entries(SITES).map(([id, s]) => ({ id, box: { x0: s.x - 110, y0: s.y - 220, x1: s.x + 110, y1: s.y + 30 } }));
     for (const plot of plots) {
       const box = plotClearing(plot, 0);
+      for (const pond of GARDEN_PONDS) expect(overlaps(box, pond), `${plot.id} against pond`).toBe(false);
       for (const p of plot.pieces) expect(inNewTown(p, 40), plot.id).toBe(true);
       for (const corner of [{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x0, y: box.y1 }, { x: box.x1, y: box.y1 }]) {
         expect(nearRoad(corner, 0), `${plot.id} is off the roads`).toBe(false);

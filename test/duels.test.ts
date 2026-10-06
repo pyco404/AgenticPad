@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { apart, BARE_MS, duelPhase, LINGER_MS, meetingSpot, pathSpots, RING_CAP, ringsInFull } from "../web/app/village/game/duels.js";
-import { ROADS } from "../web/app/village/game/town.js";
+import { nearRoad, ROADS } from "../web/app/village/game/town.js";
 
 // Matches where agents meet (web/app/village/game/duels.ts). Presentation only.
 
@@ -32,9 +32,9 @@ describe("matches where agents meet", () => {
     const a = { x: 900, y: 1150 };
     const b = { x: 1300, y: 1150 };
     const spot = meetingSpot(a, b, spots, [])!;
-    // The high street runs along y 1150 there: they meet on it, near the middle.
-    expect(spot.y).toBeCloseTo(1150, 0);
-    expect(Math.abs(spot.x - 1100)).toBeLessThan(40);
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    expect(nearRoad(spot, 0)).toBe(true);
+    expect(dist(spot, midpoint)).toBeCloseTo(Math.min(...spots.map((p) => dist(p, midpoint))), 6);
   });
 
   it("puts two simultaneous matches at two different spots, far enough apart that their rings and scores never touch", () => {

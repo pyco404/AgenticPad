@@ -14,8 +14,10 @@
  * the count falls, what stands stays standing until the page is reloaded.
  */
 
-import { CENTRE, fromEdge, inNewTown, INNER, OUTER, SPOKES, type Octagon, type Pt } from "./world";
-import { RIVER_BANKS } from './river';
+import { fromEdge, inNewTown, INNER, OUTER, type Pt } from "./world";
+import { ROADS, SITES } from "./town";
+import { RIVER_BANKS } from "./river";
+import { GARDEN_PONDS } from "./landmarks";
 
 /** Every picture a plot can be built from, with where it comes from and how it stands. */
 export const PIECE_ART = {
@@ -122,12 +124,6 @@ export const NEW_TOWN_FIXED: { id: string; at: Pt; room: number }[] = [
   { id: "bazaar", at: { x: -60, y: 1150 }, room: 250 },
 ];
 
-/** How far apart New Town's buildings stand along a row, and how far each row is from its ring road. */
-const SLOT_STEP = 190;
-const ROW_OFFSET = 210;
-/** No building this close to a main road's centre line. */
-const SPOKE_ROOM = 150;
-
 /** The holder count each plot opens at, in order: one at a time at first, then further apart as the town fills. */
 export function thresholds(n: number): number[] {
   const out: number[] = [];
@@ -135,36 +131,6 @@ export function thresholds(n: number): number[] {
   for (let i = 0; i < n; i++) {
     out.push(Math.round(at));
     at = i < 6 ? at + 1 : Math.max(at + 1, at * 1.12);
-  }
-  return out;
-}
-
-/** The octagon `o` grown outward by `by`, its edges kept parallel. */
-const grown = (o: Octagon, by: number): Octagon => ({ ...o, hw: o.hw + by, hh: o.hh + by, chamfer: o.chamfer + by * (Math.SQRT2 - 1) });
-
-/** Points `step` apart round an octagon, starting from the middle of its left edge. */
-function around(o: Octagon, step: number): Pt[] {
-  const { cx, cy, hw, hh, chamfer: c } = o;
-  const cs: Pt[] = [
-    { x: cx - hw, y: cy },
-    { x: cx - hw, y: cy - hh + c },
-    { x: cx - hw + c, y: cy - hh },
-    { x: cx + hw - c, y: cy - hh },
-    { x: cx + hw, y: cy - hh + c },
-    { x: cx + hw, y: cy + hh - c },
-    { x: cx + hw - c, y: cy + hh },
-    { x: cx - hw + c, y: cy + hh },
-    { x: cx - hw, y: cy + hh - c },
-    { x: cx - hw, y: cy },
-  ];
-  const out: Pt[] = [];
-  let carry = 0;
-  for (let i = 1; i < cs.length; i++) {
-    const a = cs[i - 1]!;
-    const b = cs[i]!;
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    for (let d = carry; d < len; d += step) out.push({ x: a.x + ((b.x - a.x) * d) / len, y: a.y + ((b.y - a.y) * d) / len });
-    carry = (step - ((len - carry) % step)) % step;
   }
   return out;
 }
@@ -189,31 +155,28 @@ function rng(seed: number): () => number {
 
 const BUILDINGS: PieceArt[] = ["house-a", "office", "shop", "house-b", "apartments", "kiosk"];
 
-/**
- * New Town: two rows of plots round the band between the rings, one facing
- * each ring road, kept off the main roads and away from the Launch Pad and the
- * bazaar. Each plot is a modern building and now and then a
- * planter. They open in arrival order, from the west - the way in, past the
- * Hiring Hall - outward round both sides, the inner row first.
- */
+/** Stable, seeded growth plots in irregular neighbourhoods, clear of roads and water. */
 function newTownPlan(): Plan {
   const rand = rng(20261005);
-  const rows = [
-    { name: "inner", ring: grown(INNER, ROW_OFFSET) },
-    { name: "outer", ring: grown(OUTER, -ROW_OFFSET) },
+  // Neighbourhood clearings blend into wilderness; there are no rows along an enclosing road.
+  const neighbourhoods = [
+    { name: "market", x: 30, y: 910, rx: 320, ry: 550 },
+    { name: "orchards", x: 560, y: -180, rx: 520, ry: 240 },
+    { name: "north", x: 1840, y: -270, rx: 650, ry: 210 },
+    { name: "homes", x: 960, y: 1970, rx: 550, ry: 300 },
+    { name: "launch", x: 2940, y: 1300, rx: 210, ry: 630 },
+    { name: "workshops", x: 2860, y: 160, rx: 280, ry: 570 },
+    { name: "south", x: 2660, y: 1990, rx: 400, ry: 210 },
   ];
-  const slots: { id: string; at: Pt; row: number; turn: number }[] = [];
-  rows.forEach((row, r) => {
-    around(row.ring, SLOT_STEP).forEach((p, i) => {
-      if (!inNewTown(p, 120)) return;
-      if (SPOKES.some((s) => distToSegment(p, s.start, s.end) < SPOKE_ROOM)) return;
-      if (NEW_TOWN_FIXED.some((f) => Math.hypot(f.at.x - p.x, f.at.y - p.y) < f.room)) return;
-      // How far round from the west, either way: 0 at the west, π at the east.
-      const turn = Math.abs(Math.atan2(p.y - CENTRE.y, -(p.x - CENTRE.x)));
-      slots.push({ id: `${row.name}-${i}`, at: { x: Math.round(p.x), y: Math.round(p.y) }, row: r, turn });
-    });
-  });
-  slots.sort((a, b) => a.row - b.row || a.turn - b.turn);
+  const slots: { id: string; at: Pt }[] = [];
+  for (let i = 0; i < 1400; i++) {
+    const n = neighbourhoods[i % neighbourhoods.length]!;
+    const angle = rand() * Math.PI * 2, radius = Math.sqrt(rand());
+    const p = {x: Math.round(n.x + Math.cos(angle) * radius * n.rx), y: Math.round(n.y + Math.sin(angle) * radius * n.ry)};
+    if (!inNewTown(p, 100)) continue;
+    if (NEW_TOWN_FIXED.some((f) => Math.hypot(f.at.x - p.x, f.at.y - p.y) < f.room)) continue;
+    slots.push({id: `${n.name}-${i}`, at: p});
+  }
   // Each slot's building and maybe a planter; a slot whose ground would overlap one already laid -
   // where a row turns a corner, or tall buildings stack up an upright side - is left as open ground.
   const laid: { id: string; door: Pt; pieces: GrowthPiece[] }[] = [];
@@ -230,10 +193,15 @@ function newTownPlan(): Plan {
     if (planter) pieces.push({ image: "planter", x: foot.x + (flip ? 1 : -1) * (size.width + 8), y: foot.y + 8, scale: 2 });
     const plot = { id: `new-town-${s.id}`, at: 0, door: { x: foot.x, y: foot.y + 20 }, pieces };
     const ground = plotClearing(plot, 0);
-    if (RIVER_BANKS.some((bank) => overlaps(ground, bank))) continue;
+    if ([...RIVER_BANKS, ...GARDEN_PONDS].some((bank) => overlaps(ground, bank))) continue;
+    if (Object.values(SITES).some((site) => overlaps(ground, {x0:site.x-160,y0:site.y-250,x1:site.x+160,y1:site.y+80}))) continue;
+    const centre = {x:(ground.x0+ground.x1)/2,y:(ground.y0+ground.y1)/2};
+    const reach = Math.hypot(ground.x1-ground.x0,ground.y1-ground.y0)/2 + 12;
+    if (ROADS.some((road) => road.points.some(([x,y],i) => i > 0 && distToSegment(centre, {x:road.points[i-1]![0],y:road.points[i-1]![1]}, {x,y}) < reach + road.width/2))) continue;
     if (laid.some((other) => overlaps(ground, plotClearing({ ...other, at: 0 }, 0)))) continue;
     if (NEW_TOWN_FIXED.some((f) => overlaps(ground, { x0: f.at.x - 140, y0: f.at.y - 220, x1: f.at.x + 140, y1: f.at.y + 60 }))) continue;
     laid.push(plot);
+    if (laid.length >= 100) break;
   }
   const at = thresholds(laid.length);
   return { id: "new-town", plots: laid.map((p, i) => ({ ...p, at: at[i]! })) };

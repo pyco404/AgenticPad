@@ -8,13 +8,12 @@ import { Roads } from "../web/app/village/game/roads.js";
 /**
  * Old Town is the village players know: the world grows round it and never
  * moves it without an intentional redesign. The fixture records the user's
- * more spacious layout (2026-10-06), including paths and each hall's props.
+ * organic district layout (2026-10-06), including paths and each hall's props.
  */
 
 type Rel = { dx: number; dy: number };
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/old-town.json", import.meta.url), "utf8")) as {
   sites: Record<string, Rel & { scale: number; art: string; door: Rel | null }>;
-  roads: { style: string; width: number; points: [number, number][] }[];
   square: Rel & { rx: number; ry: number };
   carpet: { dx: number; y0: number; y1: number; width: number };
   field: Rel & { rx: number; ry: number };
@@ -49,13 +48,14 @@ describe("Old Town", () => {
     }
   });
 
-  it("keeps its roads apart from the removed Strategy Lab rear spur", () => {
-    const now = ROADS.map((p) => JSON.stringify({ style: p.style, width: p.width, points: p.points.map(([x, y]) => [x - arena.x, y - arena.y]) }));
-    for (const road of fixture.roads) {
-      const removedSpur = road.style === "trail" && JSON.stringify(road.points) === JSON.stringify([[-400, -415], [-530, -415], [-540, -375]]);
-      if (removedSpur) expect(now).not.toContain(JSON.stringify(road));
-      else expect(now, JSON.stringify(road.points[0])).toContain(JSON.stringify(road));
-    }
+  it("offers different street widths and multiple routes without a perimeter", () => {
+    expect(new Set(ROADS.map(r=>r.width)).size).toBeGreaterThan(3);
+    for (const r of ROADS) expect(r.points[0]).not.toEqual(r.points.at(-1));
+    // A local market circuit gives agents a choice without wrapping the town.
+    const graph = new Roads(ROADS.filter(r=>r.style !== "main").map(r=>r.points.map(([x,y])=>({x,y}))),[]);
+    const route = graph.route({x:830,y:875},{x:2130,y:790});
+    expect(route.length).toBeGreaterThan(5);
+    for (const p of route) expect(nearRoad(p,32)).toBe(true);
   });
 
   it("keeps its plaza, the carpet, the Arena's sand and the agent grounds", () => {

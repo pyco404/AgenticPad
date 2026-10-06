@@ -12,7 +12,7 @@ export type VillageMap = {
   baseFrame?: number;
   /** [column, row, tileset, frame] */
   terrain: [number, number, string, number][];
-  /** Retains routing styles; every road uses the shared sandy trail colours. */
+  /** Road styles share their sampled center lines with navigation. */
   paths: { style: string; width: number; points: [number, number][] }[];
   /** Sandy plazas, one at each crossroads of the world's roads. */
   plazas?: [number, number][];
@@ -28,9 +28,9 @@ export type VillageMap = {
 const TILE = 64;
 
 /**
- * Every road shares the small trail's sandy colour and darker earthen edge.
+ * Every road uses the same grey stone surface and darker kerb.
  */
-const PATH_COLOURS = ROAD_COLOURS.dirt;
+const PATH_COLOURS = ROAD_COLOURS.paved;
 /** A plaza at every crossroads, this wide across. */
 const PLAZA = 150;
 
@@ -84,7 +84,6 @@ export function drawMap(
   // Discs at the vertices round the corners and connect the paths.
   const roads = scene.add.container(0, 0).setDepth(-400);
   const all = map.paths.filter((p) => p.points.length >= 2);
-  // Every road shares the small trail's existing sandy palette and edge treatment.
   const kinds: [typeof PATH_COLOURS, typeof all][] = [[PATH_COLOURS, all]];
   for (const [colours, paths] of kinds) {
     const layer = (width: (w: number) => number, colour: number, alpha: number) => {
@@ -103,7 +102,22 @@ export function drawMap(
     layer((w) => w, colours.edge, 1);
     layer((w) => Math.max(4, Math.round(w * 0.6)), colours.surface, 1);
   }
-  // Roundabouts use the same sand, with the darker trail edge.
+  // Small uneven stones give every street and trail the same texture.
+  const stones = scene.add.graphics();
+  for (const road of all) {
+    for (let i=1;i<road.points.length;i++) {
+      const [ax,ay]=road.points[i-1]!, [bx,by]=road.points[i]!;
+      const len=Math.hypot(bx-ax,by-ay);
+      if (!len) continue;
+      const nx=-(by-ay)/len, ny=(bx-ax)/len;
+      for(let d=8;d<len;d+=16) for(const side of [-1,0,1]) {
+        const x=Math.round(ax+(bx-ax)*d/len+nx*side*Math.min(8, road.width * 0.3 - 4)), y=Math.round(ay+(by-ay)*d/len+ny*side*Math.min(8, road.width * 0.3 - 4));
+        stones.fillStyle((i+side)%3 ? ROAD_COLOURS.paved.hi : ROAD_COLOURS.paved.line,0.7).fillRect(x-3,y-2,6,4);
+      }
+    }
+  }
+  roads.add(stones);
+  // A few gathering clearings rather than roundabouts around the world.
   const plazas = scene.add.graphics();
   for (const [x, y] of map.plazas ?? []) {
     plazas.fillStyle(PATH_COLOURS.edge, 1).fillCircle(x, y, PLAZA / 2);

@@ -1,868 +1,612 @@
 {
- "sites": {
-  "arena": {
-   "dx": 0,
-   "dy": 0,
-   "scale": 2,
-   "art": "/village/agenticpad/arena.png",
-   "door": {
+  "sites": {
+    "arena": {
+      "dx": 0,
+      "dy": 0,
+      "scale": 2,
+      "art": "/village/agenticpad/arena.png",
+      "door": {
+        "dx": 0,
+        "dy": -212
+      }
+    },
+    "tavern": {
+      "dx": -660,
+      "dy": 325,
+      "scale": 1.2,
+      "art": "/village/agenticpad/modern-hiring-hall.png",
+      "door": null
+    },
+    "castle": {
+      "dx": -800,
+      "dy": -295,
+      "scale": 1.2,
+      "art": "/village/agenticpad/modern-strategy-lab.png",
+      "door": null
+    },
+    "forge": {
+      "dx": 660,
+      "dy": 55,
+      "scale": 1.2,
+      "art": "/village/agenticpad/modern-game-hall.png",
+      "door": null
+    },
+    "library": {
+      "dx": 130,
+      "dy": -675,
+      "scale": 1.2,
+      "art": "/village/agenticpad/modern-hall-of-fame.png",
+      "door": null
+    },
+    "chapel": {
+      "dx": 560,
+      "dy": -525,
+      "scale": 1.2,
+      "art": "/village/agenticpad/modern-treasury.png",
+      "door": null
+    },
+    "watchtower": {
+      "dx": -540,
+      "dy": -935,
+      "scale": 1.2,
+      "art": "/village/agenticpad/modern-lookout.png",
+      "door": null
+    },
+    "alchemist": {
+      "dx": 270,
+      "dy": 605,
+      "scale": 1.2,
+      "art": "/village/agenticpad/modern-rulebook-house.png",
+      "door": null
+    },
+    "board": {
+      "dx": 440,
+      "dy": 255,
+      "scale": 1.6,
+      "art": "/village/agenticpad/leaderboard.png",
+      "door": null
+    }
+  },
+  "square": {
+    "dx": -100,
+    "dy": 225,
+    "rx": 130,
+    "ry": 65
+  },
+  "carpet": {
+    "dx": 130,
+    "y0": -673,
+    "y1": -645,
+    "width": 22
+  },
+  "field": {
     "dx": 0,
-    "dy": -212
-   }
-  },
-  "tavern": {
-   "dx": -750,
-   "dy": 150,
-   "scale": 1.2,
-   "art": "/village/agenticpad/modern-hiring-hall.png",
-   "door": null
-  },
-  "castle": {
-   "dx": -750,
-   "dy": -295,
-   "scale": 1.2,
-   "art": "/village/agenticpad/modern-strategy-lab.png",
-   "door": null
-  },
-  "forge": {
-   "dx": 670,
-   "dy": -210,
-   "scale": 1.2,
-   "art": "/village/agenticpad/modern-game-hall.png",
-   "door": null
-  },
-  "library": {
-   "dx": 0,
-   "dy": -675,
-   "scale": 1.2,
-   "art": "/village/agenticpad/modern-hall-of-fame.png",
-   "door": null
-  },
-  "chapel": {
-   "dx": 500,
-   "dy": -675,
-   "scale": 1.2,
-   "art": "/village/agenticpad/modern-treasury.png",
-   "door": null
-  },
-  "watchtower": {
-   "dx": -500,
-   "dy": -675,
-   "scale": 1.2,
-   "art": "/village/agenticpad/modern-lookout.png",
-   "door": null
-  },
-  "alchemist": {
-   "dx": 400,
-   "dy": 425,
-   "scale": 1.2,
-   "art": "/village/agenticpad/modern-rulebook-house.png",
-   "door": null
-  },
-  "board": {
-   "dx": 500,
-   "dy": 153,
-   "scale": 1.6,
-   "art": "/village/agenticpad/leaderboard.png",
-   "door": null
-  }
- },
- "roads": [
-  {
-   "style": "main",
-   "width": 64,
-   "points": [
-    [
-     -400,
-     -487
-    ],
-    [
-     -310,
-     -487
-    ],
-    [
-     0,
-     -487
-    ],
-    [
-     305,
-     -487
-    ],
-    [
-     400,
-     -487
-    ],
-    [
-     400,
-     -415
-    ],
-    [
-     400,
-     -185
-    ],
-    [
-     400,
-     35
-    ],
-    [
-     0,
-     35
-    ],
-    [
-     -400,
-     35
-    ],
-    [
-     -400,
-     -185
-    ],
-    [
-     -400,
-     -415
-    ],
-    [
-     -400,
-     -487
-    ]
-   ]
-  },
-  {
-   "style": "main",
-   "width": 64,
-   "points": [
-    [
-     0,
-     -13
-    ],
-    [
-     0,
-     35
-    ],
-    [
-     0,
-     175
-    ]
-   ]
-  },
-  {
-   "style": "main",
-   "width": 64,
-   "points": [
-    [
-     -750,
-     175
-    ],
-    [
-     -700,
-     175
-    ],
-    [
-     -550,
-     175
-    ],
-    [
-     -400,
-     175
-    ],
-    [
-     0,
-     175
-    ],
-    [
-     195,
-     175
-    ],
-    [
-     370,
-     175
-    ],
-    [
-     400,
-     175
-    ],
-    [
-     500,
-     175
-    ],
-    [
-     566,
-     175
-    ]
-   ]
-  },
-  {
-   "style": "main",
-   "width": 64,
-   "points": [
-    [
-     -400,
-     35
-    ],
-    [
-     -400,
-     175
-    ]
-   ]
-  },
-  {
-   "style": "main",
-   "width": 64,
-   "points": [
-    [
-     400,
-     35
-    ],
-    [
-     400,
-     175
-    ]
-   ]
-  },
-  {
-   "style": "main",
-   "width": 64,
-   "points": [
-    [
-     566,
-     175
-    ],
-    [
-     566,
-     315
-    ],
-    [
-     566,
-     460
-    ],
-    [
-     566,
-     497
-    ]
-   ]
-  },
-  {
-   "style": "secondary",
-   "width": 64,
-   "points": [
-    [
-     -400,
-     -185
-    ],
-    [
-     -470,
-     -265
-    ],
-    [
-     -750,
-     -265
-    ]
-   ]
-  },
-  {
-   "style": "secondary",
-   "width": 64,
-   "points": [
-    [
-     400,
-     -185
-    ],
-    [
-     670,
-     -185
-    ],
-    [
-     730,
-     -185
-    ]
-   ]
-  },
-  {
-   "style": "secondary",
-   "width": 64,
-   "points": [
-    [
-     -400,
-     -487
-    ],
-    [
-     -400,
-     -670
-    ],
-    [
-     -500,
-     -670
-    ]
-   ]
-  },
-  {
-   "style": "secondary",
-   "width": 64,
-   "points": [
-    [
-     0,
-     -487
-    ],
-    [
-     0,
-     -670
-    ]
-   ]
-  },
-  {
-   "style": "secondary",
-   "width": 64,
-   "points": [
-    [
-     400,
-     -487
-    ],
-    [
-     500,
-     -487
-    ],
-    [
-     500,
-     -670
-    ]
-   ]
-  },
-  {
-   "style": "secondary",
-   "width": 64,
-   "points": [
-    [
-     566,
-     460
-    ],
-    [
-     400,
-     460
-    ],
-    [
-     400,
-     430
-    ]
-   ]
-  },
-  {
-   "style": "trail",
-   "width": 64,
-   "points": [
-    [
-     -750,
-     -265
-    ],
-    [
-     -750,
-     -185
-    ],
-    [
-     -735,
-     -185
-    ],
-    [
-     -745,
-     -115
-    ],
-    [
-     -750,
-     -45
-    ]
-   ]
-  },
-  {
-   "style": "trail",
-   "width": 64,
-   "points": [
-    [
-     400,
-     -415
-    ],
-    [
-     560,
-     -415
-    ],
-    [
-     575,
-     -365
-    ]
-   ]
-  },
-  {
-   "style": "trail",
-   "width": 64,
-   "points": [
-    [
-     -700,
-     175
-    ],
-    [
-     -740,
-     235
-    ],
-    [
-     -750,
-     295
-    ]
-   ]
-  },
-  {
-   "style": "trail",
-   "width": 64,
-   "points": [
-    [
-     0,
-     175
-    ],
-    [
-     0,
-     395
-    ]
-   ]
-  },
-  {
-   "style": "trail",
-   "width": 64,
-   "points": [
-    [
-     566,
-     315
-    ],
-    [
-     660,
-     315
-    ]
-   ]
-  }
- ],
- "square": {
-  "dx": 0,
-  "dy": 185,
-  "rx": 150,
-  "ry": 58
- },
- "carpet": {
-  "dx": 0,
-  "y0": -673,
-  "y1": -485,
-  "width": 28
- },
- "field": {
-  "dx": 0,
-  "dy": -152,
-  "rx": 236,
-  "ry": 100
- },
- "grounds": [
-  {
-   "dx": -538,
-   "dy": -357
-  },
-  {
-   "dx": -600,
-   "dy": -375
-  },
-  {
-   "dx": -750,
-   "dy": -20
-  },
-  {
-   "dx": -790,
-   "dy": -50
-  },
-  {
-   "dx": 575,
-   "dy": -345
-  },
-  {
-   "dx": 525,
-   "dy": -365
-  },
-  {
-   "dx": -750,
-   "dy": 320
-  },
-  {
-   "dx": 650,
-   "dy": 335
-  },
-  {
-   "dx": -70,
-   "dy": 240
-  },
-  {
-   "dx": 70,
-   "dy": 240
-  },
-  {
-   "dx": 0,
-   "dy": 430
-  },
-  {
-   "dx": -50,
-   "dy": 420
-  }
- ],
- "pieces": [
-  {
-   "key": "market-blue",
-   "dx": -170,
-   "dy": 330,
-   "scale": 1
-  },
-  {
-   "key": "market-red",
-   "dx": 165,
-   "dy": 350,
-   "scale": 1
-  },
-  {
-   "key": "ac-flag",
-   "dx": -425,
-   "dy": -507,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-flag",
-   "dx": 425,
-   "dy": -507,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-flag",
-   "dx": -425,
-   "dy": 65,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-flag",
-   "dx": 425,
-   "dy": 65,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-flag",
-   "dx": -28,
-   "dy": 100,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-flag",
-   "dx": 50,
-   "dy": 100,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-hiring-board",
-   "dx": -862,
-   "dy": 153,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-banner",
-   "dx": -675,
-   "dy": 151,
-   "scale": 1.5
-  },
-  {
-   "key": "ac-banner",
-   "dx": -822,
-   "dy": 151,
-   "scale": 1.5
-  },
-  {
-   "key": "ac-strategy-board",
-   "dx": -888,
-   "dy": -287,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-war-table",
-   "dx": -615,
-   "dy": -353,
-   "scale": 1.5
-  },
-  {
-   "key": "ac-banner",
-   "dx": -838,
-   "dy": -293,
-   "scale": 1.5
-  },
-  {
-   "key": "ac-scoreboard",
-   "dx": 720,
-   "dy": -395,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-banner",
-   "dx": 585,
-   "dy": -205,
-   "scale": 1.5
-  },
-  {
-   "key": "ac-banner",
-   "dx": 755,
-   "dy": -205,
-   "scale": 1.5
-  },
-  {
-   "key": "ac-statue",
-   "dx": -100,
-   "dy": -653,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-trophy",
-   "dx": 65,
-   "dy": -645,
-   "scale": 1.4
-  },
-  {
-   "key": "ac-banner-fame",
-   "dx": 138,
-   "dy": -671,
-   "scale": 1.5
-  },
-  {
-   "key": "ac-chest",
-   "dx": 435,
-   "dy": -651,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-coins",
-   "dx": 547,
-   "dy": -637,
-   "scale": 1.4
-  },
-  {
-   "key": "prop-gold",
-   "dx": 587,
-   "dy": -649,
-   "scale": 0.36
-  },
-  {
-   "key": "ac-banner-gold",
-   "dx": 397,
-   "dy": -671,
-   "scale": 1.5
-  },
-  {
-   "key": "ac-banner",
-   "dx": -455,
-   "dy": -673,
-   "scale": 1.5
-  },
-  {
-   "key": "bush-1",
-   "dx": -354,
-   "dy": -427,
-   "scale": 0.6
-  },
-  {
-   "key": "bush-2",
-   "dx": -330,
-   "dy": -409,
-   "scale": 0.6
-  },
-  {
-   "key": "bush-4",
-   "dx": 352,
-   "dy": -429,
-   "scale": 0.6
-  },
-  {
-   "key": "bush-1",
-   "dx": 330,
-   "dy": -409,
-   "scale": 0.6
-  },
-  {
-   "key": "bush-2",
-   "dx": -354,
-   "dy": -3,
-   "scale": 0.6
-  },
-  {
-   "key": "bush-4",
-   "dx": -334,
-   "dy": -17,
-   "scale": 0.6
-  },
-  {
-   "key": "bush-1",
-   "dx": 354,
-   "dy": -3,
-   "scale": 0.6
-  },
-  {
-   "key": "bush-2",
-   "dx": 334,
-   "dy": -17,
-   "scale": 0.6
-  },
-  {
-   "key": "dress-fountain",
-   "dx": 0,
-   "dy": 197,
-   "scale": 0.6
-  },
-  {
-   "key": "ac-bench",
-   "dx": -100,
-   "dy": 229,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-bench",
-   "dx": 100,
-   "dy": 229,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-tent",
-   "dx": -605,
-   "dy": -415,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-tent",
-   "dx": -482,
-   "dy": -443,
-   "scale": 1.6
-  },
-  {
-   "key": "effects-fire-fire",
-   "dx": -538,
-   "dy": -375,
-   "scale": 0.34
-  },
-  {
-   "key": "ac-log",
-   "dx": -574,
-   "dy": -357,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-log",
-   "dx": -500,
-   "dy": -355,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-dummy",
-   "dx": -790,
-   "dy": -70,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-dummy",
-   "dx": -718,
-   "dy": -57,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-bench",
-   "dx": -682,
-   "dy": -5,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-flag",
-   "dx": -840,
-   "dy": -15,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-bench",
-   "dx": 525,
-   "dy": -371,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-bench",
-   "dx": 618,
-   "dy": -369,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-tent",
-   "dx": 668,
-   "dy": -407,
-   "scale": 1.6
-  },
-  {
-   "key": "effects-fire-fire",
-   "dx": 572,
-   "dy": -315,
-   "scale": 0.34
-  },
-  {
-   "key": "ac-tent",
-   "dx": -802,
-   "dy": 287,
-   "scale": 1.6
-  },
-  {
-   "key": "effects-fire-fire",
-   "dx": -745,
-   "dy": 337,
-   "scale": 0.34
-  },
-  {
-   "key": "ac-log",
-   "dx": -700,
-   "dy": 337,
-   "scale": 1.6
-  },
-  {
-   "key": "dress-house-blue",
-   "dx": 685,
-   "dy": 275,
-   "scale": 0.55
-  },
-  {
-   "key": "dress-house-yellow",
-   "dx": 760,
-   "dy": 390,
-   "scale": 0.55
-  },
-  {
-   "key": "dress-house-red",
-   "dx": 480,
-   "dy": 325,
-   "scale": 0.55
-  },
-  {
-   "key": "effects-fire-fire",
-   "dx": 700,
-   "dy": 343,
-   "scale": 0.34
-  },
-  {
-   "key": "ac-bench",
-   "dx": 636,
-   "dy": 370,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-bench",
-   "dx": -60,
-   "dy": 453,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-bench",
-   "dx": 60,
-   "dy": 453,
-   "scale": 1.6
-  },
-  {
-   "key": "ac-pier",
-   "dx": -728,
-   "dy": 1685,
-   "scale": 2
-  }
- ]
+    "dy": -152,
+    "rx": 236,
+    "ry": 100
+  },
+  "grounds": [
+    {
+      "dx": -1070,
+      "dy": -315
+    },
+    {
+      "dx": -870,
+      "dy": 865
+    },
+    {
+      "dx": -1120,
+      "dy": 225
+    },
+    {
+      "dx": 1090,
+      "dy": -125
+    },
+    {
+      "dx": -538,
+      "dy": -357
+    },
+    {
+      "dx": -600,
+      "dy": -375
+    },
+    {
+      "dx": -750,
+      "dy": -20
+    },
+    {
+      "dx": -790,
+      "dy": -50
+    },
+    {
+      "dx": 575,
+      "dy": -345
+    },
+    {
+      "dx": 525,
+      "dy": -365
+    },
+    {
+      "dx": -750,
+      "dy": 320
+    },
+    {
+      "dx": 650,
+      "dy": 335
+    },
+    {
+      "dx": -250,
+      "dy": 255
+    },
+    {
+      "dx": 50,
+      "dy": 225
+    },
+    {
+      "dx": 0,
+      "dy": 430
+    },
+    {
+      "dx": -50,
+      "dy": 420
+    }
+  ],
+  "pieces": [
+    {
+      "key": "dress-house-yellow",
+      "dx": -1170,
+      "dy": 115,
+      "scale": 0.55
+    },
+    {
+      "key": "dress-house-blue",
+      "dx": -1200,
+      "dy": 375,
+      "scale": 0.55
+    },
+    {
+      "key": "dress-house-red",
+      "dx": -750,
+      "dy": 595,
+      "scale": 0.55
+    },
+    {
+      "key": "dress-house-yellow",
+      "dx": -530,
+      "dy": 485,
+      "scale": 0.55
+    },
+    {
+      "key": "village-smithy",
+      "dx": 1410,
+      "dy": 45,
+      "scale": 0.8
+    },
+    {
+      "key": "ac-bench",
+      "dx": -1070,
+      "dy": 205,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-log",
+      "dx": -1000,
+      "dy": 725,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-tent",
+      "dx": -920,
+      "dy": 805,
+      "scale": 1.6
+    },
+    {
+      "key": "effects-fire-fire",
+      "dx": -870,
+      "dy": 835,
+      "scale": 0.34
+    },
+    {
+      "key": "farm-bed",
+      "dx": -1070,
+      "dy": -485,
+      "scale": 1.1
+    },
+    {
+      "key": "farm-bed",
+      "dx": -960,
+      "dy": -470,
+      "scale": 1.1
+    },
+    {
+      "key": "farm-bed",
+      "dx": -1050,
+      "dy": -415,
+      "scale": 1.1
+    },
+    {
+      "key": "farm-bed",
+      "dx": -940,
+      "dy": -400,
+      "scale": 1.1
+    },
+    {
+      "key": "farm-fence",
+      "dx": -1070,
+      "dy": -375,
+      "scale": 1.1
+    },
+    {
+      "key": "farm-fence",
+      "dx": -940,
+      "dy": -360,
+      "scale": 1.1
+    },
+    {
+      "key": "farm-pumpkin",
+      "dx": -880,
+      "dy": -415,
+      "scale": 0.55
+    },
+    {
+      "key": "market-blue",
+      "dx": -150,
+      "dy": 465,
+      "scale": 1
+    },
+    {
+      "key": "market-red",
+      "dx": 110,
+      "dy": 485,
+      "scale": 1
+    },
+    {
+      "key": "ac-flag",
+      "dx": -330,
+      "dy": -510,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-flag",
+      "dx": 475,
+      "dy": -240,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-flag",
+      "dx": -500,
+      "dy": 85,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-flag",
+      "dx": 360,
+      "dy": 365,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-flag",
+      "dx": -28,
+      "dy": 100,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-flag",
+      "dx": 50,
+      "dy": 100,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-hiring-board",
+      "dx": -772,
+      "dy": 328,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-banner",
+      "dx": -585,
+      "dy": 326,
+      "scale": 1.5
+    },
+    {
+      "key": "ac-banner",
+      "dx": -732,
+      "dy": 326,
+      "scale": 1.5
+    },
+    {
+      "key": "ac-strategy-board",
+      "dx": -938,
+      "dy": -287,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-war-table",
+      "dx": -665,
+      "dy": -353,
+      "scale": 1.5
+    },
+    {
+      "key": "ac-banner",
+      "dx": -888,
+      "dy": -293,
+      "scale": 1.5
+    },
+    {
+      "key": "ac-scoreboard",
+      "dx": 710,
+      "dy": -130,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-banner",
+      "dx": 575,
+      "dy": 60,
+      "scale": 1.5
+    },
+    {
+      "key": "ac-banner",
+      "dx": 745,
+      "dy": 60,
+      "scale": 1.5
+    },
+    {
+      "key": "ac-statue",
+      "dx": 30,
+      "dy": -653,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-trophy",
+      "dx": 195,
+      "dy": -645,
+      "scale": 1.4
+    },
+    {
+      "key": "ac-banner-fame",
+      "dx": 268,
+      "dy": -671,
+      "scale": 1.5
+    },
+    {
+      "key": "ac-chest",
+      "dx": 495,
+      "dy": -501,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-coins",
+      "dx": 607,
+      "dy": -487,
+      "scale": 1.4
+    },
+    {
+      "key": "prop-gold",
+      "dx": 647,
+      "dy": -499,
+      "scale": 0.36
+    },
+    {
+      "key": "ac-banner-gold",
+      "dx": 457,
+      "dy": -521,
+      "scale": 1.5
+    },
+    {
+      "key": "ac-banner",
+      "dx": -495,
+      "dy": -933,
+      "scale": 1.5
+    },
+    {
+      "key": "bush-1",
+      "dx": -354,
+      "dy": -427,
+      "scale": 0.6
+    },
+    {
+      "key": "bush-2",
+      "dx": -330,
+      "dy": -409,
+      "scale": 0.6
+    },
+    {
+      "key": "bush-4",
+      "dx": 352,
+      "dy": -429,
+      "scale": 0.6
+    },
+    {
+      "key": "bush-1",
+      "dx": 330,
+      "dy": -409,
+      "scale": 0.6
+    },
+    {
+      "key": "bush-2",
+      "dx": -354,
+      "dy": -3,
+      "scale": 0.6
+    },
+    {
+      "key": "bush-4",
+      "dx": -334,
+      "dy": -17,
+      "scale": 0.6
+    },
+    {
+      "key": "bush-1",
+      "dx": 354,
+      "dy": -3,
+      "scale": 0.6
+    },
+    {
+      "key": "bush-2",
+      "dx": 334,
+      "dy": -17,
+      "scale": 0.6
+    },
+    {
+      "key": "dress-fountain",
+      "dx": -100,
+      "dy": 247,
+      "scale": 0.6
+    },
+    {
+      "key": "ac-bench",
+      "dx": -200,
+      "dy": 269,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-bench",
+      "dx": 0,
+      "dy": 269,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-tent",
+      "dx": -605,
+      "dy": -415,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-tent",
+      "dx": -482,
+      "dy": -443,
+      "scale": 1.6
+    },
+    {
+      "key": "effects-fire-fire",
+      "dx": -538,
+      "dy": -375,
+      "scale": 0.34
+    },
+    {
+      "key": "ac-log",
+      "dx": -574,
+      "dy": -357,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-log",
+      "dx": -500,
+      "dy": -355,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-dummy",
+      "dx": -790,
+      "dy": -70,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-dummy",
+      "dx": -718,
+      "dy": -57,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-bench",
+      "dx": -682,
+      "dy": -5,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-flag",
+      "dx": -840,
+      "dy": -15,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-bench",
+      "dx": 525,
+      "dy": -371,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-bench",
+      "dx": 618,
+      "dy": -369,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-tent",
+      "dx": 668,
+      "dy": -407,
+      "scale": 1.6
+    },
+    {
+      "key": "effects-fire-fire",
+      "dx": 572,
+      "dy": -315,
+      "scale": 0.34
+    },
+    {
+      "key": "ac-tent",
+      "dx": -802,
+      "dy": 287,
+      "scale": 1.6
+    },
+    {
+      "key": "effects-fire-fire",
+      "dx": -745,
+      "dy": 337,
+      "scale": 0.34
+    },
+    {
+      "key": "ac-log",
+      "dx": -700,
+      "dy": 337,
+      "scale": 1.6
+    },
+    {
+      "key": "dress-house-blue",
+      "dx": 685,
+      "dy": 275,
+      "scale": 0.55
+    },
+    {
+      "key": "dress-house-yellow",
+      "dx": 760,
+      "dy": 390,
+      "scale": 0.55
+    },
+    {
+      "key": "dress-house-red",
+      "dx": 590,
+      "dy": 505,
+      "scale": 0.55
+    },
+    {
+      "key": "effects-fire-fire",
+      "dx": 700,
+      "dy": 343,
+      "scale": 0.34
+    },
+    {
+      "key": "ac-bench",
+      "dx": 636,
+      "dy": 370,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-bench",
+      "dx": -300,
+      "dy": 605,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-bench",
+      "dx": 70,
+      "dy": 575,
+      "scale": 1.6
+    },
+    {
+      "key": "ac-pier",
+      "dx": -728,
+      "dy": 1685,
+      "scale": 2
+    }
+  ]
 }

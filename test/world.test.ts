@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { chunkTrees, type ForestRules } from "../web/app/village/game/forest.js";
-import { PIECES } from "../web/app/village/game/pieces.js";
+import { Roads } from "../web/app/village/game/roads.js";
 import { inTown, NEW_TOWN_SITES, nearRoad, ROADS, SITES } from "../web/app/village/game/town.js";
-import { corners, CROSSROADS, fromEdge, inOctagon, INNER, LAKE_BOX, onOldGround, OUTER, PIER, SPOKES, WORLD, WORLD_ROADS } from "../web/app/village/game/world.js";
+import { COUNTRY_LANES, corners, CROSSROADS, fromEdge, inOctagon, INNER, LAKE_BOX, onOldGround, OUTER, PIER, SPOKES, WORLD, WORLD_ROADS } from "../web/app/village/game/world.js";
 
 // The world round Old Town (web/app/village/game/world.ts). Presentation only.
 
-const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 const toSegment = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -16,44 +15,58 @@ const toSegment = (p: { x: number; y: number }, a: { x: number; y: number }, b: 
 const oldTown = Object.entries(SITES).filter(([id]) => !NEW_TOWN_SITES.has(id));
 
 describe("the world round Old Town", () => {
-  it("rings Old Town with the inner road, a garden strip between: every building and prop well inside it", () => {
-    for (const [id, s] of oldTown) expect(fromEdge(INNER, s), id).toBeLessThan(-100);
-    for (const p of PIECES.filter((p) => p.key !== "ac-pier")) expect(fromEdge(INNER, p), p.key).toBeLessThan(-80);
+  it("keeps landmarks inside the playable world without an enclosing road", () => {
+    for (const [id,s] of oldTown) {
+      expect(s.x,id).toBeGreaterThan(WORLD.x0 + 150);
+      expect(s.x,id).toBeLessThan(WORLD.x1 - 150);
+      expect(s.y,id).toBeGreaterThan(WORLD.y0 + 250);
+      expect(s.y,id).toBeLessThan(WORLD.y1 - 100);
+    }
+    for (const road of ROADS) {
+      const first=road.points[0]!, last=road.points.at(-1)!;
+      expect(first, "no enclosing road loop").not.toEqual(last);
+    }
   });
 
-  it("lays both rings out as octagons, the outer round the inner with New Town between", () => {
+  it("keeps the legacy expansion regions available without rendering their boundaries", () => {
     expect(corners(INNER)).toHaveLength(8);
     for (const c of corners(INNER)) expect(inOctagon(OUTER, c, -500)).toBe(true);
     expect(OUTER.hw - INNER.hw).toBeGreaterThan(600);
     expect(OUTER.hh - INNER.hh).toBeGreaterThan(600);
   });
 
-  it("runs six main roads from Old Town's own roads straight out through both rings to the world's edge", () => {
-    expect(SPOKES).toHaveLength(6);
-    const oldVertices = ROADS.filter((r) => r.style !== "paved" && r.style !== "dirt").flatMap((r) => r.points.map(([x, y]) => `${x},${y}`));
-    for (const s of SPOKES) {
-      expect(oldVertices, s.id).toContain(`${s.start.x},${s.start.y}`);
-      expect(Math.abs(fromEdge(INNER, s.inner)), s.id).toBeLessThan(2);
-      expect(Math.abs(fromEdge(OUTER, s.outer)), s.id).toBeLessThan(2);
-      const onEdge = s.end.x <= WORLD.x0 + 1 || s.end.x >= WORLD.x1 - 1 || s.end.y <= WORLD.y0 + 1 || s.end.y >= WORLD.y1 - 1;
-      expect(onEdge, s.id).toBe(true);
-      // Straight: the crossroads lie on the line from its start to its end.
-      for (const c of [s.inner, s.outer]) expect(toSegment(c, s.start, s.end), s.id).toBeLessThan(2);
+  it("winds six countryside routes away from town, stopping naturally inside the world", () => {
+    expect(COUNTRY_LANES).toHaveLength(6);
+    for (const [i,lane] of COUNTRY_LANES.entries()) {
+      const road=WORLD_ROADS[i]!;
+      const start=SPOKES[i]!.start, end=SPOKES[i]!.end;
+      expect(road.points[0]).toEqual([start.x,start.y]);
+      expect(road.points.at(-1)).toEqual([end.x,end.y]);
+      expect(Math.max(...lane.controls.map(([x,y])=>toSegment({x,y},start,end))),lane.id).toBeGreaterThan(60);
+      expect(end.x).toBeGreaterThan(WORLD.x0 + 100);
+      expect(end.x).toBeLessThan(WORLD.x1 - 100);
+      expect(end.y).toBeGreaterThan(WORLD.y0 + 100);
+      expect(end.y).toBeLessThan(WORLD.y1 - 100);
     }
   });
 
-  it("joins each main road to each ring at a crossroads both name, so walkers can turn there", () => {
-    const [inner, outer] = WORLD_ROADS;
-    const has = (road: typeof inner, p: { x: number; y: number }) => road!.points.some(([x, y]) => dist({ x, y }, p) < 1.5);
-    for (const s of SPOKES) {
-      expect(has(inner, s.inner), s.id).toBe(true);
-      expect(has(outer, s.outer), s.id).toBe(true);
+  it("connects every countryside branch and gathering place to the Arena approach", () => {
+    const graph = new Roads(ROADS.map(r=>r.points.map(([x,y])=>({x,y}))), []);
+    for (const goal of [...SPOKES.map(s=>s.end), ...CROSSROADS]) {
+      const route=graph.route({x:1400,y:1010},goal);
+      expect(route.at(-1)).toEqual(goal);
+      for (const p of route) expect(nearRoad(p,25),`connected route to ${goal.x},${goal.y}`).toBe(true);
     }
-    expect(CROSSROADS).toHaveLength(12);
   });
 
-  it("runs no main road over an Old Town building", () => {
-    for (const s of SPOKES) for (const [id, site] of oldTown) expect(toSegment({ x: site.x, y: site.y - 40 }, s.start, s.end), `${s.id} over ${id}`).toBeGreaterThan(80);
+  it("keeps winding countryside roads clear of the building footprints", () => {
+    for (const road of WORLD_ROADS) for (const [id,site] of oldTown) {
+      const body={x:site.x,y:site.y-60};
+      for(let i=1;i<road.points.length;i++) {
+        const a=road.points[i-1]!, b=road.points[i]!;
+        expect(toSegment(body,{x:a[0],y:a[1]},{x:b[0],y:b[1]}),id).toBeGreaterThan(80);
+      }
+    }
   });
 
   it("puts the small lake out in the Wilds, off every road, with the pier in its water", () => {

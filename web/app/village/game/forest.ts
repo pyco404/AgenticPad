@@ -15,7 +15,7 @@
  */
 
 import { canopy, inBand, overlaps, type Box } from "./growth";
-import { fromEdge, inGarden, inWilds, LAKE_BOX, OUTER, WORLD, type Pt } from "./world";
+import { inGarden, inWilds, LAKE_BOX, WORLD, type Pt } from "./world";
 
 export const CHUNK = 512;
 
@@ -118,8 +118,11 @@ function noise(x: number, y: number, seed: number): number {
  */
 export function clearingAt(p: Pt, seed = 20261005): number {
   const n = noise(p.x, p.y, seed) * 0.7 + noise(p.x * 2.3 + 1000, p.y * 2.3 + 1000, seed) * 0.3;
-  const out = fromEdge(OUTER, p);
-  return out < CLEARING.ringRoom ? n + ((CLEARING.ringRoom - out) / CLEARING.ringRoom) * 0.3 : n;
+  // Gradual, irregular density rather than a visible geometric forest boundary.
+  const angle = Math.atan2(p.y - 880, p.x - 1400);
+  const radius = Math.hypot((p.x - 1400) / 1840, (p.y - 880) / 1480);
+  const sheltered = Math.max(0, 1.25 - radius + Math.sin(angle * 3) * 0.12);
+  return n + sheltered * 0.3;
 }
 
 const grown = (b: Box, by: number): Box => ({ x0: b.x0 - by, y0: b.y0 - by, x1: b.x1 + by, y1: b.y1 + by });

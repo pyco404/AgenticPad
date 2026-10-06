@@ -1,15 +1,12 @@
 import type * as Phaser from "phaser";
-import { nearRoad, ROADS, SITES, type Rect } from "./town";
+import { nearRoad, ROADS, SITES, SQUARE, type Rect } from "./town";
 import { CROSSROADS } from "./world";
 import { SOLAR_LIGHTS } from "./dressing";
 import { byRiver } from './river';
 
 /** Hand tended gardens around the playable village; never inputs to a match. */
-export const GARDEN_PONDS: Rect[] = [
-  { x0: 890, y0: 1410, x1: 1040, y1: 1520 },
-  { x0: 1780, y0: 1470, x1: 1950, y1: 1590 },
-  { x0: 1500, y0: -80, x1: 1670, y1: 35 },
-];
+import { GARDEN_PONDS } from "./landmarks";
+export { GARDEN_PONDS } from "./landmarks";
 const inside = (p: { x: number; y: number }, b: Rect, margin = 0) =>
   p.x > b.x0 - margin && p.x < b.x1 + margin && p.y > b.y0 - margin && p.y < b.y1 + margin;
 export const byGardenPond = (p: { x: number; y: number }) => GARDEN_PONDS.some((b) => inside(p, b, 42));
@@ -142,7 +139,7 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
       }
     }
   }
-  // Flower wreaths and crests make each ring junction a landmark.
+  // Flower wreaths and crests mark the small countryside gathering places.
   for (const p of CROSSROADS) {
     const bed = scene.add.graphics().setDepth(-398);
     bed.fillStyle(0x6f7056).fillCircle(p.x, p.y, 29);
@@ -157,6 +154,6 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
   // Decorative stonework around the fountain, clear of the north/south route.
   const plaza = scene.add.graphics().setDepth(-398);
   for (let r = 48; r < 144; r += 16) {
-    plaza.lineStyle(1.5, 0x918879, 0.75).strokeEllipse(1400, 1160, r * 2, r * 0.72);
+    plaza.lineStyle(1.5, 0x918879, 0.75).strokeEllipse(SQUARE.x, SQUARE.y, r * 2, r * 0.72);
   }
 }

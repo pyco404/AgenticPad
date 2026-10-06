@@ -1,7 +1,7 @@
 import type { Point } from "./roads";
-import { LAKE_PATH, onOldGround, RING_WIDTH, withSpurs, WORLD_ROADS } from "./world";
+import { curvedPath, LAKE_PATH, onOldGround, RING_WIDTH, withSpurs, WORLD_ROADS } from "./world";
 
-/** Every road is as wide as the world's ring roads (2026-10-05): one width, one grey (palette.ts). */
+/** Legacy default width; individual village streets and trails vary by use. */
 export const ROAD_WIDTH = RING_WIDTH;
 
 /**
@@ -107,14 +107,14 @@ export const SITES: Record<string, Site> = {
   },
   // Each sign follows its building's individual roofline, including the low
   // recruitment pavilion and the observation tower's mast.
-  tavern: { x: 650, y: 1125, art: `${ART}/modern-hiring-hall.png`, scale: 1.2, labelY: 1005 },
-  castle: { x: 650, y: 680, art: `${ART}/modern-strategy-lab.png`, scale: 1.2, labelY: 534 },
-  forge: { x: 2070, y: 765, art: `${ART}/modern-game-hall.png`, scale: 1.2, labelY: 632 },
-  library: { x: 1400, y: 300, art: `${ART}/modern-hall-of-fame.png`, scale: 1.2, labelY: 150 },
-  chapel: { x: 1900, y: 300, art: `${ART}/modern-treasury.png`, scale: 1.2, labelY: 133 },
-  watchtower: { x: 900, y: 300, art: `${ART}/modern-lookout.png`, scale: 1.2, labelY: 125 },
-  alchemist: { x: 1800, y: 1400, art: `${ART}/modern-rulebook-house.png`, scale: 1.2, labelY: 1256 },
-  board: { x: 1900, y: 1128, art: `${ART}/leaderboard.png`, scale: 1.6, sheet: { width: 84, height: 74, frameRate: 1.5 } },
+  tavern: { x: 740, y: 1300, art: `${ART}/modern-hiring-hall.png`, scale: 1.2, labelY: 1180 },
+  castle: { x: 600, y: 680, art: `${ART}/modern-strategy-lab.png`, scale: 1.2, labelY: 534 },
+  forge: { x: 2060, y: 1030, art: `${ART}/modern-game-hall.png`, scale: 1.2, labelY: 897 },
+  library: { x: 1530, y: 300, art: `${ART}/modern-hall-of-fame.png`, scale: 1.2, labelY: 150 },
+  chapel: { x: 1960, y: 450, art: `${ART}/modern-treasury.png`, scale: 1.2, labelY: 283 },
+  watchtower: { x: 860, y: 40, art: `${ART}/modern-lookout.png`, scale: 1.2, labelY: -135 },
+  alchemist: { x: 1670, y: 1580, art: `${ART}/modern-rulebook-house.png`, scale: 1.2, labelY: -1356 },
+  board: { x: 1840, y: 1230, art: `${ART}/leaderboard.png`, scale: 1.6, sheet: { width: 84, height: 74, frameRate: 1.5 } },
   ...(LAUNCHPAD ? { launchpad: LAUNCH_SITE, bazaar: BAZAAR_SITE } : {}),
 };
 
@@ -123,8 +123,7 @@ export const RESERVED: Rect[] = [{ x0: 1150, y0: 712, x1: 1650, y1: 930 }];
 
 /**
  * Every road is drawn by map.ts; its style says what kind of road it is.
- * Old Town's are its own beaten earth; the world's ring and main roads are
- * paved (world.ts), and paths out in the Wilds are narrow dirt.
+ * Village streets use cobbles; country lanes use narrow dirt.
  */
 type Path = { style: "main" | "secondary" | "trail" | "paved" | "dirt"; width: number; points: [number, number][] };
 
@@ -134,64 +133,28 @@ type Path = { style: "main" | "secondary" | "trail" | "paved" | "dirt"; width: n
  * meets.
  */
 export const ROADS: Path[] = [
-  // The ring round the arena, with a vertex at every road that leaves it.
-  {
-    style: "main",
-    width: ROAD_WIDTH,
-    points: [
-      [1000, 488],
-      [1090, 488],
-      [1400, 488],
-      [1705, 488],
-      [1800, 488],
-      [1800, 560],
-      [1800, 790],
-      [1800, 1010],
-      [1400, 1010],
-      [1000, 1010],
-      [1000, 790],
-      [1000, 560],
-      [1000, 488],
-    ],
-  },
-  // The avenue, from the square across the ring road and up to the arena's gate.
-  { style: "main", width: ROAD_WIDTH, points: [[1400, 962], [1400, 1010], [1400, 1150]] },
-  // The high street, west to east past the square, and on to the dock.
-  {
-    style: "main",
-    width: ROAD_WIDTH,
-    points: [
-      [650, 1150],
-      [700, 1150],
-      [850, 1150],
-      [1000, 1150],
-      [1400, 1150],
-      [1595, 1150],
-      [1770, 1150],
-      [1800, 1150],
-      [1900, 1150],
-      [1966, 1150],
-    ],
-  },
-  { style: "main", width: ROAD_WIDTH, points: [[1000, 1010], [1000, 1150]] },
-  { style: "main", width: ROAD_WIDTH, points: [[1800, 1010], [1800, 1150]] },
-  { style: "main", width: ROAD_WIDTH, points: [[1966, 1150], [1966, 1290], [1966, 1435], [1966, 1472]] },
-  // To the halls either side of the arena.
-  { style: "secondary", width: ROAD_WIDTH, points: [[1000, 790], [930, 710], [650, 710]] },
-  { style: "secondary", width: ROAD_WIDTH, points: [[1800, 790], [2070, 790], [2130, 790]] },
-  // To the buildings behind it.
-  { style: "secondary", width: ROAD_WIDTH, points: [[1000, 488], [1000, 305], [900, 305]] },
-  { style: "secondary", width: ROAD_WIDTH, points: [[1400, 488], [1400, 305]] },
-  { style: "secondary", width: ROAD_WIDTH, points: [[1800, 488], [1900, 488], [1900, 305]] },
-  { style: "secondary", width: ROAD_WIDTH, points: [[1966, 1435], [1800, 1435], [1800, 1405]] },
-  // Trails out to the agent grounds.
-  { style: "trail", width: ROAD_WIDTH, points: [[650, 710], [650, 790], [665, 790], [655, 860], [650, 930]] },
-  { style: "trail", width: ROAD_WIDTH, points: [[1800, 560], [1960, 560], [1975, 610]] },
-  { style: "trail", width: ROAD_WIDTH, points: [[700, 1150], [660, 1210], [650, 1270]] },
-  { style: "trail", width: ROAD_WIDTH, points: [[1400, 1150], [1400, 1370]] },
-  { style: "trail", width: ROAD_WIDTH, points: [[1966, 1290], [2060, 1290]] },
-  // The world round Old Town (world.ts): the two ring roads, the six main roads, and the path to the lake;
-  // and from the Launch Pad's and the bazaar's doors, a short paved road each to the nearer ring.
+  // Short, uneven streets tie the districts together; no road rings the Arena.
+  curvedPath("main", 54, [[665,790],[830,875],[1000,1010],[1190,1060],[1300,1200],[1400,1370]]),
+  curvedPath("main", 54, [[1400,962],[1400,1010],[1190,1060]]),
+  curvedPath("main", 48, [[1300,1200],[1510,1270],[1730,1320],[1966,1472]]),
+  curvedPath("secondary", 38, [[1730,1320],[1840,1235],[2040,1150],[2060,1035]]),
+  curvedPath("secondary", 40, [[2040,1150],[2180,1150],[2220,980],[2130,790]]),
+  curvedPath("secondary", 40, [[2130,790],[1990,750],[1800,488],[1570,440],[1300,420],[1000,488]]),
+  curvedPath("secondary", 36, [[1000,488],[920,675],[830,875]]),
+  curvedPath("secondary", 32, [[665,790],[600,730],[600,685]]),
+  curvedPath("secondary", 32, [[830,875],[760,1050],[740,1305]]),
+  curvedPath("secondary", 32, [[1300,420],[1440,410],[1530,305]]),
+  curvedPath("secondary", 32, [[1800,488],[1900,500],[1960,455]]),
+  curvedPath("trail", 26, [[930,390],[860,240],[860,45]]),
+  curvedPath("trail", 28, [[1730,1320],[1770,1420],[1740,1550],[1670,1585]]),
+  curvedPath("trail", 26, [[665,790],[655,860],[650,930]]),
+  curvedPath("trail", 26, [[1990,750],[1975,690],[1975,630]]),
+  curvedPath("trail", 26, [[740,1305],[710,1320],[650,1295]]),
+  curvedPath("trail", 28, [[1510,1270],[1510,1460],[1400,1470],[1400,1370]]),
+  curvedPath("trail", 26, [[1966,1472],[2080,1490],[2160,1380],[2050,1310]]),
+  curvedPath("trail", 24, [[600,685],[480,675],[330,660]]),
+  curvedPath("trail", 24, [[650,1295],[530,1480],[530,1810]]),
+  curvedPath("trail", 26, [[350,850],[320,1040],[330,1180],[280,1200]]),
   ...withSpurs(WORLD_ROADS, LAUNCHPAD ? [LAUNCH_SITE.door!, BAZAAR_SITE.door!] : []),
   LAKE_PATH,
 ];
@@ -213,11 +176,15 @@ export const HIDDEN_ROADS: Point[][] = [
 ];
 
 /** Paving the roads do not draw: the town square round the fountain, and a carpet up to the Hall of Fame. */
-export const SQUARE = { x: 1400, y: 1160, rx: 150, ry: 58 };
-export const CARPET = { x: 1400, y0: 302, y1: 490, width: 28 };
+export const SQUARE = { x: 1300, y: 1200, rx: 130, ry: 65 };
+export const CARPET = { x: 1530, y0: 302, y1: 330, width: 22 };
 
 /** Where waiting agents wander to at the edge of town: camps, the training yard, the square, the lakeside. */
 export const GROUNDS: Point[] = [
+  { x: 330, y: 660 },
+  { x: 530, y: 1840 },
+  { x: 280, y: 1200 },
+  { x: 2490, y: 850 },
   { x: 862, y: 618 },
   { x: 800, y: 600 },
   { x: 650, y: 955 },
@@ -226,8 +193,8 @@ export const GROUNDS: Point[] = [
   { x: 1925, y: 610 },
   { x: 650, y: 1295 },
   { x: 2050, y: 1310 },
-  { x: 1330, y: 1215 },
-  { x: 1470, y: 1215 },
+  { x: 1150, y: 1230 },
+  { x: 1450, y: 1200 },
   { x: 1400, y: 1405 },
   { x: 1350, y: 1395 },
 ];
@@ -288,7 +255,15 @@ export function stands(d: { k: string; x: number; y: number; s: number }, taken:
   // water, its rocks and its dock (world.ts has the new lake). Beyond the inner ring the forest is forest.ts's.
   if (d.k.includes("water") || d.k.includes("bridge")) return false;
   // Beyond the town, the map's woods round Old Town stand as they always did, up to the inner ring.
-  if (!inTown(d)) return onOldGround(d);
+  if (!inTown(d)) {
+    if (!onOldGround(d)) return false;
+    // Outlying farms and houses need the same clear canopy space as the core.
+    if (d.k.includes("tree")) {
+      const canopy = { x0: d.x - 62 * d.s, y0: d.y - 150 * d.s, x1: d.x + 62 * d.s, y1: d.y + 10 };
+      return !taken.some(l => overlaps(canopy, l));
+    }
+    return true;
+  }
   if (d.k.includes("tree")) {
     const canopy = { x0: d.x - 62 * d.s, y0: d.y - 150 * d.s, x1: d.x + 62 * d.s, y1: d.y + 10 };
     if (taken.some((l) => overlaps(canopy, l))) return false;
