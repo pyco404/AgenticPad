@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
+import { CopyButton } from "./copy-button";
 
 /** The centrepiece: the thing people screenshot. Shared by the app and /m/:id. */
 export function Transcript({ text, matchId }: { text: string; matchId?: string }) {
@@ -17,20 +18,10 @@ export function Transcript({ text, matchId }: { text: string; matchId?: string }
               <Link href={`/m/${matchId}`} className="text-[11px] text-muted hover:text-accent">
                 open
               </Link>
-              <button
-                onClick={() => void navigator.clipboard?.writeText(`${window.location.origin}/m/${matchId}`)}
-                className="text-[11px] text-accent"
-              >
-                share link
-              </button>
+              <CopyButton value={() => `${window.location.origin}/m/${matchId}`} label="Copy share link" className="text-[11px] text-accent" />
             </>
           ) : null}
-          <button
-            onClick={() => void navigator.clipboard?.writeText(text)}
-            className="text-[11px] text-muted hover:text-accent"
-          >
-            copy text
-          </button>
+          <CopyButton value={text} label="Copy transcript" className="text-[11px] text-muted hover:text-accent" />
         </span>
       </h2>
       <div className="overflow-x-auto px-3 py-4 @lg:px-5 @lg:py-6">
@@ -62,4 +53,3 @@ function lineClass(line: string): string {
   if (line.startsWith("Final:") || / wins the match|ends level/.test(line)) return "text-text font-medium";
   return "text-muted";
 }
-

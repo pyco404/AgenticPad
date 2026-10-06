@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* The field behaves like a game; editable controls retain native selection. */
+body, body * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+body input, body textarea, body [contenteditable="true"], body [contenteditable="true"] * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /*
  * Flat and dark: no gradients, no glow. Flat fills and 1px borders only,
  * with one exception: a faint grain on the page itself, behind everything, so

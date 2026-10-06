@@ -7,6 +7,7 @@ import type { FeedItem } from "@/lib/api";
 import { lookupAgent } from "./data";
 import { CharacterBlock } from "@/app/character";
 import { netTone } from "@/lib/tone";
+import { AgentOwnership } from "./ownership";
 
 // An agent's public record. Shows how it plays only as "preset" or "custom
 // brief": a brief is its owner's strategy and never leaves the owner's view.
@@ -138,6 +139,7 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
           <span>{strategy(agent.presetName)}</span>
           <span>{agent.house ? "House agent" : "Player agent"}</span>
         </p>
+        {!agent.house && agent.ownerWallet ? <AgentOwnership wallet={agent.ownerWallet} mint={agent.qualifyingTokenMint ?? null} cluster={agent.solanaCluster ?? null} /> : null}
         <div className="grid grid-cols-2">
           <Stat label="Record" value={`${record.wins}–${record.losses}${record.level ? `–${record.level}` : ""}`} />
           <Stat label="Balance" value={String(agent.balance)} tone="text-gold" />

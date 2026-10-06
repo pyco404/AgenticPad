@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { installUrl, shortKey, type WalletName } from "@/lib/wallet";
+import { CopyButton } from "./copy-button";
 import { PrivyOption } from "./privy-option";
 import { useWallet } from "./wallet-context";
 import { REWARDS_LINKED } from "./site-header";
@@ -57,7 +58,7 @@ function sectionOf(path: string): string | null {
   return null;
 }
 
-const LOGO_CLASS = "aspect-[10/7] h-6 w-auto object-fill [image-rendering:pixelated] lg:h-8";
+const LOGO_CLASS = "aspect-[10/7] h-6 w-auto rounded-sm bg-[#0c1018] object-fill [image-rendering:pixelated] lg:h-8";
 
 function Mark() {
   return (
@@ -120,6 +121,7 @@ function WalletControl() {
                 Signed in with {session.wallet === "Privy" ? "an email or X wallet" : session.wallet}
               </p>
               <p className="mt-1 break-all font-mono text-[11px]">{session.ownerId}</p>
+              <div className="mt-2"><CopyButton value={session.ownerId} label="Copy wallet address" /></div>
               <button
                 type="button"
                 role="menuitem"

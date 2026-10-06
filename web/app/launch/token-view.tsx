@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { launchpad, usd, type TokenDetail } from "@/lib/launchpad";
 import { netTone } from "@/lib/tone";
+import { CopyButton } from "@/app/copy-button";
 import { Board, FeeSplitBar, formatDate, MockNote, TokenImage, VerificationBadge } from "./parts";
 
 const VERIFY_LINE: Record<TokenDetail["verification"], string> = {
@@ -114,6 +115,7 @@ export function TokenView({ mint }: { mint: string }) {
       <Board sign="Verification" action={<VerificationBadge v={token.verification} />}>
         <p>{VERIFY_LINE[token.verification]}</p>
         <p className="mt-2 break-all font-mono text-[11px] text-muted">{token.mint}</p>
+        <div className="mt-2"><CopyButton value={token.mint} label="Copy token mint" /></div>
         <a href={token.verifyUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-accent hover:text-text">
           Check it on chain ↗
         </a>

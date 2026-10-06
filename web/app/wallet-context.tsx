@@ -17,6 +17,7 @@ import {
   type PendingWalletSignIn,
 } from "@/lib/wallet";
 import type { PrivyApi } from "./privy-bridge";
+import { CopyButton } from "./copy-button";
 
 /**
  * Privy is a second way in, behind a flag: only with NEXT_PUBLIC_PRIVY_APP_ID
@@ -218,6 +219,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             <h2 id="wallet-sign-in-title" className="text-xl text-accent">Sign in with {pending.wallet}</h2>
             <p className="mt-3 text-muted">Click Sign message to open your wallet approval. This login costs nothing and moves no funds.</p>
             <p className="mt-2 break-all font-mono text-xs">{pending.publicKey}</p>
+            <div className="mt-2"><CopyButton value={pending.publicKey} label="Copy wallet address" /></div>
             {error ? <p role="alert" className="mt-3 text-loss">{error}</p> : null}
             <div className="mt-5 flex gap-3">
               <button type="button" disabled={busy !== null} onClick={() => void confirmSignIn()} className="rounded-panel bg-accent px-4 py-2 text-ink disabled:opacity-50">{busy ? "Approve in your wallet…" : "Sign message"}</button>

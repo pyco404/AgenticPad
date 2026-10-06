@@ -123,6 +123,9 @@ export type Scores = {
 };
 
 export type AgentView = {
+  ownerWallet?: string | null;
+  qualifyingTokenMint?: string | null;
+  solanaCluster?: "mainnet-beta" | "devnet" | null;
   holderMint?: string;
   /**
    * How this agent was funded. Every agent in play is a "holder"; "seed" and

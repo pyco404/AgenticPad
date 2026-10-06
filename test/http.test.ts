@@ -112,7 +112,7 @@ beforeAll(async () => {
   await refreshTrueRatings(db);
   ({ url, close: closeServer } = await listen({
     db,
-    holder: everyoneHolds(),
+    holder: { ...everyoneHolds(), primaryMint: walletOf("primary-token"), solanaCluster: "devnet" },
     elicit,
     rateLimit: { limit: 3, windowMs: 60_000 },
     nonceRateLimit: { limit: 1000, windowMs: 60_000 },
@@ -210,9 +210,29 @@ describe("GET /agents/:id", () => {
     expect(theirs.agent.policyTable).toBeUndefined();
     expect(theirs.agent.trueRating).toBeUndefined();
     expect(theirs.agent.name).toBe("Secretive");
+    const publicView = await readBody(await api(`/agents/${created.agent.id}`, { owner: null }));
+    expect(publicView.agent.ownerWallet).toBe(walletOf(owner));
+    expect(publicView.agent.qualifyingTokenMint).toBe(walletOf("primary-token"));
+    expect(publicView.agent.solanaCluster).toBe("devnet");
+    expect(publicView.agent.brief).toBeUndefined();
+    expect(publicView.agent.policyTable).toBeUndefined();
 
     expect((await api("/agents/not-a-uuid")).status).toBe(400);
     expect((await api("/agents/cccccccc-3333-4333-8333-cccccccccccc")).status).toBe(404);
+  });
+
+  it("reports a launch token's own mint and leaves house agents unowned", async () => {
+    const mint = walletOf("launched-token");
+    const player = await createPlayer(db, { name: "Launch holder", ownerId: walletOf("launch-holder"), presetName: "Anchor", holderMint: mint });
+    const publicView = await readBody(await api(`/agents/${player.id}`, { owner: null }));
+    expect(publicView.agent.ownerWallet).toBe(walletOf("launch-holder"));
+    expect(publicView.agent.qualifyingTokenMint).toBe(mint);
+    expect(publicView.agent.policyTable).toBeUndefined();
+    const house = await createAgent(db, { name: "Public house", presetName: "Anchor" });
+    const houseView = await readBody(await api(`/agents/${house.id}`, { owner: null }));
+    expect(houseView.agent.house).toBe(true);
+    expect(houseView.agent.ownerWallet).toBeNull();
+    expect(houseView.agent.qualifyingTokenMint).toBeNull();
   });
 });
 
@@ -868,4 +888,3 @@ describe("seasons over HTTP", () => {
     expect(new Date(season.season.endsAt).getTime()).toBe(seasonAt(new Date()).end.getTime());
   });
 });
-

@@ -5,6 +5,7 @@ import type { PayoutInput, PayoutPlan } from "@/lib/payout-plan";
 import type { PayoutExecutionView } from "@/lib/payout-execution";
 import { useWallet } from "@/app/wallet-context";
 import { signTransactionWith, type WalletName } from "@/lib/wallet";
+import { CopyButton } from "@/app/copy-button";
 
 type Overview = { plans: PayoutPlan[]; agpMint: string | null; executionConnected: boolean; executionMissing: string[]; executions: PayoutExecutionView[] };
 const sol = (value: string) => {
@@ -82,12 +83,13 @@ export function PayoutPanel({ token }: { token: string }) {
       <p className="mt-2">Swap allocation: {sol(plan.allocatedLamports)} SOL · Retained in reward wallet: {sol(plan.carryoverLamports)} SOL</p>
       {BigInt(plan.platformLamports) > 0n ? <p className="mt-2 text-gold">This older plan includes a platform cut. Preview a new plan before approval.</p> : null}
       <p className="mt-2 text-muted">{plan.batchLamports.length} batches, waiting at least {plan.delaySeconds} seconds between them. Each winner keeps the existing 10% cap; unallocated rewards remain in the reward wallet. Final $AGP amounts depend on each confirmed swap.</p>
-      <div className="mt-3 overflow-x-auto"><table className="w-full text-left"><thead><tr><th>Winner</th><th>Wallet</th><th>SOL allocation</th></tr></thead><tbody>{plan.winners.map((winner) => <tr key={winner.agentId} className="border-t border-line"><td className="py-2">{winner.name}</td><td className="font-mono">{winner.wallet.slice(0, 6)}…{winner.wallet.slice(-4)}</td><td>{sol(winner.lamports)}</td></tr>)}</tbody></table></div>
+      <div className="mt-3 overflow-x-auto"><table className="w-full text-left"><thead><tr><th>Winner</th><th>Wallet</th><th>SOL allocation</th></tr></thead><tbody>{plan.winners.map((winner) => <tr key={winner.agentId} className="border-t border-line"><td className="py-2">{winner.name}</td><td className="font-mono">{winner.wallet.slice(0, 6)}…{winner.wallet.slice(-4)} <CopyButton value={winner.wallet} label="Copy wallet" /></td><td>{sol(winner.lamports)}</td></tr>)}</tbody></table></div>
       <button disabled={busy || !plan.agpMint || BigInt(plan.platformLamports) > 0n || plan.status === "approved"} onClick={() => void act(true)} className="mt-3 rounded border border-line px-4 py-2 text-accent disabled:opacity-50">{plan.status === "approved" ? "Plan approved" : "Approve plan"}</button>
       {plan.status === "approved" && !execution ? <button disabled={busy || !overview?.executionConnected} onClick={() => void execute("start")} className="ml-3 mt-3 rounded border border-line px-4 py-2 text-accent disabled:opacity-50">Start wallet-approved payout</button> : null}
       {execution ? <div className="mt-4 border-t border-line pt-3">
         <p>{execution.status} · Batch {Math.min(execution.batch + 1, execution.batches.length)} of {execution.batches.length}</p>
         <p className="mt-2 break-all text-muted">Signing wallet: {plan.source}. Switch the selected wallet extension to this reward account; your admin session stays signed in.</p>
+        <div className="mt-2"><CopyButton value={plan.source} label="Copy reward wallet" /></div>
         <label className="mt-2 block">Signing extension<select className={control} value={signer} onChange={e => setSigner(e.target.value as WalletName)}><option>Phantom</option><option>Solflare</option></select></label>
         {execution.error ? <p className="mt-2 text-loss">{execution.error}</p> : null}
         {execution.status === "running" ? <>

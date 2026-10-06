@@ -11,6 +11,9 @@ export type PublicAgent = {
   createdAt: string;
   retired: boolean;
   house: boolean;
+  ownerWallet?: string | null;
+  qualifyingTokenMint?: string | null;
+  solanaCluster?: "mainnet-beta" | "devnet" | null;
   matchesPlayed: number | null;
   cumulativeNet: number | null;
   recentForm: number | null;

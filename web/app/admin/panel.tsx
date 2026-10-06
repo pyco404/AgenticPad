@@ -5,6 +5,7 @@ import { API, api, ApiError, type AdminHealth } from "@/lib/api";
 import { useWallet } from "@/app/wallet-context";
 import { TokenMonitor } from "./tokens";
 import { PayoutPanel } from "./payouts";
+import { CopyButton } from "@/app/copy-button";
 
 /**
  * Operational health, for the operator.
@@ -102,7 +103,7 @@ export function AdminPanel() {
         <p className="text-[13px] leading-6 text-muted">This API has not granted admin access to your signed-in wallet, or its admin route is unavailable.</p>
         <dl className="space-y-2 text-[12px]">
           <div><dt className="text-muted">API</dt><dd className="break-all font-mono text-text">{API}</dd></div>
-          <div><dt className="text-muted">Signed-in wallet</dt><dd className="break-all font-mono text-text">{session.ownerId}</dd></div>
+          <div><dt className="text-muted">Signed-in wallet</dt><dd className="break-all font-mono text-text">{session.ownerId}</dd><dd className="mt-2"><CopyButton value={session.ownerId} label="Copy wallet address" /></dd></div>
         </dl>
         <p className="text-[13px] leading-6 text-muted">Check ADMIN_WALLETS on this API. Local settings belong in the project root .env and are loaded when the API starts. Restart the API after changing them.</p>
         <button type="button" onClick={() => void load()} disabled={loading} className="rounded-panel border border-hud-line px-3 py-2 text-[13px] text-accent disabled:opacity-50">{loading ? "Checking…" : "Check access again"}</button>

@@ -128,7 +128,9 @@ if (rpc && mint) {
   );
   if (mode || allowed.size) {
     const connection = new Connection(rpc, "confirmed");
-    const mainnet = await connection.getGenesisHash() === "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+    const genesis = await connection.getGenesisHash();
+    const mainnet = genesis === "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+    const { DEVNET_GENESIS } = await import("../src/chain/faucet.js");
     const { useLiveHolderPricing } = await import("../src/holder-policy.js");
     useLiveHolderPricing(mainnet);
     const discoveryRpc = process.env["HOLDER_DISCOVERY_RPC_URL"] ?? process.env["CHAIN_RPC_URL_HELIUS"] ?? (mainnet && rpc.includes("helius") ? rpc : undefined);
@@ -148,7 +150,7 @@ if (rpc && mint) {
       ...(Number(process.env["HOLDINGS_INTERVAL_MS"]) > 0 ? { intervalMs: Number(process.env["HOLDINGS_INTERVAL_MS"]) } : {}),
       onError: () => console.error("holder catalog: a token or catalog could not be verified; retrying next pass"),
     })) : undefined;
-    holderFlow = { chain: holdingsChain, ...(catalog ? { catalog } : {}), allow: (ownerId) => mode || allowed.has(ownerId) };
+    holderFlow = { chain: holdingsChain, primaryMint: mint, solanaCluster: mainnet ? "mainnet-beta" : genesis === DEVNET_GENESIS ? "devnet" : null, ...(catalog ? { catalog } : {}), allow: (ownerId) => mode || allowed.has(ownerId) };
     startHoldings(db, holdingsChain, {
       ...(Number(process.env["HOLDINGS_INTERVAL_MS"]) > 0 ? { intervalMs: Number(process.env["HOLDINGS_INTERVAL_MS"]) } : {}),
       onLog: (line) => console.log(line),

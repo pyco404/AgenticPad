@@ -115,6 +115,9 @@ export type AppOptions = {
   holder?: {
     chain: HoldingsChain;
     catalog?: HolderCatalog;
+    /** Public explorer identity; the primary token uses an empty database scope. */
+    primaryMint?: string;
+    solanaCluster?: "mainnet-beta" | "devnet" | null;
     /** Whose new agents take this flow. */
     allow: (ownerId: string) => boolean;
   };
@@ -538,12 +541,18 @@ export function createApp(options: AppOptions): Server {
     // Measured from its play; "not enough hands yet" until there are.
     const traits = await traitsOf(db, id);
     const [owned] = await db.select({ ownerId: agents.ownerId }).from(agents).where(eq(agents.id, id)).limit(1);
+    const ownership = {
+      ownerWallet: owned?.ownerId && isPublicKey(owned.ownerId) ? owned.ownerId : null,
+      qualifyingTokenMint: !row.house && row.funding === "holder" ? row.holderMint || options.holder?.primaryMint || null : null,
+      solanaCluster: options.holder?.solanaCluster ?? null,
+    };
     if (ctx.ownerId && owned?.ownerId === ctx.ownerId) {
       const own = await ownerAgent(db, id, ctx.ownerId);
       const [full] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
       return {
         agent: {
           ...inChips(row),
+          ...ownership,
           brief: own!.brief,
           policyTable: own!.policyTable,
           trueRating: own!.trueRating,
@@ -561,7 +570,7 @@ export function createApp(options: AppOptions): Server {
         view: "owner",
       };
     }
-    return { agent: { ...inChips(row), ...playStatus(row), character, traits }, view: "public" };
+    return { agent: { ...inChips(row), ...ownership, ...playStatus(row), character, traits }, view: "public" };
   }
 
   async function postPlay(ctx: Ctx) {
