@@ -33,9 +33,13 @@ describe("Old Town", () => {
     }
   });
 
-  it("keeps every one of its roads, point for point", () => {
+  it("keeps its roads apart from the removed Strategy Lab rear spur", () => {
     const now = ROADS.map((p) => JSON.stringify({ style: p.style, width: p.width, points: p.points.map(([x, y]) => [x - arena.x, y - arena.y]) }));
-    for (const road of fixture.roads) expect(now, JSON.stringify(road.points[0])).toContain(JSON.stringify(road));
+    for (const road of fixture.roads) {
+      const removedSpur = road.style === "trail" && JSON.stringify(road.points) === JSON.stringify([[-400, -415], [-530, -415], [-540, -375]]);
+      if (removedSpur) expect(now).not.toContain(JSON.stringify(road));
+      else expect(now, JSON.stringify(road.points[0])).toContain(JSON.stringify(road));
+    }
   });
 
   it("keeps its plaza, the carpet, the Arena's sand and the agent grounds", () => {
