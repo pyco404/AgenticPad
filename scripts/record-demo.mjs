@@ -1,6 +1,6 @@
 // Records the demo walk on the live site as a video.
 //
-//   node scripts/record-demo.mjs [base-url]      default https://useagentclash.xyz
+//   node scripts/record-demo.mjs [base-url]      default https://agenticpad.site
 //   node scripts/record-demo.mjs --captions-only  re-burn captions onto the last recording
 //
 // Land on home (latest bluff, live feed) → connect a test wallet → rent Mirage
@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CAPTIONS_ONLY = process.argv.includes("--captions-only");
-const BASE = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "https://useagentclash.xyz";
+const BASE = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "https://agenticpad.site";
 const API = BASE.includes("localhost") ? "http://localhost:8787" : BASE.replace("://", "://api.");
 const OUT = join(ROOT, "demo");
 const SIZE = { width: 1280, height: 720 };

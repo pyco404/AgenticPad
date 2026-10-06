@@ -56,7 +56,7 @@ The in-app panel only offers an exit when the instant path has failed, which is
 correct and makes it awkward to test. Use `/exit` instead — it is the same
 three instructions and the same module.
 
-1. Open `https://useagentclash.xyz/exit`.
+1. Open `https://agenticpad.site/exit`.
 2. RPC endpoint: leave it at devnet. **Connect wallet.**
 3. Your agent should be listed — found from the program's own owner records,
    not from anything we hold. Pick it.
@@ -136,7 +136,7 @@ working. Come back and clear it later.
 ### 8 · The full exit, from a page we do not serve
 
 Repeat from step 2 for the remaining **600**, with one change that is the whole
-point: **save `useagenticpad.xyz/exit` and `useagenticpad.xyz/exit/exit.mjs` to a folder on
+point: **save `agenticpad.site/exit` and `agenticpad.site/exit/exit.mjs` to a folder on
 your machine and open `index.html` from disk.** No AgenticPad server is involved in
 anything but the RPC.
 

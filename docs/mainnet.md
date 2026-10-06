@@ -14,7 +14,7 @@
 | 4 | **Hourly net settlement**, as already decided in [economy.md](economy.md#decided), instead of one on-chain settlement per match. |
 | 5 | **House agents need no balance.** They never stake, so they need no vault money to be offered as opponents. This removes the treasury key from mainnet and about $270 of $AGP that would have sat locked in house vaults. |
 | 6 | **No audit before mainnet, for now. This is the operator's decision**, recorded as such: [security.md](security.md) limitation 9 still stands, and so does the residual risk it describes. |
-| 7 | **useagenticpad.xyz becomes mainnet.** Devnet moves to a subdomain and stays for testing. |
+| 7 | **agenticpad.site becomes mainnet.** Devnet moves to a subdomain and stays for testing. |
 | 8 | **Helius, paid tier,** as the mainnet RPC. The 28-hour settlement outage of 2026-09-23 was the free endpoint. |
 | 9 | **Economics confirmed:** $5 minimum deposit (900 chips), $2 rent, a per-match limit of 60 chips (band C's worst match), and a default loss budget of a third of the deposit per day. |
 

@@ -7,7 +7,7 @@ import { NextResponse, type NextRequest } from "next/server";
 const canonical = process.env.NEXT_PUBLIC_SITE_URL ? new URL(process.env.NEXT_PUBLIC_SITE_URL) : null;
 
 /** The site's former address: shared links to it still arrive, and go on to the same page at the new one. */
-const FORMER = new Set(["oxude.xyz", "www.oxude.xyz", "useagentclash.xyz", "www.useagentclash.xyz"]);
+const FORMER = new Set(["oxude.xyz", "www.oxude.xyz", "useagentclash.xyz", "www.useagentclash.xyz", "useagenticpad.xyz", "www.useagenticpad.xyz"]);
 
 export function proxy(request: NextRequest) {
   if (!canonical || canonical.hostname === "localhost") return NextResponse.next();

@@ -5,11 +5,12 @@ Application copy, metadata, wallet sign-in text, docs, package names, engine
 rule identifiers and asset paths use the new branding. The payout mint setting
 is now `PAYOUT_AGP_MINT` in `web/.env.local`.
 
-Configure the deployment's real public addresses with `NEXT_PUBLIC_SITE_URL`,
-`NEXT_PUBLIC_SOCIAL_X_URL` and `NEXT_PUBLIC_REPOSITORY_URL`. The current live
-website, social account and GitHub links are retained until new addresses are
-provided; changing a display name does not register domains or rename accounts.
-Set the backend's `AUTH_DOMAIN` and `CORS_ORIGIN` to match a new deployed domain.
+The official public site is **https://agenticpad.site** and X is
+**https://x.com/agenticpadsol**. Set `NEXT_PUBLIC_SITE_URL=https://agenticpad.site`
+on the web service, `AUTH_DOMAIN=agenticpad.site` and
+`CORS_ORIGIN=https://agenticpad.site` on the API service. These deployment settings
+are not changed automatically by repository edits. Configure the API hostname
+through `NEXT_PUBLIC_API_URL`; do not assume an API subdomain exists.
 
 Old browser session, agent-selection, preference and pending-launch keys are
 read and migrated to the `agenticpad` namespace. Signing out and clearing a
