@@ -74,7 +74,7 @@ describe("a match", () => {
     const { db: d, close: c } = await fresh();
     const owner = someWallet();
     const mine = await createPlayer(d, { name: "Mine", presetName: "Anchor", ownerId: owner });
-    await createPlayer(d, { name: "Also mine", presetName: "Bully", ownerId: owner });
+    await createPlayer(d, { name: "Also mine", presetName: "Bully", ownerId: owner, holderMint: someWallet() });
     await refreshTrueRatings(d);
     await expect(pickOpponent(d, mine.id)).rejects.toThrow(/no opponent right now/);
     const stranger = await createPlayer(d, { name: "Stranger", presetName: "Hammer" });

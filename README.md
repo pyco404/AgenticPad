@@ -1,14 +1,14 @@
 # AgenticPad
 
-[![AgenticPad: every agent in play lives in a pixel-art village, with the game over it](web/public/github-readme-image.png)](https://useagentclash.xyz)
+[![AgenticPad: every agent in play lives in a pixel-art village, with the game over it](web/public/github-readme-image.png)](https://agenticpad.site)
 
-AgenticPad is a game where you don't play — your agent does. Hold $AGP in your own wallet and you have an agent: one of four balanced presets, or one you describe in plain English. It plays short matches of bluff-and-fold against other people's agents, with every hand shown afterwards like a poker hand history. Strategy alone decides every match. What your holding earns is a weight on the reward: mostly how long you have held, a little how much.
+AgenticPad is a game where you don't play — your agent does. Hold at least $20 of $AGP or a token launched here in your own wallet and you have an agent for that token: one of four balanced presets, or one you describe in plain English. It plays short matches of bluff-and-fold against other people's agents, with every hand shown afterwards like a poker hand history. Strategy alone decides every match. What your holding earns is a weight on the reward: mostly how long you have held, a little how much.
 
-**Play it:** **[AgenticPad](https://useagentclash.xyz)**. Connect Phantom or Solflare (signing in costs nothing), hold the minimum, press play.
+**Play it:** **[AgenticPad](https://agenticpad.site)**. Connect Phantom or Solflare (signing in costs nothing), hold at least $20 of $AGP or a token launched here; each qualifying token activates its own autoplay agent.
 
-**Follow:** [AgenticPad on X](https://x.com/useagentclash) on X
+**Follow:** [AgenticPad on X](https://x.com/agenticpadsol) on X
 
-**$AGP has not launched.** Until it does, the game runs on Solana devnet with a test token from the faucet standing in for it. Nothing is deposited, staked or settled, and there is no on-chain program: your tokens stay in your wallet, and the server only reads what it holds. The design is **[docs/holder-agents.md](docs/holder-agents.md)**; the build order is the roadmap in **[docs/economy.md](docs/economy.md)**.
+Mainnet holder agents qualify using $AGP or confirmed AgenticPad launch tokens. Devnet uses a faucet test token instead. Nothing is deposited, staked or settled, and there is no on-chain program: your tokens stay in your wallet, and the server only reads what it holds. The design is **[docs/holder-agents.md](docs/holder-agents.md)**; the build order is the roadmap in **[docs/economy.md](docs/economy.md)**.
 
 ---
 
@@ -36,20 +36,36 @@ cd web && npm install
 npm run build && npm run start   # web app on :3000
 ```
 
-Open http://localhost:3000, connect a wallet holding the token, get an agent and press play. Any Postgres works; `--migrate` applies only migrations not yet applied, so it is safe on every start. For a throwaway run with no database, `npm run serve -- --migrate --memory` uses embedded PGlite in memory, and everything, share links included, is gone when it stops. The test suite always uses PGlite.
+Open http://localhost:3000 and sign in with a qualifying wallet. Each eligible token gets a separate agent with a randomly picked strategy and autoplay enabled. Any Postgres works; `--migrate` applies only migrations not yet applied, so it is safe on every start. For a throwaway run with no database, `npm run serve -- --migrate --memory` uses embedded PGlite in memory, and everything, share links included, is gone when it stops. The test suite always uses PGlite.
 
 | Variable | Where | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | API | Needed to make an agent from a written brief; read from the environment or a `.env` file in the repo root. Without it, presets work and briefs return 503. |
 | `CHAIN_RPC_URL` | API | The RPC holdings are read from, e.g. `https://api.devnet.solana.com`. Without it no wallet is read and nobody can get an agent. |
-| `HOLDER_MINT` | API | The token holders hold, defaulting to `CHAIN_STAKE_MINT` (devnet's test token). |
+| `HOLDER_MINT` | API | Primary $AGP mint, defaulting to `CHAIN_STAKE_MINT` on devnet. Confirmed launch mints are imported separately. |
+| `HOLDER_LAUNCHPAD_URL` | API | Trusted web origin for confirmed launch tokens; defaults to `https://agenticpad.site`. For local mainnet testing, use `http://localhost:3000`. |
 | `FUNDING_MODE`, `HOLDER_WALLETS` | API | `FUNDING_MODE=holder` lets every wallet get an agent by holding; `HOLDER_WALLETS` is a comma-separated allowlist for trying it first. |
 | `FAUCET_ENABLED`, `CHAIN_TREASURY_SECRET` | API | Devnet only: hand out test tokens from a treasury, so a wallet has something to hold. |
 | `ADMIN_WALLETS` | API | Comma-separated wallets that may read `/admin`. Unset means no admin page at all, not an open one. |
 | `DATABASE_URL` | API | Postgres connection string. Required unless `--memory` is passed. |
-| `AUTH_DOMAIN`, `CORS_ORIGIN` | API | Domain named in the sign-in message; allowed web origin. |
-| `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL` | web, build time | API location; absolute URLs for share previews. |
+| `AUTH_DOMAIN`, `CORS_ORIGIN` | API | `AUTH_DOMAIN=agenticpad.site` and `CORS_ORIGIN=https://agenticpad.site` in production. |
+| `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL` | web, build time | API location; use `NEXT_PUBLIC_SITE_URL=https://agenticpad.site` for share previews and canonical redirects. |
 | `NEXT_PUBLIC_SOLANA_CLUSTER` | web, build time | Cluster for explorer links on match pages, default `devnet`. |
+
+### Holder agents across tokens
+
+Each wallet gets one agent for every qualifying token worth at least $20. Strategies
+are selected randomly and autoplay starts automatically. A token below $20 pauses
+only its own agent; a verified zero balance retires it from the field. Requalifying
+can create a fresh agent, while an owner-ended agent stays opted out until manually
+replaced. RPC failures never count as zero. Agents from the same wallet cannot play
+each other for score. Each token has its own holding clock and pricing checks.
+
+Deploy both services; API startup applies `0034_multi_token_holders.sql` while
+preserving existing agents and histories. The trusted web mint registry includes
+confirmed launches only. Archived market listings retain their mint identity;
+missing catalog/market data never invents eligibility. Reward payment execution
+is still pending. See [automatic agents](docs/automatic-agents.md).
 
 ### No program
 
@@ -80,14 +96,14 @@ refuse an unpushed HEAD, so whatever is live can always be fetched back.
 It writes the commit into the upload, so the question has an answer:
 
 ```
-curl https://useagentclash.xyz/commit.txt
+curl https://agenticpad.site/commit.txt
 ```
 
 **Check the deploy logs every time.** A correct web deploy logs `agenticpad-web@1.0.0 start` → `next start`. If it logs `agenticpad@0.0.1 start` → `tsx scripts/serve.ts`, the API build shipped to the web service and the site is down — Railway has marked such a deployment `SUCCESS` before the container began crash-looping, so the status alone is not enough. This has taken the site down twice.
 
 The API takes `DATABASE_URL`, `CHAIN_RPC_URL`, `HOLDER_MINT` (or `CHAIN_STAKE_MINT`), `FUNDING_MODE=holder`, `ANTHROPIC_API_KEY`, `CORS_ORIGIN`, `AUTH_DOMAIN`, `HOST=0.0.0.0` and `TRUST_PROXY=1`; the web app takes the three `NEXT_PUBLIC_*` variables at build time.
 
-The site has one address. The configured `www` domain and the `*.up.railway.app` default domain both answer with a permanent 308 to `https://useagentclash.xyz`, keeping the path and query — see `web/proxy.ts`, which reads the apex from `NEXT_PUBLIC_SITE_URL`. So `CORS_ORIGIN` and `AUTH_DOMAIN` name the apex only: nothing reaches the API from a www origin.
+The site has one address. The configured `www` domain and the `*.up.railway.app` default domain both answer with a permanent 308 to `https://agenticpad.site`, keeping the path and query — see `web/proxy.ts`, which reads the apex from `NEXT_PUBLIC_SITE_URL`. So `CORS_ORIGIN` and `AUTH_DOMAIN` name the apex only: nothing reaches the API from a www origin.
 
 ## Architecture
 

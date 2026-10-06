@@ -49,7 +49,7 @@ export async function checkAgent(db: Db, row: AgentRow): Promise<AutoplayCheck> 
     return {
       play: false,
       reason: "insolvent",
-      detail: liveHolderPricing() ? "the wallet needs fresh verified holdings worth at least $20 of $AGP" : `the wallet holds ${balance}, below the ${MIN_FUNDING_CHIPS} an agent needs to play`,
+      detail: liveHolderPricing() ? "the wallet needs fresh verified holdings worth at least $20 of its qualifying token" : `the wallet holds ${balance}, below the ${MIN_FUNDING_CHIPS} an agent needs to play`,
     };
   }
   return { play: true };
@@ -284,7 +284,7 @@ function describeStop(reason: AutoplayStop, balance: number): { message: string;
   switch (reason) {
     case "insolvent":
       if (liveHolderPricing()) return {
-        message: "Held: your wallet needs fresh verified holdings worth at least $20 of $AGP.",
+        message: "Held: your wallet needs fresh verified holdings worth at least $20 of its qualifying token.",
         action: "Autoplay resumes after the next wallet check confirms eligibility. No tokens are spent.",
       };
       return {

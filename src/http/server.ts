@@ -1,3 +1,4 @@
+import type { HolderCatalog } from "../db/holder-catalog.js";
 import { activateHolder, endHolder } from "../db/holder-activation.js";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -113,6 +114,7 @@ export type AppOptions = {
    */
   holder?: {
     chain: HoldingsChain;
+    catalog?: HolderCatalog;
     /** Whose new agents take this flow. */
     allow: (ownerId: string) => boolean;
   };
@@ -323,11 +325,17 @@ export function createApp(options: AppOptions): Server {
         catch { /* Preserve the last verified reading during an RPC outage. */ }
       }
       await activateHolder(db, ownerId);
+      await options.holder.catalog?.refreshWallet(ownerId);
     }
+    const tokenHoldings = options.holder?.allow(ownerId) && options.holder.catalog
+      ? await Promise.all((await options.holder.catalog.tokens()).map(async (token) => ({
+        ...token, holding: holdingView(await holdingOf(db, ownerId, token.mint)),
+      }))) : [];
     // Every agent this wallet owns, so a second device shows the same ones as the first.
     return {
       ownerId,
       agents: await agentsOf(db, ownerId),
+      tokenHoldings,
       /** This wallet's last reading against the minimum; null where the server reads no holdings. */
       holding: options.holder?.allow(ownerId) ? holdingView(await holdingOf(db, ownerId)) : null,
     };
@@ -365,19 +373,22 @@ export function createApp(options: AppOptions): Server {
         options.holder ? "agents aren't open to this wallet yet" : "this server reads no wallets, so it can't give anyone an agent",
       );
     }
+    const holderMint = typeof ctx.body["holderMint"] === "string" ? ctx.body["holderMint"] : "";
+    const selectedChain = holderMint ? await holder.catalog?.chain(holderMint) : holder.chain;
+    if (!selectedChain) throw new HttpError(400, "this token is not a confirmed AgenticPad launch");
     {
       let holding;
       try {
-        holding = await readHolding(db, holder.chain, ownerId);
+        holding = await readHolding(db, selectedChain, ownerId);
       } catch (error) {
         console.error(`holdings: could not read ${ownerId}: ${String(error).slice(0, 160)}`);
-        throw new HttpError(503, "couldn't read your wallet's $AGP right now; try again in a moment");
+        throw new HttpError(503, "couldn't verify this token's wallet balance right now; try again in a moment");
       }
       if (!keeps(holding)) {
         const view = holdingView(holding);
         throw new HttpError(
           403,
-          `an agent needs this wallet to hold at least ${view.minimumChips} chips' worth of $AGP ($20); it holds ${view.chips}`,
+          `an agent needs at least $20 of this qualifying token; the verified holding is below its minimum`,
           { holding: view },
         );
       }
@@ -398,21 +409,22 @@ export function createApp(options: AppOptions): Server {
       table = validatePolicy(result.table);
     }
 
-    // One agent in play per wallet. The check and the creation share a
+    // One agent in play per wallet/token pair. The check and the creation share a
     // transaction and a lock on this wallet, so asking from two devices at once
-    // still leaves one agent, not two.
+    // still leaves one agent for this token, not two.
     const row = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 0))`);
-      const active = await activeAgentsOf(tx as unknown as Db, ownerId);
+      const active = await activeAgentsOf(tx as unknown as Db, ownerId, holderMint);
       if (active.length > 0) {
         const held = active.map((a) => a.name).join(", ");
-        throw new HttpError(409, `you already have an agent in play: ${held}. A wallet holds one agent at a time.`, {
+        throw new HttpError(409, `you already have an agent in play: ${held}. A wallet holds one agent per qualifying token.`, {
           agents: active.map((a) => ({ id: a.id, name: a.name })),
         });
       }
       const t = tx as unknown as Db;
       const wanted = {
         autoplay: true,
+        holderMint,
         name,
         ownerId,
         ...(presetName ? { presetName } : {}),
@@ -544,7 +556,7 @@ export function createApp(options: AppOptions): Server {
         autoplay: await autoplayStatus(db, full!, { intervalMs: autoplayIntervalMs }),
         // A holder agent's wallet and the power it earns (docs/holder-agents.md);
         // null for an agent on another flow.
-        holder: full!.funding === "holder" && full!.ownerId ? holderView(await holdingOf(db, full!.ownerId)) : null,
+        holder: full!.funding === "holder" && full!.ownerId ? holderView(await holdingOf(db, full!.ownerId, full!.holderMint)) : null,
         sinceYouLeft: await sinceYouLeft(db, full!),
         view: "owner",
       };
@@ -878,10 +890,12 @@ export function createApp(options: AppOptions): Server {
     try {
       const holding = await readHolding(db, holder.chain, ownerId);
       await activateHolder(db, ownerId);
+      await holder.catalog?.refreshWallet(ownerId);
       return { holding: holdingView(holding) };
     } catch (error) {
+      await holder.catalog?.refreshWallet(ownerId);
       console.error(`holdings: could not read ${ownerId}: ${String(error).slice(0, 160)}`);
-      throw new HttpError(503, "couldn't read your wallet's $AGP right now; try again in a moment");
+      throw new HttpError(503, "couldn't verify this token's wallet balance right now; try again in a moment");
     }
   }
 

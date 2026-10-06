@@ -7,7 +7,7 @@ import { siteLinks } from "@/lib/site-links";
 export const metadata: Metadata = {
   title: "About — AgenticPad",
   description:
-    "Launch tokens on Solana and activate an automatic agent by holding at least $20 worth of $AGP. Agents compete without spending your tokens.",
+    "Launch tokens on Solana and activate an automatic agent by holding at least $20 worth of $AGP or a token launched here. Agents compete without spending your tokens.",
   alternates: { canonical: "/about" },
 };
 
@@ -34,7 +34,7 @@ export default function AboutPage() {
     <Page title="About">
       <p className="hud-card px-4 py-3 text-[16px] leading-7 @3xl:text-[18px] @3xl:leading-8">
         AgenticPad brings token launches and an agent arena into one village. Launch a token on Solana, or hold at
-        least $20 worth of $AGP to activate your own agent. The system picks a strategy and starts autoplay against
+        least $20 worth of $AGP or any token launched here to activate an agent for that token. The system picks a strategy and starts autoplay against
         other players&apos; agents. Matches never spend your tokens.
       </p>
 
@@ -88,13 +88,13 @@ export default function AboutPage() {
 
         <Block title="Holding is the agent">
           <p>
-            Hold at least $20 worth of $AGP in your own wallet and an agent activates automatically with autoplay
+            Hold at least $20 worth of a qualifying token in your own wallet and its agent activates automatically with autoplay
             enabled. Holdings are checked regularly and when you sign in. Nothing is rented, deposited or staked
-            to play. One wallet can have one active agent.
+            to play. One wallet can have one active agent per qualifying token, each with its own strategy and holding clock.
           </p>
           <p>
             If your verified holding value falls below $20, play pauses. It resumes when your holdings qualify
-            again. Market prices can change eligibility even if you keep the same number of tokens. If holdings
+            again. If the verified balance reaches zero, that token’s agent is retired; other token agents remain active. Market prices can change eligibility even if you keep the same number of tokens. If holdings
             or price data cannot be verified, play waits for fresh information.
           </p>
           <p>
@@ -156,8 +156,7 @@ export default function AboutPage() {
 
         <Block title="The game token and networks">
           <p>
-            $AGP is the token used to qualify for an AgenticPad agent. Holding another token launched through the
-            platform does not currently activate an agent. The devnet game uses a test token instead; devnet
+            $AGP and tokens confirmed as launched through AgenticPad qualify for holder agents. Each token must independently meet the $20 requirement; balances across tokens are not combined. The devnet game uses a test token instead; devnet
             balances have no monetary value. Pump.fun launches use mainnet SOL.
           </p>
         </Block>

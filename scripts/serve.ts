@@ -139,7 +139,16 @@ if (rpc && mint) {
       livePricing: mainnet,
       ...(discoveryRpc && mode ? { discoveryRpc } : {}),
     });
-    holderFlow = { chain: holdingsChain, allow: (ownerId) => mode || allowed.has(ownerId) };
+    const catalog = mainnet ? await import("../src/db/holder-catalog.js").then(({ startHolderCatalog }) => startHolderCatalog(db, {
+      url: process.env["HOLDER_LAUNCHPAD_URL"] ?? "https://agenticpad.site",
+      primaryMint: mint,
+      chainFor: (tokenMint) => rpcHoldings(connection, new PublicKey(tokenMint), {
+        livePricing: true, tokenScoped: true, ...(discoveryRpc && mode ? { discoveryRpc } : {}),
+      }),
+      ...(Number(process.env["HOLDINGS_INTERVAL_MS"]) > 0 ? { intervalMs: Number(process.env["HOLDINGS_INTERVAL_MS"]) } : {}),
+      onError: () => console.error("holder catalog: a token or catalog could not be verified; retrying next pass"),
+    })) : undefined;
+    holderFlow = { chain: holdingsChain, ...(catalog ? { catalog } : {}), allow: (ownerId) => mode || allowed.has(ownerId) };
     startHoldings(db, holdingsChain, {
       ...(Number(process.env["HOLDINGS_INTERVAL_MS"]) > 0 ? { intervalMs: Number(process.env["HOLDINGS_INTERVAL_MS"]) } : {}),
       onLog: (line) => console.log(line),

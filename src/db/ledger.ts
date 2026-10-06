@@ -30,7 +30,7 @@ type Writable = Pick<Db, "insert" | "select" | "update">;
  * subquery's own table - which once read every balance as zero on node-postgres.
  */
 export const balanceSql = () => sql<number>`(case when "agents"."funding" = 'holder'
-    then coalesce((select h.amount from holdings h where h.wallet = "agents"."owner_id"), 0)
+    then coalesce((select h.amount from holdings h where h.wallet = "agents"."owner_id" and h.mint = "agents"."holder_mint"), 0)
     else 0
   end)::bigint`;
 
@@ -42,14 +42,19 @@ export const balanceSql = () => sql<number>`(case when "agents"."funding" = 'hol
  * sold. House agents are never asked: they hold nothing and need nothing.
  */
 export const inPlaySql = () => {
-  if (!holderPriceReady()) return sql<boolean>`false`;
+
   const minimum = liveHolderMinimum(baseUnits(MIN_FUNDING_CHIPS, seasonRate()));
   const threshold = liveHolderPricing() ? sql`${minimum}::bigint` : sql`least(coalesce(h.conviction_amount, ${minimum}::bigint), ${minimum}::bigint)`;
   const fresh = liveHolderPricing() ? sql`and h.read_at >= now() - interval '20 minutes'` : sql``;
   return sql<boolean>`(case
-    when "agents"."funding" = 'holder' then coalesce((
+    when "agents"."funding" = 'holder' and "agents"."holder_mint" <> '' then coalesce((
+      select h.amount >= h.minimum and h.minimum > 0
+        and h.price_at >= now() - interval '15 minutes'
+        and h.read_at >= now() - interval '20 minutes'
+      from holdings h where h.wallet = "agents"."owner_id" and h.mint = "agents"."holder_mint"), false)
+    when "agents"."funding" = 'holder' and ${holderPriceReady()} then coalesce((
       select h.amount >= ${threshold} ${fresh}
-      from holdings h where h.wallet = "agents"."owner_id"), false)
+      from holdings h where h.wallet = "agents"."owner_id" and h.mint = "agents"."holder_mint"), false)
     else false
   end)`;
 };

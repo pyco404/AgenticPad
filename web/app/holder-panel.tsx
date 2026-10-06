@@ -27,18 +27,18 @@ export function HoldingCheck({
     <div className="rounded-panel border border-line bg-panel-2 px-3 py-3">
       <p className="text-[12px] uppercase tracking-wider text-muted">Your wallet</p>
       {holding?.priceReady === false ? (
-        <p className="mt-2 text-[13px] text-muted">Waiting for a verified $AGP price. Your agent needs at least $20 of holdings.</p>
+        <p className="mt-2 text-[13px] text-muted">Waiting for a verified token price. Your agent needs at least $20 of holdings.</p>
       ) : holding === null || read === null ? (
         <p className="mt-2 text-[13px] leading-5 text-muted">Your wallet is checked automatically. You can also check it now after a purchase.</p>
       ) : (
         <p className="mt-2 text-[13px] leading-5">
-          Holds <span className="font-mono text-gold">{holding.valueUsd != null ? `$${holding.valueUsd.toFixed(2)}` : `${chips(holding.chips)} chips’ worth`}</span> of $AGP. An agent
-          needs <span className="font-mono">{chips(holding.minimumChips)}</span> ($20).{" "}
+          Holds <span className="font-mono text-gold">{holding.valueUsd != null ? `$${holding.valueUsd.toFixed(2)}` : `${chips(holding.chips)} chips’ worth`}</span> of this token. An agent
+          needs <span className="font-mono">$20</span> of this token.{" "}
           {holding.eligible ? (
             <span className="text-win">That&apos;s enough.</span>
           ) : (
             <span className="text-loss">
-              Short by <span className="font-mono">{chips(Math.max(0, holding.minimumChips - holding.chips))}</span>.
+              Currently below the required holding value.
             </span>
           )}
         </p>
@@ -52,7 +52,7 @@ export function HoldingCheck({
       </button>
       <p className="mt-2 text-[12px] leading-5 text-muted">
         A qualifying wallet gets an agent and an automatically selected strategy. Autoplay starts without spending tokens. Nothing leaves your wallet: holding is the entry. Sell below it and the agent stops
-        playing until you hold it again.
+        playing until you hold it again. Zero tokens ends that token’s agent.
         {holding?.priceReady === false ? <> Live pricing is unavailable; activation is paused.</> : null}
         {read ? <> Last read {localMoment(read)}.</> : null}
       </p>

@@ -56,6 +56,23 @@ class URL_ {
 }
 
 describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare vitest run skips them)", () => {
+  it("keeps balances and eligibility independent for two token agents owned by the same wallet", async () => {
+    const { db, close } = await fresh();
+    try {
+      const owner = someWallet();
+      const mintA = someWallet(); const mintB = someWallet();
+      for (const [mint, amount] of [[mintA, 3_000_000_000], [mintB, 4_000_000_000]] as const) {
+        await readHolding(db, { mint, balanceOf: async () => amount, supply: async () => 10_000_000_000,
+          quote: () => ({ minimum: 3_500_000_000, priceUsd: 20 / 3.5, decimals: 9, at: Date.now() }) }, owner);
+      }
+      const a = await createAgent(db, { name: "Token A", presetName: "Anchor", ownerId: owner, holderMint: mintA });
+      const b = await createAgent(db, { name: "Token B", presetName: "Hammer", ownerId: owner, holderMint: mintB });
+      expect(await balanceOf(db, a.id)).toBe(3_000_000_000);
+      expect(await balanceOf(db, b.id)).toBe(4_000_000_000);
+      const eligible = await inPlayOf(db, [a.id, b.id]);
+      expect(eligible.get(a.id)).toBe(false); expect(eligible.get(b.id)).toBe(true);
+    } finally { await close(); }
+  });
   it("reads a holder agent's balance - its wallet's holding - as a number, in every path that reads balances", async () => {
     const { db, close } = await fresh();
     try {

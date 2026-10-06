@@ -85,6 +85,7 @@ export function assertStakesMatch(row: Pick<AgentRow, "name" | "policyStakes">, 
 }
 
 export type CreateAgentInput = {
+  holderMint?: string;
   autoplay?: boolean;
   name: string;
   ownerId?: string | null;
@@ -138,6 +139,7 @@ export async function createAgent(db: Db, input: CreateAgentInput) {
       presetName: input.presetName ?? null,
       brief: input.brief ?? null,
       ownerId: input.ownerId ?? null,
+      holderMint: input.holderMint ?? "",
       policyTable: table,
       policyStakes: input.policyStakes ?? DEFAULT_RULES.stakes,
       funding: "holder",
@@ -239,6 +241,7 @@ export async function runMatch(db: Db, agentAId: string, agentBId: string, optio
    * a win over one measures nothing. Against a house agent the match is still
    * played, still recorded and still has a transcript; it just counts for nothing.
    */
+  if (rowA.ownerId !== null && rowA.ownerId === rowB.ownerId) throw new StakeError("Agents owned by the same wallet cannot play each other");
   const ranked = rowA.ownerId !== null && rowB.ownerId !== null;
   // Nothing is at risk, but a player's agent must still hold the minimum to be
   // in play at all. A house agent holds nothing and needs nothing.
@@ -709,6 +712,7 @@ export async function renderStoredTranscript(db: Db, matchId: string): Promise<s
 /** What anyone may see about someone else's agent: no true rating, no brief. */
 /** The columns every public view of an agent shows. */
 const publicAgentColumns = {
+  holderMint: agents.holderMint,
   agentId: agents.id,
   name: agents.name,
   presetName: agents.presetName,
@@ -744,7 +748,7 @@ export async function publicAgent(db: Db, agentId: string) {
 
 /**
  * Every agent this wallet owns, the ones still playing first and the newest of
- * those first. An owner holds one active agent at a time, but they keep their
+ * those first. An owner holds one active agent per token, but they keep their
  * retired ones: a record is the point of renting, and it outlives the agent.
  */
 export async function agentsOf(db: Db, ownerId: string) {
@@ -757,11 +761,11 @@ export async function agentsOf(db: Db, ownerId: string) {
 }
 
 /** The agents this wallet still has in play. */
-export async function activeAgentsOf(db: Db, ownerId: string) {
+export async function activeAgentsOf(db: Db, ownerId: string, mint?: string) {
   return db
     .select({ id: agents.id, name: agents.name })
     .from(agents)
-    .where(and(eq(agents.ownerId, ownerId), isNull(agents.retiredAt)));
+    .where(and(eq(agents.ownerId, ownerId), isNull(agents.retiredAt), mint === undefined ? undefined : eq(agents.holderMint, mint)));
 }
 
 /** The owner's own view, which does include the private rating. */

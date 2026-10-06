@@ -54,6 +54,14 @@ export class LaunchStore {
   list(): StoredLaunch[] {
     return (this.db.prepare("SELECT data FROM launches ORDER BY created_at DESC").all() as { data: string }[]).map((row) => JSON.parse(row.data) as StoredLaunch);
   }
+  /** Read-only mint identities; archival affects market listings, not provenance. */
+  holderTokens(offset = 0) {
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Invalid offset.");
+    const confirmed = this.list().filter((launch) => launch.confirmed && launch.signature);
+    return { network: "mainnet-beta", tokens: confirmed.slice(offset, offset + 100).map((launch) => ({
+      mint: launch.mint, symbol: launch.form.ticker, name: launch.form.name,
+    })), nextOffset: offset + 100 < confirmed.length ? offset + 100 : null };
+  }
 }
 
 let cached: LaunchStore | undefined;

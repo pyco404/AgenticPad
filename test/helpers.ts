@@ -55,7 +55,11 @@ export async function createPlayer(db: Db, input: Omit<CreateAgentInput, "ownerI
   const { holds, ...rest } = input;
   const ownerId = rest.ownerId ?? someWallet();
   const agent = await createAgent(db, { ...rest, ownerId });
-  await holdFor(db, ownerId, holds ?? holdingMinimum());
+  if (rest.holderMint) {
+    await readHolding(db, { mint: rest.holderMint, balanceOf: async () => holds ?? holdingMinimum(),
+      supply: async () => 1_000_000_000 * 10 ** 6,
+      quote: () => ({ minimum: holdingMinimum(), priceUsd: 20 * 10 ** 6 / holdingMinimum(), decimals: 6, at: Date.now() }) }, ownerId);
+  } else await holdFor(db, ownerId, holds ?? holdingMinimum());
   return agent;
 }
 

@@ -57,6 +57,7 @@ export type Funding = "seed" | "deposit" | "holder";
 
 /** A wallet's holding against the minimum, and the conviction clock it keeps. Chips throughout. */
 export type HoldingView = {
+  mint?: string;
   minimumUsd?: number;
   valueUsd?: number | null;
   priceReady?: boolean;
@@ -122,6 +123,7 @@ export type Scores = {
 };
 
 export type AgentView = {
+  holderMint?: string;
   /**
    * How this agent was funded. Every agent in play is a "holder"; "seed" and
    * "deposit" are agents from before, all retired, kept for their records.
@@ -318,6 +320,7 @@ export const api = {
       agents: AgentView[];
       /** This wallet's last reading against the minimum; null where the server reads no holdings. */
       holding: HoldingView | null;
+      tokenHoldings?: { mint: string; name: string; symbol: string; holding: HoldingView }[];
     }>("/auth/me", { token }),
   previewTable: (token: string | null, policyTable: unknown) =>
     request<{ preview: Preview }>("/preview", { method: "POST", token, body: JSON.stringify({ policyTable }) }),
@@ -328,7 +331,7 @@ export const api = {
       body: JSON.stringify({ brief }),
     }),
   /** Gets this wallet an agent, if it holds the minimum. Nothing is signed or paid. */
-  rent: (token: string | null, input: { name?: string; presetName?: string; brief?: string }) =>
+  rent: (token: string | null, input: { name?: string; presetName?: string; brief?: string; holderMint?: string }) =>
     request<{
       agent: AgentView;
       elicitation: { free: boolean } | null;

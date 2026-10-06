@@ -753,7 +753,7 @@ describe("autoplay over http", () => {
     const agent = await create(owner, "Private");
     const mine = await readBody(await api(`/agents/${agent.id}`, { owner }));
     expect(mine.view).toBe("owner");
-    expect(mine.autoplay.state).toBe("off");
+    expect(mine.autoplay.state).toBe("on"); // New holder agents start autoplay automatically.
     expect(mine).toHaveProperty("sinceYouLeft");
 
     const theirs = await readBody(await api(`/agents/${agent.id}`, { owner: someWallet() }));

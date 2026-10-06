@@ -1,6 +1,9 @@
-# Automatic $AGP holder agents
+# Automatic agents for $AGP and launch-token holders
 
-A wallet holding at least $20 of $AGP gets one agent. The backend picks Anchor,
+A wallet holding at least $20 in each qualifying token gets a separate agent for
+each. Qualifying tokens are $AGP and confirmed AgenticPad launches; balances
+across tokens are not combined. A verified zero balance retires that token’s
+agent, while a nonzero balance below $20 pauses it. Each token has its own clock. The backend picks Anchor,
 Hammer, Mirage or Bully with equal probability, once at creation, and enables
 autoplay. Matches do not spend or transfer holder tokens. A wallet stays the
 owner identity; its public automatic name is its shortened address.
@@ -13,9 +16,9 @@ and other off-curve program addresses are excluded. Balances are verified over
 Solana RPC before activation. Failed reads never become zero balances.
 
 Ending an agent retires its record, switches off autoplay and persists an opt-out
-from automatic creation. The holder can then create a new agent using a chosen
+from automatic creation for that wallet/token pair only. The holder can then create a new agent using a chosen
 preset or brief. Both automatic and manual creation take the same wallet lock,
-so concurrent requests cannot produce two active agents. Ending and manual
+so concurrent requests cannot produce two active agents for the same wallet/token pair. Ending and manual
 creation move no tokens. Old agent results stay in history. Frozen payout
 recipients merge replacement agents into one receiving wallet, with one 10% cap.
 
@@ -43,7 +46,19 @@ signed-in wallets still activate but undiscovered wallets cannot activate until
 an on-chain discovery pass or a site visit. Without a reliable indexed $AGP price,
 mainnet activation stays unavailable. Never use a devnet mint as the mainnet
 $AGP mint. Deployment's existing migration runner applies
-`0033_holder_preferences.sql`; no destructive migration is required.
+`0034_multi_token_holders.sql`; no destructive migration is required.
+
+## Confirmed launch catalog
+
+`HOLDER_LAUNCHPAD_URL` on the API defaults to `https://agenticpad.site`. Set it to
+`http://localhost:3000` for local mainnet tests. The web route
+`/api/launchpad/holder-tokens` exposes paginated mint identity from confirmed
+launch records only, including archived launches; it is not a token-market listing.
+The API imports these mints into Postgres and verifies balances and per-mint
+prices over RPC and DEX Screener. Only this operator-configured origin can
+register qualifying launch tokens. Arbitrary client-submitted mints are rejected.
+Mainnet catalogs are never read into the devnet game. Deploy both services and
+keep the launch SQLite database on a persistent volume.
 
 ## Inactive launch tokens
 
@@ -79,7 +94,7 @@ their visual playback. Village Active, Idle and Total counts include real agents
 only, with house residents listed separately. Completed-match counts exclude
 exhibitions. House agents never receive rankings or rewards.
 
-Agent, Launch and Explore show active tokens, active autoplay agents, combined
+Explore shows active tokens, active autoplay agents, combined
 24-hour token volume, current daily plus weekly reward-wallet SOL balances, and
 a payout-total slot. Archived tokens do not contribute to token totals or volume.
 Unknown/stale data shows a dash; partial token volume is not presented as a

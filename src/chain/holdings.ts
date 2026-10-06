@@ -23,18 +23,25 @@ function amountOf(raw: string, what: string): number {
   return Number(value);
 }
 
-export function rpcHoldings(connection: Connection, mint: PublicKey, options: { discoveryRpc?: string; livePricing?: boolean } = {}): HoldingsChain {
+export function rpcHoldings(connection: Connection, mint: PublicKey, options: { discoveryRpc?: string; livePricing?: boolean; tokenScoped?: boolean } = {}): HoldingsChain {
   let priceReadAt = 0;
+  let quote: { minimum: number; priceUsd: number; decimals: number; at: number } | null = null;
   return {
+    mint: options.tokenScoped ? mint.toBase58() : "",
+    quote: () => quote,
     ...(options.livePricing ? { async refreshMinimum() {
       if (Date.now() - priceReadAt < 60_000) return;
       const response = await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${mint.toBase58()}`, { signal: AbortSignal.timeout(10_000) });
       if (!response.ok) throw new Error("Holder pricing provider unavailable");
       const pairs = await response.json() as { chainId: string; baseToken: { address: string }; priceUsd?: string; liquidity?: { usd?: number } }[];
       const pair = pairs.filter((p) => p.chainId === "solana" && p.baseToken.address === mint.toBase58() && Number(p.priceUsd) > 0).sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
-      if (!pair) throw new Error("No verified market price for $AGP yet");
+      if (!pair) throw new Error("No verified market price for this token yet");
       const { value } = await connection.getTokenSupply(mint, "confirmed");
-      adoptHolderPrice(Number(pair.priceUsd), value.decimals);
+      const priceUsd = Number(pair.priceUsd);
+      const minimum = Math.ceil(20 * 10 ** value.decimals / priceUsd);
+      if (!Number.isSafeInteger(minimum) || minimum <= 0) throw new Error("Invalid token minimum");
+      quote = { minimum, priceUsd, decimals: value.decimals, at: Date.now() };
+      if (!options.tokenScoped) adoptHolderPrice(priceUsd, value.decimals);
       priceReadAt = Date.now();
     } } : {}),
     ...(options.discoveryRpc ? { async discoverWallets() {
@@ -55,7 +62,7 @@ export function rpcHoldings(connection: Connection, mint: PublicKey, options: { 
           if (!PublicKey.isOnCurve(new PublicKey(account.owner).toBytes())) continue;
           balances.set(account.owner, (balances.get(account.owner) ?? 0n) + BigInt(account.amount));
         }
-        if (!body.result.token_accounts.length || !body.result.cursor) return [...balances].filter(([, amount]) => amount >= BigInt(holdingMinimum())).map(([wallet]) => wallet);
+        if (!body.result.token_accounts.length || !body.result.cursor) return [...balances].filter(([, amount]) => amount >= BigInt(options.tokenScoped ? quote?.minimum ?? Number.MAX_SAFE_INTEGER : holdingMinimum())).map(([wallet]) => wallet);
         cursor = body.result.cursor;
         if (cursors.has(cursor)) throw new Error("Holder discovery cursor repeated");
         cursors.add(cursor);

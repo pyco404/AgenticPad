@@ -11,7 +11,9 @@ import {
   text,
   timestamp,
   uuid,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type { MatchLog, Seat } from "../types.js";
 import type { Policy } from "../agents/policy.js";
 import type { Deal, Stakes, TurnOrder } from "../round.js";
@@ -79,6 +81,8 @@ export const agents = pgTable(
     trueRatingRoster: text("true_rating_roster"),
     /** The owner's wallet: a base58 Solana public key. */
     ownerId: text("owner_id"),
+    /** Empty means the configured primary token (legacy $AGP/devnet agents). */
+    holderMint: text("holder_mint").notNull().default(""),
     /**
      * Autoplay: the server plays this agent on a timer, with nothing to press
      * and nothing to sign. Off until the owner turns it on - a rental that
@@ -148,6 +152,8 @@ export const agents = pgTable(
   },
   (t) => [
     index("agents_owner_idx").on(t.ownerId),
+    uniqueIndex("agents_active_holder_token").on(t.ownerId, t.holderMint)
+      .where(sql`${t.ownerId} is not null and ${t.funding} = 'holder' and ${t.retiredAt} is null`),
     index("agents_true_rating_idx").on(t.trueRating),
     // The scheduler's own query: who is due, oldest first.
     index("agents_autoplay_idx").on(t.autoplay, t.autoplayLastMatchAt),
@@ -229,7 +235,7 @@ export type AgentEventSource = "owner" | "autoplay" | "season" | "exit";
  * became the only way to an agent (drizzle/0032_holders_only.sql): its record
  * stays, and its vault, on a program no longer served, is left as it was.
  */
-export type RetiredReason = "broke" | "withdrawn" | "lapsed" | "unpaid" | "closed" | "replaced" | "owner";
+export type RetiredReason = "broke" | "withdrawn" | "lapsed" | "unpaid" | "closed" | "replaced" | "owner" | "no-holdings";
 
 /**
  * An agent's character: its portrait, its name's origin, its bio. Kept in a
@@ -817,7 +823,12 @@ export const faucetGrants = pgTable(
  */
 export const holdings = pgTable("holdings", {
   /** The owner's wallet: a base58 Solana public key, as `agents.ownerId`. */
-  wallet: text("wallet").primaryKey(),
+  wallet: text("wallet").notNull(),
+  mint: text("mint").notNull().default(""),
+  minimum: bigint("minimum", { mode: "number" }),
+  priceUsd: doublePrecision("price_usd"),
+  decimals: integer("decimals"),
+  priceAt: timestamp("price_at", { withTimezone: true }),
   /** Base units of the token across every account the wallet owns for it. */
   amount: bigint("amount", { mode: "number" }).notNull(),
   /** The token's total supply in base units at the same read: what position divides by. */
@@ -831,7 +842,7 @@ export const holdings = pgTable("holdings", {
    */
   convictionAmount: bigint("conviction_amount", { mode: "number" }),
   convictionSince: timestamp("conviction_since", { withTimezone: true }),
-});
+}, (t) => [primaryKey({ columns: [t.wallet, t.mint] })]);
 
 /**
  * A UTC day whose scores are frozen (src/db/scores.ts). One row per day, the
@@ -906,6 +917,14 @@ export type ChainOpRow = typeof chainOps.$inferSelect;
 
 /** Ending an automatic agent opts out of automatic recreation across devices. */
 export const holderPreferences = pgTable("holder_preferences", {
-  wallet: text("wallet").primaryKey(),
+  wallet: text("wallet").notNull(),
+  mint: text("mint").notNull().default(""),
   automatic: boolean("automatic").notNull().default(true),
+}, (t) => [primaryKey({ columns: [t.wallet, t.mint] })]);
+
+/** Confirmed launch mints, imported only from the operator-configured web service. */
+export const holderTokens = pgTable("holder_tokens", {
+  mint: text("mint").primaryKey(),
+  symbol: text("symbol").notNull(),
+  name: text("name").notNull(),
 });

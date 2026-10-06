@@ -2,10 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { listen } from "../src/http/server.js";
 import { createAgent } from "../src/db/runner.js";
-import { MIN_FUNDING_CHIPS, dailyScores } from "../src/db/schema.js";
+import { MIN_FUNDING_CHIPS, dailyScores, agents } from "../src/db/schema.js";
 import { health } from "../src/db/admin.js";
 import { HOLDINGS_INTERVAL_MS, readHolding } from "../src/db/holdings.js";
 import { freezeDay } from "../src/db/scores.js";
@@ -101,6 +102,7 @@ describe("who may read /admin", () => {
   it("merges replacement agents into one capped payout wallet", async () => {
     const owner = someWallet();
     const first = await createAgent(db, { name: "First agent", presetName: "Anchor", ownerId: owner });
+    await db.update(agents).set({ retiredAt: new Date(), retiredReason: "owner" }).where(eq(agents.id, first.id));
     const second = await createAgent(db, { name: "Replacement", presetName: "Mirage", ownerId: owner });
     const day = Math.floor(Date.parse("2026-05-03T00:00:00Z") / 86_400_000);
     await freezeDay(db, day);

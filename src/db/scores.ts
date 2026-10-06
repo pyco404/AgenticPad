@@ -1,4 +1,4 @@
-import { eq, inArray, max, sql } from "drizzle-orm";
+import { and, eq, inArray, max, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { agents, dailyScores, holdings, scoreDays } from "./schema.js";
 import { utcDay } from "../chain/common.js";
@@ -82,7 +82,7 @@ async function powerInputs(db: Db, agentIds: string[], at: Date) {
   const rows = await db
     .select({ id: agents.id, funding: agents.funding, amount: holdings.amount, supply: holdings.supply, since: holdings.convictionSince })
     .from(agents)
-    .leftJoin(holdings, eq(holdings.wallet, agents.ownerId))
+    .leftJoin(holdings, and(eq(holdings.wallet, agents.ownerId), eq(holdings.mint, agents.holderMint)))
     .where(inArray(agents.id, agentIds));
   return new Map(
     rows.map((r) => {

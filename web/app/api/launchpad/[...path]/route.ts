@@ -3,6 +3,7 @@ import {
   pumpConfig, readLaunchBody, statusOfLaunch, submitLaunch,
 } from "@/lib/launchpad-server";
 import type { LaunchSort } from "@/lib/launchpad";
+import { launchStore } from "@/lib/launchpad-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +15,12 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
     const url = new URL(request.url);
     let result: unknown;
     if (request.method === "GET" && path.length === 1 && path[0] === "config") result = pumpConfig();
+    else if (request.method === "GET" && path.length === 1 && path[0] === "holder-tokens") {
+      // Mint identity only, not market listings. Archived launches still have holders.
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      if (!Number.isSafeInteger(offset) || offset < 0) throw new LaunchError("Invalid offset.");
+      result = launchStore().holderTokens(offset);
+    }
     else if (request.method === "GET" && path[0] === "tokens") {
       if (path.length === 2) result = await getPumpToken(path[1]!);
       else if (path.length === 1) result = listPumpTokens({

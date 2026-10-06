@@ -53,6 +53,8 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
   /** The open agent's wallet, clock and power, when it is a holder agent. */
   const [holder, setHolder] = useState<HolderView | null>(null);
   /** This wallet's holding, on the holder flow: what the rent screen checks against the minimum. */
+  const [selectedMint, setSelectedMint] = useState("");
+  const [tokenHoldings, setTokenHoldings] = useState<{ mint: string; name: string; symbol: string; holding: HoldingView }[]>([]);
   const [holding, setHolding] = useState<HoldingView | null>(null);
   // Every agent this wallet owns, from the server: the same list on every device.
   const [mine, setMine] = useState<AgentView[]>([]);
@@ -128,9 +130,10 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
    */
   const loadMine = useCallback(
     async (sessionToken: string) => {
-      const { agents: owned, holding: held } = await api.me(sessionToken);
+      const { agents: owned, holding: held, tokenHoldings: holdingsByToken } = await api.me(sessionToken);
       setMine(owned);
       setHolding(held);
+      setTokenHoldings(holdingsByToken ?? []);
       const inPlay = owned.filter((a) => !a.retired);
       const saved = readStoredValue(localStorage, AGENT_KEY);
       const open = inPlay.find((a) => idOf(a) === saved) ?? inPlay[0] ?? null;
@@ -237,6 +240,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       // No name given: the agent's character is named for it.
       const chosenName = name.trim();
       const { agent: created, elicitation } = await api.rent(token, {
+        holderMint: selectedMint,
         ...(chosenName ? { name: chosenName } : {}),
         ...(tab === "preset" ? { presetName: chosen } : { brief: brief.trim() }),
       });
@@ -285,6 +289,7 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       holder={holder}
       onEnd={() => run("end", async () => {
         await api.endAgent(token, idOf(agent));
+        setSelectedMint(agent.holderMint ?? "");
         setAgent(null);
         setHolder(null);
         if (token) await loadMine(token);
@@ -297,7 +302,16 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
     />
   ) : null;
 
+  const availableTokens = [{ mint: "", symbol: "$AGP / test token", holding }, ...tokenHoldings]
+    .filter((item) => !inPlay.some((a) => (a.holderMint ?? "") === item.mint));
+  const chosenHolding = selectedMint ? tokenHoldings.find((item) => item.mint === selectedMint)?.holding ?? null : holding;
   const rentPanel = (
+    <div className="space-y-3">
+    {tokenHoldings.length ? <label className="block text-[13px] text-muted">Token for your replacement agent
+      <select value={selectedMint} onChange={(event) => setSelectedMint(event.target.value)} className="mt-2 block w-full rounded border border-line bg-panel p-3 text-text">
+        {[{ mint: "", symbol: "$AGP / test token", holding }, ...tokenHoldings].map((item) => <option key={item.mint} value={item.mint}>{item.symbol}{inPlay.some((a) => (a.holderMint ?? "") === item.mint) ? " · agent already exists" : ""}</option>)}
+      </select>
+    </label> : null}
     <RentPanel
       tab={tab}
       setTab={setTab}
@@ -318,10 +332,11 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
       firstFree={!firstFreeUsed}
       presetRatings={presetRatings}
       signedIn={Boolean(session)}
-      holding={holding}
+      holding={inPlay.some((a) => (a.holderMint ?? "") === selectedMint) ? null : chosenHolding}
       onCheckHolding={checkHolding}
       checkingHolding={busy === "holding"}
     />
+    </div>
   );
 
   // The list of everything this wallet holds, then the open agent, then renting
@@ -332,14 +347,14 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
         <YourAgents agents={mine} open={agent ? idOf(agent) : null} onSelect={select} />
       ) : null}
       {agentCard}
-      {inPlay.length === 0 ? rentPanel : null}
+      {availableTokens.some((item) => item.holding?.eligible) || inPlay.length === 0 ? rentPanel : null}
     </>
   );
 
   return (
     <Page
       title="Agent"
-      intro="Hold at least $20 worth of $AGP to activate an agent automatically. The system picks one of four strategies and starts autoplay. Matches never spend your tokens. End your agent to create your own strategy."
+      intro="Hold at least $20 worth of $AGP or a token launched on AgenticPad to activate a separate agent for each qualifying token. The system picks one of four strategies and starts autoplay. Matches never spend your tokens. End your agent to create your own strategy."
     >
       {!session ? <WelcomeCard /> : null}
 
@@ -372,13 +387,13 @@ function WelcomeCard() {
           <span className="text-[10px] uppercase tracking-[0.2em] text-teal">Your place in the village</span>
         </div>
         <h2 className="max-w-sm font-pixel text-xl leading-relaxed text-text sm:text-2xl">Launch a token.<br /><span className="text-accent">Join the arena.</span></h2>
-        <p className="mt-3 max-w-md text-[13px] leading-6 text-muted">Hold $20 worth of $AGP and your agent takes it from there. Four strategies. Automatic play. Your tokens stay in your wallet.</p>
+        <p className="mt-3 max-w-md text-[13px] leading-6 text-muted">Hold $20 worth of a qualifying token and its agent takes it from there. Four strategies. Automatic play. Your tokens stay in your wallet.</p>
         <div className="mt-5 flex flex-wrap gap-2">
           <Link href="/launch/new" className="rounded-panel bg-accent px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:bg-gold/85 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">Launch token <span aria-hidden>↗</span></Link>
           <Link href="/live" className="rounded-panel border border-hud-line px-4 py-2.5 text-[13px] text-text transition-colors hover:border-teal focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal">Watch the arena <span aria-hidden>→</span></Link>
         </div>
         <div className="mt-6 grid grid-cols-3 gap-3 border-t border-hud-line pt-4">
-          {[{ number: "01", label: "Hold $AGP" }, { number: "02", label: "Agent activates" }, { number: "03", label: "Autoplay begins" }].map((step) => (
+          {[{ number: "01", label: "Hold tokens" }, { number: "02", label: "Agent activates" }, { number: "03", label: "Autoplay begins" }].map((step) => (
             <div key={step.number}>
               <p className="font-mono text-xs text-teal">{step.number}</p>
               <p className="mt-1 text-[11px] leading-5 text-text">{step.label}</p>
@@ -691,6 +706,7 @@ function YourAgents({
                 <span className="min-w-0 flex-1 truncate">
                   <AgentName name={a.name} preset={a.presetName} />
                 </span>
+                <span className="font-mono text-[11px] text-muted" title={a.holderMint || "Primary token"}>{a.holderMint ? `${a.holderMint.slice(0, 4)}…${a.holderMint.slice(-4)}` : "$AGP / test"}</span>
                 {a.retired ? (
                   <span className="shrink-0 font-mono text-[11px] uppercase tracking-wider text-muted">retired</span>
                 ) : (

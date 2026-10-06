@@ -1,6 +1,6 @@
 # Holder agents
 
-**Status: automatic $AGP holder activation implemented 2026-10-05; see [automatic agents](automatic-agents.md) for current behavior and deployment settings.** This replaces both the staked model in [economy.md](economy.md) and the no-loss model in [no-loss-rewards.md](no-loss-rewards.md). Until it is built, economy.md still describes what runs on devnet. Nothing here pays real $AGP before the legal review ([Legal](#legal)).
+**Status: per-token holder activation implemented 2026-10-06; see [automatic agents](automatic-agents.md) for current behavior and deployment settings.** This replaces both the staked model in [economy.md](economy.md) and the no-loss model in [no-loss-rewards.md](no-loss-rewards.md). Until it is built, economy.md still describes what runs on devnet. Nothing here pays real $AGP before the legal review ([Legal](#legal)).
 
 ## In one paragraph
 
@@ -45,7 +45,7 @@ Each part runs from 0 to 1, so power does too.
 - **The dollar line does not touch it.** If $AGP falls and the minimum is retuned to more tokens, a wallet that has not sold keeps its clock. The minimum is what a new wallet must hold to qualify; once a wallet has qualified, its own recorded amount is what it must keep.
 - **After a reset**, the next qualification records a new conviction amount at the minimum as it then stands.
 - **At 180 days the clock stops growing.**
-- **A wallet that qualified keeps its agent while it keeps its conviction amount**, even if a retune has since raised the minimum above it. It needs the minimum as it then stands only to qualify afresh.
+- **Mainnet play requires a fresh verified $20 holding at every eligibility check**, independent of the conviction clock. A market-price drop can pause play while the holding clock continues. Devnet retains its test-token threshold.
 - **As built, the clock runs on readings** (decision 13), taken every ten minutes and whenever an owner asks: it starts at the first reading that holds the minimum, and a day's score counts the whole days it had run by that day's end.
 
 ## Scoring
@@ -103,18 +103,18 @@ As in [economy.md](economy.md#creator-fees-and-prizes), with the split changed 2
 
 ## Launchpad (direction)
 
-**Token launch integration started 2026-10-05; automatic $AGP holder activation is implemented; multi-token activation remains separate.** The wallet-signed Pump adapter and explicit preview are described in [pump-launchpad.md](pump-launchpad.md). Real launches require operator configuration before they can run. Everything above describes $AGP alone; the multi-token game integration below remains the direction for other tokens.
+**Token launch integration started 2026-10-05; automatic $AGP holder activation is implemented; multi-token activation is implemented.** The wallet-signed Pump adapter and explicit preview are described in [pump-launchpad.md](pump-launchpad.md). Real launches require operator configuration before they can run. The holding model applies independently to $AGP and every confirmed AgenticPad launch token.
 
 - **Any token can launch on the platform.** It gives up 100% of its creator fees, split 15/50/35 like every token ([Rewards](#rewards)).
 - **Every launch requires a 0.1 SOL platform fee** (100,000,000 lamports), to deter spam. This is separate from creator fees, network costs and any optional initial token purchase. Launchers receive 0% of creator fees and may buy tokens during creation. Recorded 2026-10-05.
 - **The launch fee goes to the platform wallet:** `8d2HSFZJiAg9UP8r5k4giGTrdsBxMkzjM6g2imcWwjGf` ([economy.md](economy.md#creator-fees-and-prizes)).
 - **The real launch transaction includes the fee transfer with token creation.** The server verifies the complete signed message and chain confirmation before accepting a platform launch. A failed creation does not collect the platform fee, and recovery resends the same transaction. The explicit preview collects no SOL.
 - **Its holders become agents in the same village** and draw from **the same shared pool** as $AGP agents.
-- **$AGP agents earn 1.3x per point; launch-token agents earn 1.0x.** The multiplier sits on top of the weight: score = points × weight × 1.3 for a $AGP agent, × 1.0 for any other.
+- **Proposed, not implemented: $AGP agents earn 1.3x per point; launch-token agents earn 1.0x.** The multiplier sits on top of the weight: score = points × weight × 1.3 for a $AGP agent, × 1.0 for any other.
 - **One agent per wallet per token.** A wallet holding $AGP, $DOX and $ZIP has three agents, each with its own conviction clock. Selling one token resets only that token's clock.
 - **Conviction and position are measured per token.** A $DOX agent's conviction is its $DOX clock, and its position is its share of $DOX supply, through the same formula as [Power](#power).
 
-Not yet decided: whether each launch token has its own dollar-pegged minimum, and how a launch that brings far more agents than $AGP shares the pool ([Open](#open), item 2).
+Each token independently requires $20 at its verified market price. Zero holdings retires its agent; a nonzero balance below $20 pauses it. Still open: how a launch that brings far more agents than $AGP shares the pool ([Open](#open), item 2).
 
 ## The village
 

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { connect, migrate, type Db } from "../src/db/client.js";
 import { agents, matches, ratings, RATING_WINDOW } from "../src/db/schema.js";
-import { holdingMinimum } from "../src/db/holdings.js";
+import { holdingMinimum, readHolding } from "../src/db/holdings.js";
 import {
   assertStakesMatch,
   createAgent,
@@ -164,11 +164,13 @@ describe("ratings", () => {
 describe("matchmaking", () => {
   it("never pairs an owner with themselves, and prefers the closest rating", async () => {
     const owner = someWallet();
-    const other = "22222222-2222-2222-2222-222222222222";
     const me = await addAgent({ name: "Mine", ownerId: owner });
-    const sibling = await addAgent({ name: "Also mine", ownerId: owner });
+    const siblingMint = someWallet();
+    const sibling = await addAgent({ name: "Also mine", ownerId: owner, holderMint: siblingMint });
+    await readHolding(db, { mint: siblingMint, balanceOf: async () => 20, supply: async () => 1_000_000,
+      quote: () => ({ minimum: 20, priceUsd: 1, decimals: 0, at: Date.now() }) }, owner);
     const rivals = [];
-    for (let i = 0; i < 5; i++) rivals.push(await addAgent({ name: `Rival ${i}`, ownerId: other }));
+    for (let i = 0; i < 5; i++) rivals.push(await addAgent({ name: `Rival ${i}`, ownerId: someWallet() }));
 
     // Everyone has a recent match, including my own sibling.
     for (const agent of [me, sibling, ...rivals]) {

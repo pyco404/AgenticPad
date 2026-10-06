@@ -26,6 +26,9 @@ import { inPlaySql } from "./ledger.js";
 /** The chain side: reads only, never a signature. */
 export type HoldingsChain = {
   /** Base units of the token the wallet holds, across every account it owns for it. */
+  /** Empty scope is the configured primary token. Other scopes are launch mints. */
+  mint?: string;
+  quote?(): { minimum: number; priceUsd: number; decimals: number; at: number } | null;
   balanceOf(wallet: string): Promise<number>;
   /** The token's total supply in base units. */
   supply(): Promise<number>;
@@ -38,7 +41,9 @@ export type HoldingsChain = {
 export type Reading = { wallet: string; amount: number; supply: number; readAt: Date };
 
 /** A reading as stored, with the conviction clock it keeps. */
-export type Holding = Reading & { convictionAmount: number | null; convictionSince: Date | null };
+export type Holding = Reading & { convictionAmount: number | null; convictionSince: Date | null;
+  mint?: string; minimum?: number | null; priceUsd?: number | null; decimals?: number | null; priceAt?: Date | null;
+};
 
 export type Clock = { amount: number; since: Date };
 
@@ -74,8 +79,11 @@ export function convictionDays(since: Date | null, at: Date): number {
  * qualified keeps its agent as long as it keeps what it qualified with, so a
  * retune that raises the minimum takes nobody out who has not sold.
  */
-export function keeps(holding: (Pick<Holding, "amount" | "convictionAmount"> & { readAt?: Date }) | null, minimum: number = holdingMinimum()): boolean {
+export function keeps(holding: (Pick<Holding, "amount" | "convictionAmount" | "mint" | "minimum" | "priceAt"> & { readAt?: Date }) | null, minimum: number = holdingMinimum()): boolean {
   if (!holding) return false;
+  if (holding.mint) return !!holding.minimum && holding.amount >= holding.minimum
+    && !!holding.priceAt && Date.now() - holding.priceAt.getTime() <= 15 * 60_000
+    && !!holding.readAt && Date.now() - holding.readAt.getTime() <= 20 * 60_000;
   if (liveHolderPricing() && (!holding.readAt || Date.now() - holding.readAt.getTime() > 20 * 60_000)) return false;
   return holderPriceReady() && holding.amount >= (liveHolderPricing() ? minimum : Math.min(holding.convictionAmount ?? minimum, minimum));
 }
@@ -90,16 +98,17 @@ export const holdingMinimum = (rate: number = seasonRate()): number => liveHolde
 /** A holding as the owner reads it: in chips, beside the minimum it is measured against, with its clock. */
 export function holdingView(holding: Holding | null, rate: number = seasonRate(), now = new Date()) {
   const amount = holding?.amount ?? 0;
-  const minimum = holdingMinimum(rate);
+  const minimum = holding?.mint ? holding.minimum ?? Number.MAX_SAFE_INTEGER : holdingMinimum(rate);
   return {
     /** Base units, and the same in chips. */
+    mint: holding?.mint ?? "",
     amount,
     chips: chips(amount, rate),
     minimum,
     minimumChips: chips(minimum, rate),
     minimumUsd: 20,
-    valueUsd: liveHolderPricing() && holderPriceReady() && holderQuote() ? amount / 10 ** holderQuote()!.decimals * holderQuote()!.priceUsd : null,
-    priceReady: holderPriceReady(),
+    valueUsd: holding?.mint ? (holding.priceUsd && holding.decimals != null && holding.priceAt && now.getTime() - holding.priceAt.getTime() <= 15 * 60_000 ? amount / 10 ** holding.decimals * holding.priceUsd : null) : liveHolderPricing() && holderPriceReady() && holderQuote() ? amount / 10 ** holderQuote()!.decimals * holderQuote()!.priceUsd : null,
+    priceReady: holding?.mint ? !!holding.priceAt && now.getTime() - holding.priceAt.getTime() <= 15 * 60_000 : holderPriceReady(),
     eligible: keeps(holding, minimum),
     /** Null when this wallet has never been read. */
     readAt: holding?.readAt.toISOString() ?? null,
@@ -125,10 +134,10 @@ const fromRow = (row: typeof holdings.$inferSelect): Holding => ({
  * read and the write share a transaction and a lock on the wallet, so two
  * readings landing together cannot both start a clock.
  */
-async function store(db: Db, reading: Reading, minimum: number): Promise<Holding> {
+async function store(db: Db, reading: Reading, minimum: number, chain?: HoldingsChain): Promise<Holding> {
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`holding:${reading.wallet}`}, 0))`);
-    const [prev] = await tx.select().from(holdings).where(eq(holdings.wallet, reading.wallet)).limit(1);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`holding:${reading.wallet}:${chain?.mint ?? ""}`}, 0))`);
+    const [prev] = await tx.select().from(holdings).where(and(eq(holdings.wallet, reading.wallet), eq(holdings.mint, chain?.mint ?? ""))).limit(1);
     const last = prev ? fromRow(prev) : null;
     const clock = nextClock(
       last?.convictionAmount !== null && last?.convictionAmount !== undefined && last.convictionSince
@@ -138,21 +147,27 @@ async function store(db: Db, reading: Reading, minimum: number): Promise<Holding
       minimum,
       reading.readAt,
     );
+    const quote = chain?.quote?.();
+    const scoped = chain?.mint ? {
+      minimum: quote?.minimum ?? null, priceUsd: quote?.priceUsd ?? null,
+      decimals: quote?.decimals ?? null, priceAt: quote ? new Date(quote.at) : null,
+    } : {};
     const set = {
+      ...scoped,
       amount: reading.amount,
       supply: reading.supply,
       readAt: reading.readAt,
       convictionAmount: clock?.amount ?? null,
       convictionSince: clock?.since ?? null,
     };
-    await tx.insert(holdings).values({ wallet: reading.wallet, ...set }).onConflictDoUpdate({ target: holdings.wallet, set });
-    return { wallet: reading.wallet, ...set };
+    await tx.insert(holdings).values({ wallet: reading.wallet, mint: chain?.mint ?? "", ...set }).onConflictDoUpdate({ target: [holdings.wallet, holdings.mint], set });
+    return { wallet: reading.wallet, mint: chain?.mint ?? "", ...set };
   });
 }
 
 /** The last reading for a wallet, or null if it has never been read. */
-export async function holdingOf(db: Db, wallet: string): Promise<Holding | null> {
-  const [row] = await db.select().from(holdings).where(eq(holdings.wallet, wallet)).limit(1);
+export async function holdingOf(db: Db, wallet: string, mint = ""): Promise<Holding | null> {
+  const [row] = await db.select().from(holdings).where(and(eq(holdings.wallet, wallet), eq(holdings.mint, mint))).limit(1);
   return row ? fromRow(row) : null;
 }
 
@@ -167,9 +182,11 @@ export async function readHolding(
   now = new Date(),
   minimum?: number,
 ): Promise<Holding> {
-  await chain.refreshMinimum?.();
+  try { await chain.refreshMinimum?.(); }
+  catch { /* Still verify zero balances; eligibility rejects missing or stale prices. */ }
   const [amount, supply] = await Promise.all([chain.balanceOf(wallet), chain.supply()]);
-  return store(db, { wallet, amount, supply, readAt: now }, minimum ?? holdingMinimum());
+  const threshold = chain.mint ? chain.quote?.()?.minimum ?? Number.MAX_SAFE_INTEGER : minimum ?? holdingMinimum();
+  return store(db, { wallet, amount, supply, readAt: now }, threshold, chain);
 }
 
 export type RefreshResult = { read: number; failed: { wallet: string; why: string }[] };
@@ -186,8 +203,10 @@ export async function refreshHolders(
   now = new Date(),
   minimum: number = holdingMinimum(),
 ): Promise<RefreshResult> {
-  await chain.refreshMinimum?.();
-  if (chain.refreshMinimum) minimum = holdingMinimum();
+  try { await chain.refreshMinimum?.(); }
+  catch { /* Still verify zero balances; eligibility rejects missing or stale prices. */ }
+  if (chain.mint) minimum = chain.quote?.()?.minimum ?? Number.MAX_SAFE_INTEGER;
+  else if (chain.refreshMinimum) minimum = holdingMinimum();
   let discoveryFailed = false;
   const discovered = chain.discoverWallets ? await chain.discoverWallets().catch(() => {
     discoveryFailed = true;
@@ -197,7 +216,7 @@ export async function refreshHolders(
     await db
       .selectDistinct({ wallet: agents.ownerId })
       .from(agents)
-      .where(and(eq(agents.funding, "holder"), isNull(agents.retiredAt), isNotNull(agents.ownerId)))
+      .where(and(eq(agents.funding, "holder"), eq(agents.holderMint, chain.mint ?? ""), isNull(agents.retiredAt), isNotNull(agents.ownerId)))
   ).map((r) => r.wallet!);
   for (const wallet of discovered) if (!wallets.includes(wallet)) wallets.push(wallet);
   if (wallets.length === 0) return { read: 0, failed: discoveryFailed ? [{ wallet: "discovery", why: "Holder discovery unavailable" }] : [] };
@@ -213,9 +232,9 @@ export async function refreshHolders(
   const result: RefreshResult = { read: 0, failed: discoveryFailed ? [{ wallet: "discovery", why: "Holder discovery unavailable; known holders still checked" }] : [] };
   for (const wallet of wallets) {
     try {
-      await store(db, { wallet, amount: await chain.balanceOf(wallet), supply, readAt: now }, minimum);
+      await store(db, { wallet, amount: await chain.balanceOf(wallet), supply, readAt: now }, minimum, chain);
       const { activateHolder } = await import("./holder-activation.js");
-      await activateHolder(db, wallet);
+      await activateHolder(db, wallet, chain.mint ?? "");
       result.read++;
     } catch (error) {
       result.failed.push({ wallet, why: String(error).slice(0, 200) });
