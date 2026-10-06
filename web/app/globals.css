@@ -72,7 +72,7 @@ html {
 
 /* The entrance borrows the village's teal banners and square pixel geometry. */
 .welcome-cover {
-  background: radial-gradient(ellipse at 50% 42%, #102b26 0%, #101c22 42%, #080e15 80%);
+  background: var(--color-hud);
 }
 .welcome-grid {
   background-image: linear-gradient(rgb(79 179 173 / 0.07) 1px, transparent 1px), linear-gradient(90deg, rgb(79 179 173 / 0.07) 1px, transparent 1px);
