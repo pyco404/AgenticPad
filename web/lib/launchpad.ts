@@ -203,7 +203,6 @@ export function checkForm(form: Omit<LaunchForm, "creator">): FormErrors {
   if (!name) errors.name = "Give the token a name.";
   else if (new TextEncoder().encode(name).length > 32) errors.name = "Use a shorter token name (up to 32 letters; some characters take more space).";
   if (!TICKER.test(form.ticker)) errors.ticker = "2 to 10 letters or digits, starting with a letter.";
-  else if (form.ticker === "AGP") errors.ticker = "That ticker is taken.";
   if (form.description.length > 500) errors.description = "500 characters at most.";
   if (!form.image) errors.image = "Add an image.";
   try { solToLamports(form.initialBuySol); } catch (error) { errors.initialBuySol = (error as Error).message; }

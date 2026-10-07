@@ -119,6 +119,37 @@ describe("Launch service (RPC and IPFS stubbed; no transactions sent)", () => {
     expect(status.failure?.message).toContain("expired");
     expect(Connection.prototype.sendRawTransaction).not.toHaveBeenCalled();
   });
+  describe("the $AGP mint", () => {
+    // Grinding a real AGP address takes seconds to minutes, so the configured
+    // key is a random one, given a stand-in address that ends in AGP.
+    const address = "1".repeat(30) + "AGP";
+    beforeEach(() => {
+      const agp = Keypair.generate();
+      vi.spyOn(Keypair, "fromSecretKey").mockReturnValue({ publicKey: new PublicKey(address), secretKey: agp.secretKey } as Keypair);
+      vi.stubEnv("AGP_MINT_SECRET", JSON.stringify(Array.from(agp.secretKey)));
+      vi.stubEnv("AGP_MINT_LAUNCHER", user.publicKey.toBase58());
+      form = { ...form, ticker: "AGP" };
+    });
+    it("uses the configured mint for the configured launcher's AGP launch, once", async () => {
+      expect((await prepare()).mint).toBe(address);
+      id = crypto.randomUUID();
+      await expect(prepare()).rejects.toThrow("already been used");
+    });
+    it("gives anyone else's AGP launch, and the launcher's other tickers, a random mint", async () => {
+      const other = Keypair.generate();
+      const theirs = await prepareLaunch({ id, form: { ...form, creator: other.publicKey.toBase58() } }, other.publicKey.toBase58(), connection);
+      expect(theirs.mint).not.toBe(address);
+      id = crypto.randomUUID(); form = { ...form, ticker: "TEST" };
+      expect((await prepare()).mint).not.toBe(address);
+    });
+    it("refuses a misconfigured key before uploading anything", async () => {
+      vi.mocked(Keypair.fromSecretKey).mockRestore();
+      await expect(prepare()).rejects.toThrow("does not end in AGP");
+      vi.stubEnv("AGP_MINT_LAUNCHER", "not-a-wallet");
+      await expect(prepare()).rejects.toThrow("not configured correctly");
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
   it("rejects non-mainnet RPCs before uploading or charging", async () => {
     vi.mocked(Connection.prototype.getGenesisHash).mockResolvedValue("devnet");
     await expect(prepare()).rejects.toThrow("another network");

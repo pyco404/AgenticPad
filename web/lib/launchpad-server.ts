@@ -114,6 +114,27 @@ async function uploadMetadata(form: LaunchForm) {
   return { uri, imageUrl };
 }
 
+/**
+ * $AGP's mint is ground in advance to end in "AGP" and set as AGP_MINT_SECRET,
+ * for the wallet in AGP_MINT_LAUNCHER only. Every other launch, including
+ * anyone else's "AGP" ticker, gets a fresh random mint.
+ */
+function mintFor(form: LaunchForm): Keypair {
+  const secret = process.env.AGP_MINT_SECRET;
+  if (form.ticker !== "AGP" || !secret) return Keypair.generate();
+  let launcher: string, mint: Keypair;
+  try {
+    launcher = new PublicKey(process.env.AGP_MINT_LAUNCHER ?? "").toBase58();
+    mint = Keypair.fromSecretKey(secret.trim().startsWith("[") ? Uint8Array.from(JSON.parse(secret) as number[]) : bs58.decode(secret.trim()));
+  } catch { throw new LaunchError("The $AGP mint is not configured correctly.", 503); }
+  if (form.creator !== launcher) return Keypair.generate();
+  if (!mint.publicKey.toBase58().endsWith("AGP")) throw new LaunchError("The configured $AGP mint does not end in AGP.", 503);
+  // A mint is used once. An earlier attempt holds it even if it expired, so a
+  // retry resumes that launch, or needs a newly ground key.
+  if (launchStore().getMint(mint.publicKey.toBase58())) throw new LaunchError("The configured $AGP mint has already been used. Resume that launch, or grind a new key.", 409);
+  return mint;
+}
+
 function ownedLaunch(id: string, owner: string): StoredLaunch {
   const record = launchStore().get(id);
   if (!record || record.owner !== owner) throw new LaunchError("Launch not found.", 404);
@@ -134,9 +155,9 @@ export async function prepareLaunch(body: Record<string, unknown>, owner: string
   await mainnet(connection);
   const table = await connection.getAddressLookupTable(new PublicKey(process.env.PUMP_LOOKUP_TABLE!));
   if (!table.value?.isActive()) throw new LaunchError("The launch address lookup table has not been set up.", 503);
+  const mint = mintFor(form);
   launchStore().reserve(id, owner);
   const { uri, imageUrl } = await uploadMetadata(form);
-  const mint = Keypair.generate();
   const online = new pump.OnlinePumpSdk(connection);
   const [global, feeConfig, latest] = await Promise.all([online.fetchGlobal(), online.fetchFeeConfig(), connection.getLatestBlockhash()]);
   if (!global.createV2Enabled) throw new LaunchError("Pump token creation is temporarily disabled.", 503);
@@ -152,7 +173,7 @@ export async function prepareLaunch(body: Record<string, unknown>, owner: string
     transaction: serialized, lastValidBlockHeight: latest.lastValidBlockHeight,
     signature: null, signed: null, confirmed: false, failure: null,
   });
-  // Discard the mint keypair. The wallet receives only a partially signed transaction.
+  // Discard the mint keypair (the $AGP one lives on in its env until removed). The wallet receives only a partially signed transaction.
   return { id, mint: mint.publicKey.toBase58(), transaction: serialized };
 }
 
