@@ -34,3 +34,6 @@ web/.shots/
 
 # Durable local launch records; mount this directory on production hosting.
 web/.data/
+
+
+note.txt

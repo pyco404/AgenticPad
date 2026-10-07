@@ -15,3 +15,6 @@ To keep data between runs, point it at your Postgres instead:
 
 
 cd ~/Desktop/Oxude && DATABASE_URL=postgres://... npm run serve -- --migrate
+
+
+
