@@ -1,3 +1,4 @@
+import { DISTRICT_PIECES } from "./district-pieces";
 import type * as Phaser from "phaser";
 import { DISTRICTS } from "./districts";
 import { groundDepth } from "./depth";
@@ -37,19 +38,9 @@ export function drawDistrictTerrain(scene: Phaser.Scene): void {
 
 /** Reuse the existing pixel art for small neighbourhood clusters. Houses remain obstacles. */
 export function drawDistrictProps(scene: Phaser.Scene): { solids: Bounds[]; placed: Bounds[] } {
-  const pieces = [
-    { key: "dress-house-blue", x: 2420, y: 620, scale: 0.65, solid: true },
-    { key: "dress-house-red", x: 2710, y: 870, scale: 0.65, solid: true },
-    { key: "ac-bench", x: 2570, y: 680, scale: 1.6, solid: false },
-    { key: "ac-chest", x: 2790, y: 1020, scale: 1.5, solid: true },
-    { key: "market-blue", x: 100, y: 1320, scale: 0.8, solid: true },
-    { key: "market-red", x: -220, y: 1050, scale: 0.8, solid: true },
-    { key: "ac-bench", x: 960, y: 1470, scale: 1.6, solid: false },
-    { key: "ac-chest", x: 160, y: 1370, scale: 1.3, solid: true },
-    { key: "ac-bench", x: 620, y: 820, scale: 1.5, solid: false },
-  ];
+
   const solids: Bounds[] = [], placed: Bounds[] = [];
-  for (const p of pieces) {
+  for (const p of DISTRICT_PIECES) {
     if (!scene.textures.exists(p.key) || byRiver(p) || byGardenPond(p) || nearRoad(p, 50) || RESERVED.some((b) => p.x > b.x0 && p.x < b.x1 && p.y > b.y0 && p.y < b.y1)) continue;
     if ((p.x < 200 && !SITES.bazaar) || (p.x > 2600 && !SITES.launchpad)) continue;
     const obj = scene.add.image(p.x, p.y, p.key).setOrigin(0.5, 1).setScale(p.scale).setDepth(p.y);
