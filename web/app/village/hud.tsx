@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { WorldJobs } from "./world-jobs";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { isPlaying, type Arrival } from "@/lib/live";
 import { ArrowIcon, ChevronIcon, CloseIcon } from "@/app/icons";
@@ -285,7 +286,7 @@ export function BuildingCard({ place, onClose, onEnter }: { place: PlaceInfo; on
           </div>
         </div>
       ) : null}
-      {place.id === "board" ? <Notices w={w} /> : null}
+      {place.id === "board" ? <><WorldJobs /><Notices w={w} /></> : null}
       {place.id === "forge" ? (
         <div className="rounded-panel mt-4 border border-line">
           <p className="border-b border-line px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-accent">Coming to the Game Hall</p>

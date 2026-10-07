@@ -21,9 +21,12 @@ export function usePlayingNow(): Arrival[] {
  * its first match rather than up to a poll later.
  */
 export function useField(initial: FieldAgent[] | null, playing: Arrival[]): FieldAgent[] | null {
-  const [agents, setAgents] = useState(initial);
+  const [agents, setAgents] = useState<(FieldAgent & { worldReceivedAt?: number })[] | null>(initial);
   const [refresh] = useState(() => () => {
-    if (!document.hidden) api.field().then((r) => setAgents(r.agents), () => {});
+    if (!document.hidden) api.field().then((r) => {
+      const worldReceivedAt = performance.now();
+      setAgents(r.agents.map((agent) => ({ ...agent, worldReceivedAt })));
+    }, () => {});
   });
   useEffect(() => {
     if (!initial) refresh();

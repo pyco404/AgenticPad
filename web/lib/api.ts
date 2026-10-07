@@ -219,6 +219,7 @@ export type FieldAgent = {
   house: boolean;
   /** Set for the minute after it retires, while it is shown leaving. */
   retiredAt: string | null;
+  worldActivity?: import("../../src/world/simulation").WorldActivity | null;
 };
 
 /** One match as the public feed shows it. Mirrors the API's FeedItem. */
@@ -374,6 +375,7 @@ export const api = {
     request<{ grant: { amount: number; chips: number; signature: string } }>("/faucet", { method: "POST", token }),
   /** Everyone in play, and whoever retired in the last minute. */
   field: () => request<{ agents: FieldAgent[]; at: string }>("/field"),
+  worldJobs: () => request<{ jobs: (import("../../src/world/activities").NoticeJob & { accepted: number })[] }>("/world/jobs"),
   season: () => request<{ season: SeasonInfo; graceHours: number; reminderHours: number }>("/season"),
   ladder: (sort: "winnings" | "per-match", limit = 25, period: LadderPeriod = "season") =>
     request<{ rows: LadderRow[]; season?: SeasonInfo & { current: boolean } }>(`/ladder?sort=${sort}&limit=${limit}&period=${period}`),

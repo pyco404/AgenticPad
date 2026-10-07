@@ -8,6 +8,8 @@ import { crispText, MONO } from "./text";
 import { shortName, type NameLabel, type Placement } from "./labels";
 import { sound } from "@/lib/sound";
 import { WEAPONS, weaponTexture, type WeaponName } from "./weapons";
+import type { ActivityState } from "./activities";
+import { motionPosition, type WorldActivity } from "../../../../src/world/simulation";
 
 /** The points to walk from one place to another, starting where the walker stands. */
 export type Router = (from: Point, to: Point) => Point[];
@@ -162,6 +164,9 @@ export class Hero {
   private rendered = true;
   private poseAt = 0;
   private resting = false;
+  private activity: ActivityState | null = null;
+  private activityProp: Phaser.GameObjects.Graphics | null = null;
+  private observingWorld = false;
   private pause: Phaser.Time.TimerEvent | null = null;
   /** Its body, arms and legs under the head, redrawn as it steps. */
   private limbs: Phaser.GameObjects.Graphics | null = null;
@@ -242,6 +247,7 @@ export class Hero {
     this.limbs?.setVisible(on && !this.swimming);
     this.shadow?.setVisible(on && !this.swimming);
     this.weapon?.setVisible(on && Boolean(this.portrait) && !this.swimming);
+    this.activityProp?.setVisible(on);
     this.halo?.setVisible(on);
     this.marker?.setVisible(on && this.mine);
     this.ripple?.setVisible(on && this.swimming);
@@ -251,7 +257,7 @@ export class Hero {
   }
 
   animateIdle(time: number): void {
-    if (!this.rendered || !this.portrait || !this.idle || this.opts.still || time - this.poseAt < 120) return;
+    if (!this.rendered || !this.idle || this.opts.still || time - this.poseAt < 120) return;
     this.poseAt = time;
     this.place();
   }
@@ -259,6 +265,37 @@ export class Hero {
   setResting(on: boolean): void {
     this.resting = on;
     this.place();
+  }
+
+  setActivityPose(state: ActivityState | null): void {
+    this.activity = state;
+    if (!state) { this.activityProp?.clear(); this.observingWorld = false; }
+  }
+
+  /** Observe an authoritative route; no input, client completion or new path is sent to the API. */
+  observeActivity(snapshot: WorldActivity, now: number): void {
+    if (!this.observingWorld) {
+      this.walk?.stop(); this.walk = null; this.pause?.remove(); this.pause = null;
+      this.stopLunge(); this.observingWorld = true;
+    }
+    const motion = snapshot.motion;
+    const point = motion ? motionPosition(motion, now) : snapshot.position;
+    const ahead = motion ? motionPosition(motion, now + 80) : point;
+    const moving = !this.opts.still && Math.hypot(ahead.x - point.x, ahead.y - point.y) > 0.1;
+    const wasWalking = this.walking;
+    if (moving && !wasWalking) this.stepFrom = this.scene.time.now;
+    this.setWalking(moving);
+    if (moving !== wasWalking) this.sprite.play(moving ? this.anims.run : this.anims.idle, true);
+    this.sprite.anims.timeScale = 0.85;
+    const dx = ahead.x - point.x, dy = ahead.y - point.y;
+    if (moving) this.turn(Math.abs(dy) > Math.abs(dx) * 1.2 ? (dy < 0 ? "back" : "front") : dx < 0 ? "left" : "right");
+    this.x = point.x; this.y = point.y;
+    this.activity = snapshot.state; this.resting = snapshot.state.phase === "resting";
+    // Offscreen positions still advance, while visible poses refresh at a bounded rate.
+    if (this.rendered && (this.opts.still || this.scene.time.now - this.poseAt >= (moving ? 50 : 120))) {
+      this.poseAt = this.scene.time.now; this.place();
+    }
+    if (this.opts.still) this.sprite.anims.pause();
   }
 
   highlight(): void {
@@ -559,7 +596,12 @@ export class Hero {
     if (!this.rendered) return;
     const wet = this.opts.inWater?.(this) ?? false;
     if (wet !== this.swimming) this.setSwimming(wet);
-    const y = this.y + this.bob + (this.resting ? 4 : 0);
+    const working = this.activity?.phase === "working" && !this.walking && !this.opts.still;
+    const effort = working && ["farming", "gathering"].includes(this.activity!.activity) ? Math.sin(this.scene.time.now / 240) : 0;
+    if (working && this.activity?.activity === "exploration") {
+      this.turn((["front", "right", "back", "left"] as const)[Math.floor(this.scene.time.now / 2800) % 4]!);
+    }
+    const y = this.y + this.bob + (this.resting ? 4 : 0) + Math.max(0, effort) * 2;
     const x = this.x + this.lungeX;
     const baseline = y + this.footOffset;
     this.sprite.setPosition(x, baseline - this.footOffset / FLOOR_RATIO);
@@ -577,10 +619,10 @@ export class Hero {
       const foot = this.swimming
         ? { x, y: y + this.waterline() + HEAD * (1 - ABOVE_WATER) }
         : { x: x - neck * Math.sin(tilt), y: ground + neck * Math.cos(tilt) / FLOOR_RATIO };
-      this.portrait.setPosition(foot.x, foot.y).setRotation(Math.sin(phase) * SWAY + tilt);
+      this.portrait.setPosition(foot.x, foot.y).setRotation(Math.sin(phase) * SWAY + effort * 0.1 + tilt);
       this.shadow?.setPosition(x + this.fallSide * this.fall * HEAD * 0.6, ground).setDisplaySize(HEAD * (0.85 - hop / (HOP * 5) + this.fall * 0.9), HEAD * 0.25);
       if (!this.swimming) {
-        this.drawBody(0, 0, phase, hop);
+        this.drawBody(0, 0, phase + effort, hop);
         this.limbs?.setPosition(Math.round(x), Math.round(ground)).setRotation(tilt);
         // The weapon in the hand, turning with the body when it is knocked over.
         if (this.weapon) {
@@ -588,7 +630,7 @@ export class Hero {
           const sin = Math.sin(tilt);
           const hx = Math.round(x) + this.hand.x * cos - this.hand.y * sin;
           const hy = Math.round(ground) + (this.hand.x * sin + this.hand.y * cos) / FLOOR_RATIO;
-          this.weapon.setScale(1, 1 / FLOOR_RATIO).setPosition(hx, hy).setRotation(this.hand.angle + tilt).setFlipX(this.view === "left").setVisible(true);
+          this.weapon.setScale(1, 1 / FLOOR_RATIO).setPosition(hx, hy).setRotation(this.hand.angle + tilt).setFlipX(this.view === "left").setVisible(!this.activity || this.activity.phase === "returning");
         }
       }
       // Lying down, the head is on its side: half its height above the ground rather than all of it.
@@ -610,8 +652,40 @@ export class Hero {
     // In front of the body, except seen from behind, when the body is in front of it.
     this.weapon?.setDepth(feet + (this.view === "back" ? 0.44 : 0.47));
     this.portrait?.setDepth(feet + 0.5);
+    this.drawActivityProp(feet, effort);
     // Names above everything in the village, so a building never hides one.
     this.label.setDepth(10_000 + feet);
+  }
+
+  /** Tiny native pixel props share the pose clock and are drawn only while visible. */
+  private drawActivityProp(feet: number, effort: number): void {
+    if (!this.activity || this.swimming || this.scene.cameras.main.worldView.width > 2400) { this.activityProp?.clear(); return; }
+    const g = this.activityProp ??= this.scene.add.graphics();
+    g.clear().setVisible(this.rendered).setPosition(Math.round(this.x), Math.round(feet)).setScale(1, 1 / FLOOR_RATIO).setDepth(feet + 0.55);
+    const state = this.activity;
+    if (state.carrying) {
+      g.fillStyle(0x39291e).fillRect(9, -20, 15, 13);
+      g.fillStyle(0xc99553).fillRect(10, -19, 13, 11);
+      g.fillStyle(0xf1d392).fillRect(15, -19, 3, 11).fillRect(10, -15, 13, 2);
+    } else if (state.phase === "working" && state.activity === "farming") {
+      const dy = Math.round(effort * 4);
+      g.fillStyle(0x795231).fillRect(14, -20 + dy, 3, 21);
+      g.fillStyle(0xd4d5ba).fillRect(10, -1 + dy, 13, 3);
+      g.fillStyle(0xb29860).fillRect(20, 2, 3, 2).fillRect(7, 4, 3, 2);
+    } else if (state.phase === "working" && state.activity === "gathering") {
+      g.fillStyle(0x73512e).fillRect(11, -2, 15, 8);
+      g.lineStyle(2, 0xdab675).strokeRect(12, -6, 12, 5);
+      g.fillStyle(0x91bd62).fillRect(13, -4, 4, 4).fillRect(19, -3, 4, 3);
+      if (effort > 0.3) g.fillStyle(0xe7d78c).fillRect(25, -16, 2, 7).fillRect(23, -14, 6, 2);
+    } else if (state.phase === "working" && state.activity === "exploration") {
+      g.fillStyle(0xe9dfaf).fillRect(10, -20, 13, 10);
+      g.fillStyle(0x5d8b73).fillRect(13, -18, 3, 6).fillRect(16, -15, 5, 2);
+    } else if (state.phase === "resting") {
+      // A seat pad and slow, rising sleep pixels distinguish rest from simply standing.
+      g.fillStyle(0x32675b, 0.8).fillRect(-13, 0, 26, 5);
+      const lift = this.opts.still ? 0 : Math.floor(this.scene.time.now / 500) % 6;
+      g.fillStyle(0xa9cbbb, 0.8).fillRect(23, -43 - lift, 7, 1).fillRect(27, -42 - lift, 2, 2).fillRect(23, -40 - lift, 7, 1);
+    }
   }
 
   /** Standing still, not on the way anywhere and not on the ground: free to fight. */
@@ -769,6 +843,7 @@ export class Hero {
    * and its `then` is dropped with it.
    */
   walkTo(to: Point, facing?: "left" | "right", how: { pace?: number; straight?: boolean; within?: number; pauses?: boolean; path?: readonly Point[]; then?: () => void } = {}): void {
+    this.setActivityPose(null);
     if (this.opts.still) {
       this.standAt(to, facing);
       how.then?.();
@@ -876,7 +951,7 @@ export class Hero {
     this.walk?.stop();
     this.setSelected(false);
     this.scene.tweens.add({
-      targets: [this.sprite, this.label, ...(this.portrait ? [this.portrait] : []), ...(this.shadow ? [this.shadow] : []), ...(this.limbs ? [this.limbs] : []), ...(this.weapon ? [this.weapon] : []), ...(this.ripple ? [this.ripple] : [])],
+      targets: [this.sprite, this.label, ...(this.portrait ? [this.portrait] : []), ...(this.shadow ? [this.shadow] : []), ...(this.limbs ? [this.limbs] : []), ...(this.weapon ? [this.weapon] : []), ...(this.ripple ? [this.ripple] : []), ...(this.activityProp ? [this.activityProp] : [])],
       alpha: 0,
       duration: this.opts.still ? 0 : 600,
       onComplete: () => this.destroy(),
@@ -900,5 +975,6 @@ export class Hero {
     this.shadow?.destroy();
     this.limbs?.destroy();
     this.weapon?.destroy();
+    this.activityProp?.destroy();
   }
 }

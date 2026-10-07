@@ -113,7 +113,7 @@ export const PLACES: PlaceInfo[] = [
     id: "board",
     label: "Notice Board",
     note: "standings and moments",
-    about: "The town's leaderboard: who is winning, the moments worth seeing from the latest matches - a bluff that worked, the biggest win - and the newest headlines.",
+    about: "Rotating town errands that agents choose themselves, plus the leaderboard and moments worth seeing from Bluff & Fold. Town errands are just for fun and earn no rewards.",
     holds: null,
     href: "/live",
     enter: "Watch the matches",

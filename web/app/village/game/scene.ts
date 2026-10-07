@@ -10,6 +10,7 @@ import { byGardenPond, drawGardens, GARDEN_PONDS } from "./gardens";
 import { byLandscape, LANDSCAPE_BOXES, MOUNTAIN_BOXES } from "./landscape";
 import { drawScenery } from "./scenery";
 import { ActivitySimulation, ACTIVITY_CONFIG, describeActivity } from "./activities";
+import type { ActivityState } from "./activities";
 import { ACTIVITY_DESTINATIONS } from "./activity-destinations";
 import { drawDistrictProps, drawDistrictTerrain } from "./district-scenery";
 import { Hero } from "./hero";
@@ -150,6 +151,7 @@ export class VillageScene extends Phaser.Scene {
   private activities: ActivitySimulation | null = null;
   /** Only the occasional house construction animation uses a delayed callback. */
   private routine = new Map<string, Phaser.Time.TimerEvent>();
+  private construction = new Set<string>();
   /** Dry pier planks over the southern lake remain valid walking ground. */
   private dock: { x: number; y: number; halfWidth: number; halfHeight: number } | null = null;
   /** The forest's chunks now made, each its trees and the sprite drawn for each (forest.ts). */
@@ -430,9 +432,10 @@ export class VillageScene extends Phaser.Scene {
       chunks: this.chunks.size, trees, drawn, objects: this.children.length, textures: this.textures.getTextureKeys().length,
       camera: { zoom: this.cameras.main.zoomX / renderScale(this), floorRatio: this.cameras.main.zoomY / this.cameras.main.zoomX, x: this.cameras.main.midPoint.x, y: this.cameras.main.midPoint.y, following: this.following, selected: this.selected },
       sample: [...this.heroes.entries()].slice(0, 8).map(([id, hero]) => ({ id, x: hero.x, y: hero.y,
-        activity: this.activities?.state(id, this.time.now), recent: this.activities?.recent(id) })),
+        activity: this.residents.get(id) ? this.activityState(this.residents.get(id)!, this.time.now) : null,
+        recent: this.activities?.recent(id) })),
       activities: [...this.heroes.keys()].reduce((counts, id) => {
-        const state = this.activities?.state(id, this.time.now);
+        const state = this.residents.get(id) ? this.activityState(this.residents.get(id)!, this.time.now) : null;
         if (state) { counts[state.activity] = (counts[state.activity] ?? 0) + 1; counts[state.phase] = (counts[state.phase] ?? 0) + 1; }
         return counts;
       }, {} as Record<string, number>),
@@ -469,6 +472,7 @@ export class VillageScene extends Phaser.Scene {
     if (!builder) return;
     const hero = this.heroes.get(builder)!;
     this.stopRoutine(builder);
+    this.construction.add(builder);
     this.roam(builder, true);
     hero.walkTo(plot.door, undefined, {
       pace: STROLL_PACE,
@@ -479,7 +483,7 @@ export class VillageScene extends Phaser.Scene {
   /** A house agent waiting at its hall and not already out: the one to send to a new plot. */
   private builder(): string | null {
     for (const [id, r] of this.residents) {
-      if (r.house && this.heroes.has(id) && this.isHall(r.place) && this.activities?.state(id, this.time.now)?.phase === "resting" && id !== this.selected) return id;
+      if (r.house && this.heroes.has(id) && this.isHall(r.place) && !this.construction.has(id) && this.activityState(r, this.time.now)?.phase === "resting" && id !== this.selected) return id;
     }
     return null;
   }
@@ -638,7 +642,7 @@ export class VillageScene extends Phaser.Scene {
     this.debugCount();
     const cam = this.cameras.main, hero = this.selected ? this.heroes.get(this.selected) : null;
     const resident = this.selected ? this.residents.get(this.selected) : null;
-    const activity = resident ? this.activities?.state(resident.id, time) : null;
+    const activity = resident ? this.activityState(resident, time) : null;
     this.opts.events.view?.({
       mode: viewMode(cam.zoomX / renderScale(this), this.following !== null), following: this.following !== null,
       selected: hero && resident ? { id: resident.standIn ?? resident.id, name: resident.name, house: resident.house,
@@ -733,6 +737,13 @@ export class VillageScene extends Phaser.Scene {
     // Names kept apart every frame: agents walk, and the camera moves and zooms. Rings too.
     this.events.on("update", (time: number, delta: number) => {
       if (!this.opts.still) this.activities?.tick(this.time.now);
+      for (const [id, hero] of this.heroes) {
+        const resident = this.residents.get(id);
+        if (resident?.worldActivity && this.isHall(resident.place) && !this.construction.has(id)) {
+          const now = resident.worldActivity.at + Math.max(0, performance.now() - (resident.worldReceivedAt ?? performance.now()));
+          hero.observeActivity(resident.worldActivity, now);
+        } else hero.setActivityPose(resident ? this.activities?.state(id, this.time.now) ?? null : null);
+      }
       this.followCamera(delta);
       this.publishView(time);
       const view = this.cameras.main.worldView;
@@ -919,6 +930,17 @@ export class VillageScene extends Phaser.Scene {
     }
 
     for (const [id, spot] of this.spots()) {
+      const resident = this.residents.get(id)!;
+      if (resident.worldActivity !== undefined && this.isHall(resident.place)) {
+        this.activities?.remove(id);
+        this.home.set(id, resident.worldActivity?.position ?? spot);
+        this.roam(id, true);
+        if (resident.worldActivity && !this.construction.has(id)) {
+          const now = resident.worldActivity.at + Math.max(0, performance.now() - (resident.worldReceivedAt ?? performance.now()));
+          this.heroes.get(id)!.observeActivity(resident.worldActivity, now);
+        }
+        continue;
+      }
       const key = `${Math.round(spot.x)},${Math.round(spot.y)},${spot.facing ?? ""}`;
       if (this.targets.get(id) === key) continue;
       this.targets.set(id, key);
@@ -976,10 +998,12 @@ export class VillageScene extends Phaser.Scene {
   };
 
   private stopRoutine(id: string): void {
+    this.construction.delete(id);
     this.routine.get(id)?.remove();
     this.routine.delete(id);
     this.activities?.remove(id);
     this.heroes.get(id)?.setResting(false);
+    this.heroes.get(id)?.setActivityPose(null);
     this.roam(id, false);
   }
 
@@ -992,26 +1016,43 @@ export class VillageScene extends Phaser.Scene {
 
   private after(id: string, ms: number, then: () => void): void {
     this.routine.get(id)?.remove();
-    this.routine.set(id, this.time.delayedCall(ms, then));
+    this.routine.set(id, this.time.delayedCall(ms, () => {
+      this.routine.delete(id);
+      then();
+    }));
   }
 
   /** Start once on arrival; feed refreshes update home without restarting the activity. */
   private standAWhile(id: string): void {
-    if (this.opts.still || !this.isHall(this.residents.get(id)?.place)) return;
+    if (this.opts.still || !this.isHall(this.residents.get(id)?.place) || this.residents.get(id)?.worldActivity !== undefined) return;
     const home = this.home.get(id);
     if (!home) return;
     this.activities?.add(id, home, this.time.now);
     this.roam(id, true);
   }
 
+  private activityState(resident: Resident, time: number): ActivityState | null {
+    if (inMatch(resident.place) || resident.place === "gate") return null;
+    const snapshot = resident.worldActivity;
+    if (!snapshot) return this.activities?.state(resident.id, time) ?? null;
+    const now = snapshot.at + Math.max(0, performance.now() - (resident.worldReceivedAt ?? performance.now()));
+    const state = snapshot.state;
+    return { ...state, progress: state.completesAt ? Math.max(0, Math.min(snapshot.motion ? 0.95 : 1,
+      (now - state.startedAt) / Math.max(1, state.completesAt - state.startedAt))) : 0 };
+  }
+
   /** Back to its spot at the hall, and the routine starts over there. */
   private goHome(id: string, hero: Hero): void {
     hero.setResting(false);
     const home = this.home.get(id);
-    if (!home) return this.roam(id, false);
+    if (!home) {
+      this.construction.delete(id);
+      return this.roam(id, false);
+    }
     hero.walkTo(home, home.facing, {
       pace: STROLL_PACE,
       then: () => {
+        this.construction.delete(id);
         this.roam(id, false);
         this.standAWhile(id);
       },

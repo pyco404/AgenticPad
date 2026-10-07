@@ -62,6 +62,7 @@ export function AgentStatus({ account, accountError, view, village }: {
         <dt className="text-muted">Activity</dt><dd>{view?.selected?.activity ?? "Locating…"}</dd>
         <dt className="text-muted">Destination</dt><dd className="truncate" title={view?.selected?.destination}>{view?.selected?.destination ?? "Locating…"}</dd>
       </dl>
+      {view?.selected?.activityState?.job ? <p className="mt-2 text-[11px] text-emerald-300">Town errand: {view.selected.activityState.job.title}</p> : null}
       {view?.selected?.activityState ? <div className="mt-2">
         <div className="mb-1 flex justify-between text-[10px] text-muted"><span>{view.selected.activityState.phase === "working" ? "Activity progress" : view.selected.activityState.phase === "resting" ? "Rest" : "Journey progress"}</span><span>{Math.round(view.selected.activityState.progress * 100)}%</span></div>
         <progress aria-label="Activity progress" value={view.selected.activityState.progress} max={1} className="block h-1.5 w-full accent-emerald-400" />

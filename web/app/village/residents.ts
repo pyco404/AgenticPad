@@ -8,12 +8,16 @@
  * shapes below are the parts of FieldAgent and LiveMatch it reads.
  */
 
+import type { WorldActivity } from "../../../src/world/simulation";
+
 export type FieldEntry = {
   id: string;
   name: string;
   presetName: string | null;
   house: boolean;
   retiredAt: string | null;
+  worldActivity?: WorldActivity | null;
+  worldReceivedAt?: number;
 };
 
 export type PlayingMatch = {
@@ -67,9 +71,9 @@ export type Place = "arena" | "duel" | "tavern" | "forge" | "castle" | "gate";
 /** Whether an agent is in a match, in the Arena or out in the village. */
 export const inMatch = (place: Place) => place === "arena" || place === "duel";
 
-/** The halls waiting agents gather at. Everyone plays everyone, so a hall is only where an agent waits. */
-export const HALLS = ["tavern", "forge", "castle"] as const;
-export type Hall = (typeof HALLS)[number];
+export { HALLS, hallOf } from "../../../shared/world/identity";
+import { hallOf, type Hall } from "../../../shared/world/identity";
+export type { Hall } from "../../../shared/world/identity";
 
 export const HERO_UNITS = ["warrior", "archer", "pawn"] as const;
 export const HERO_COLOURS = ["blue", "yellow", "red", "purple"] as const;
@@ -97,6 +101,8 @@ export type Resident = {
     clock: MatchClock | null;
   } | null;
   look: Look;
+  worldActivity?: WorldActivity | null;
+  worldReceivedAt?: number;
   /** A replay's stand-in: the agent it stands in for, whose face it wears and whose page it opens. */
   standIn?: string;
 };
@@ -123,14 +129,6 @@ export function lookOf(id: string): Look {
     unit: HERO_UNITS[h % HERO_UNITS.length] ?? "pawn",
     colour: HERO_COLOURS[Math.floor(h / HERO_UNITS.length) % HERO_COLOURS.length] ?? "blue",
   };
-}
-
-/**
- * The hall an agent waits at, fixed by its id so it is always the same one, and
- * spread so the three fill about evenly. Salted, so it does not follow the look.
- */
-export function hallOf(id: string): Hall {
-  return HALLS[hash(`hall:${id}`) % HALLS.length] ?? "forge";
 }
 
 /** A replay's stand-in's id: never an agent's, so the real one carries on elsewhere. */
@@ -188,6 +186,8 @@ export function placeResidents(agents: readonly FieldEntry[], playing: readonly 
       place: a.retiredAt ? "gate" : match ? (match.id === live?.id ? "arena" : "duel") : hallOf(a.id),
       match,
       look: lookOf(a.id),
+      ...(a.worldActivity !== undefined ? { worldActivity: a.worldActivity } : {}),
+      ...(a.worldReceivedAt !== undefined ? { worldReceivedAt: a.worldReceivedAt } : {}),
     };
   });
   // A live match whose agents have left the field is played by stand-ins too.
