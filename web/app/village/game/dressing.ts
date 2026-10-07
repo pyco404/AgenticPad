@@ -45,10 +45,17 @@ export type Bounds = { x: number; y: number; width: number; height: number };
 
 /** Draw the dressing, each piece at the depth of its foot like the map's own; return what is solid, and where everything is. */
 export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bounds[]; placed: Bounds[] } {
-  // A stone market clearing beneath the two awnings and the avenue.
+  // Scattered worn cobbles under the stalls; the ordinary roads supply their connection.
+  // No enclosing platform or kerb: grass meets the market along an uneven edge.
   const market = scene.add.graphics().setDepth(groundDepth(-410));
-  market.fillStyle(ROAD_COLOURS.paved.edge).fillEllipse(1380, 1440, 420, 190);
-  market.fillStyle(ROAD_COLOURS.paved.surface).fillEllipse(1380, 1440, 400, 172);
+  for (const [sx, sy] of [[1250, 1440], [1510, 1460]]) {
+    for (let row = -18; row <= 18; row += 9) for (let col = -48; col <= 48; col += 14) {
+      if ((Math.abs(col) / 48 + Math.abs(row) / 24) > 1.5 || (col + row) % 5 === 0) continue;
+      const x = sx! + col + row % 3, y = sy! + row;
+      market.fillStyle(ROAD_COLOURS.paved.surface, .7).fillRect(x, y, 9, 5);
+      market.fillStyle(ROAD_COLOURS.paved.hi, .4).fillRect(x + 1, y, 6, 2);
+    }
+  }
   // The square and the carpet first, just over the map's roads, so they join them without a seam.
   const g = scene.add.graphics().setDepth(groundDepth(-399));
   const sq = SQUARE;

@@ -95,7 +95,7 @@ export const SITES: Record<string, Site> = {
     scale: 2,
     door: ARENA_ENTRANCES.front,
     depth: groundDepth(-350),
-    labelY: 560,
+    labelY: 470,
     // Tiered walls wrap the oval; front/east gates and the sand stay open.
     blocks: ARENA_BLOCKS,
   },
@@ -146,6 +146,7 @@ export const ROADS: Path[] = [
   curvedPath("trail", 32, [[1990,750],[1975,690],[1975,630]]),
   curvedPath("trail", 32, [[740,1305],[710,1320],[650,1295]]),
   curvedPath("trail", 34, [[1510,1270],[1510,1460],[1400,1470],[1400,1370]]),
+  curvedPath("trail", 32, [[1400,1370],[1370,1420],[1310,1470],[1250,1475]]),
   curvedPath("trail", 32, [[1966,1472],[2080,1490],[2160,1380],[2050,1310]]),
   curvedPath("trail", 30, [[600,685],[480,675],[330,660]]),
   curvedPath("trail", 30, [[650,1295],[530,1480],[530,1810]]),
