@@ -103,6 +103,25 @@ expected recipients and admin updates revoked. Token pages recheck the sharing
 configuration. The platform fee is verified through the immutable prepared
 message and confirmed signature, rather than a client payment assertion.
 
+## The $AGP mint
+
+Every launch gets a random mint address, except $AGP, whose address ends in
+`AGP`. Its key is ground on the operator's machine and used once:
+
+```bash
+solana-keygen grind --ends-with AGP:1   # writes <address>.json
+```
+
+On the web service, set `AGP_MINT_SECRET` to that file's contents (the JSON
+byte array; a base58 secret also works) and `AGP_MINT_LAUNCHER` to the wallet
+that will launch $AGP. Only that wallet, launching the ticker `AGP`, gets this
+mint; anyone else's `AGP` ticker gets a random one. A key that does not end in
+`AGP` is refused before anything is uploaded or charged.
+
+The mint is used once. If that launch expires, it cannot be prepared again:
+resume it, or grind a new key. After $AGP is live, remove both variables and
+set `PAYOUT_AGP_MINT` to the new mint.
+
 ## Current limits
 
 This integrates token creation, initial buying, platform charging, fee routing,
