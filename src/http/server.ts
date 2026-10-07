@@ -1,4 +1,5 @@
 import type { HolderCatalog } from "../db/holder-catalog.js";
+import { readWorldActivities } from "../db/world-activities.js";
 import { activateHolder, endHolder } from "../db/holder-activation.js";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -253,6 +254,7 @@ export function createApp(options: AppOptions): Server {
     ["GET", /^\/presets$/, getPresets],
     ["GET", /^\/roster$/, getRoster],
     ["GET", /^\/field$/, getField],
+    ["GET", /^\/world\/jobs$/, async () => ({ jobs: (await readWorldActivities(db, (options.now ?? Date.now)())).jobs })],
     ["GET", /^\/season$/, getSeason],
     ["GET", /^\/scores$/, getScores],
     ["GET", /^\/statement$/, getStatement],
@@ -767,7 +769,10 @@ export function createApp(options: AppOptions): Server {
   async function getField() {
     const now = (options.now ?? Date.now)();
     if (!fieldCache || now - fieldCache.at >= fieldCacheMs) {
-      const value = field(db, new Date(now)).then((agents) => ({ agents, at: new Date(now).toISOString() }));
+      const value = Promise.all([field(db, new Date(now)), readWorldActivities(db, now)]).then(([agents, world]) => ({
+        agents: agents.map((agent) => ({ ...agent, worldActivity: agent.retiredAt ? null : world.activities.get(agent.id) ?? null })),
+        at: new Date(now).toISOString(),
+      }));
       fieldCache = { at: now, value };
       // A failed read is not served to the next caller.
       value.catch(() => {

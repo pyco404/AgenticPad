@@ -179,6 +179,13 @@ if (autoplayMs > 0) {
 }
 
 
+// Cosmetic world routines run with no viewers. Only Bluff & Fold earns rewards.
+{
+  const { startWorldActivities } = await import("../src/db/world-activities.js");
+  await startWorldActivities(db, { onError: (error) => console.error(`world activities: ${String(error).slice(0, 160)}`) });
+  console.log("World activities: persistent cosmetic routines on");
+}
+
 // Characters check chosen names and write bios for brief-written agents with
 // a small model, when there is a key to call one with.
 const characterModel = process.env["ANTHROPIC_API_KEY"]

@@ -13,6 +13,7 @@ import { agents, MIN_FUNDING_CHIPS, WORST_MATCH } from "../src/db/schema.js";
 import { holdingMinimum } from "../src/db/holdings.js";
 import { balanceOf } from "../src/db/ledger.js";
 import { someWallet, createPlayer, everyoneHolds, holdFor } from "./helpers.js";
+import { tickWorldActivities } from "../src/db/world-activities.js";
 
 // Over real HTTP: the tests start a server and use fetch, so routing, headers,
 // status codes and JSON parsing are all exercised.
@@ -519,6 +520,19 @@ describe("sharing and the roster", () => {
     } finally {
       await db.update(agents).set({ retiredAt: row!.retiredAt }).where(eq(agents.id, first!.id));
     }
+  });
+
+  it("exposes shared cosmetic activities and autonomous jobs without wallet data or mutation controls", async () => {
+    const now = Date.now();
+    await tickWorldActivities(db, now - 20_000);
+    await tickWorldActivities(db, now);
+    const snapshot = await readBody(await api("/field", { owner: null }));
+    expect(snapshot.agents.some((a: Json) => a.worldActivity?.state)).toBe(true);
+    expect(JSON.stringify(snapshot)).not.toContain("ownerId");
+    const board = await readBody(await api("/world/jobs", { owner: null }));
+    expect(board.jobs.length).toBeGreaterThan(0);
+    expect(board.jobs[0]).toMatchObject({ capacity: expect.any(Number), expiresAt: expect.any(Number), accepted: expect.any(Number) });
+    expect(JSON.stringify(board)).not.toMatch(/rewardPoints|resources|reputation|ownerId/);
   });
 });
 

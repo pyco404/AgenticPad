@@ -12,6 +12,8 @@ import { computeDay, dayOf, freezeEndedDays } from "../src/db/scores.js";
 import { seasonAt } from "../src/season.js";
 import { someWallet, createPlayer } from "./helpers.js";
 import { health } from "../src/db/admin.js";
+import { tickWorldActivities, readWorldActivities } from "../src/db/world-activities.js";
+import { worldActivities } from "../src/db/schema.js";
 
 /**
  * The suite runs on PGlite; production runs on node-postgres. They do not agree
@@ -56,6 +58,24 @@ class URL_ {
 }
 
 describe.skipIf(!URL)("against a real Postgres (npm run check runs these; a bare vitest run skips them)", () => {
+  it("serializes cosmetic worker replicas and restores JSON journeys from the production driver", async () => {
+    const { db, close } = await fresh();
+    try {
+      const a = await createAgent(db, { name: "Resident", presetName: "Anchor" });
+      const now = Date.now();
+      await tickWorldActivities(db, now);
+      await Promise.all([tickWorldActivities(db, now + 20_000), tickWorldActivities(db, now + 20_000)]);
+      const rows = await db.select().from(worldActivities);
+      expect(rows).toHaveLength(1);
+      const saved = rows[0]!.checkpoint;
+      expect(saved.at).toBe(now + 20_000);
+      expect(saved.entries.find((e) => e.id === a.id)!.cycle).toBeGreaterThan(0);
+      const snapshot = (await readWorldActivities(db, now + 20_000)).activities.get(a.id)!;
+      expect(Number.isFinite(snapshot.position.x)).toBe(true);
+      await tickWorldActivities(db, now + 20_000);
+      expect((await db.select().from(worldActivities))[0]!.checkpoint).toEqual(saved);
+    } finally { await close(); }
+  });
   it("keeps balances and eligibility independent for two token agents owned by the same wallet", async () => {
     const { db, close } = await fresh();
     try {
