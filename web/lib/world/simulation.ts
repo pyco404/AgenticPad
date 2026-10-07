@@ -59,6 +59,7 @@ export function activitySnapshot(e: ActivityEntry, position: Point, now: number)
     startedAt: e.phaseAt, completesAt: e.until > e.phaseAt ? e.until : null,
     progress: e.until > e.phaseAt ? Math.max(0, Math.min(e.moving ? 0.95 : 1, (now - e.phaseAt) / (e.until - e.phaseAt))) : 0,
     ...(e.plan?.job ? { job: e.plan.job } : {}) };
+  if (e.sparring) state.sparring = e.sparring;
   const motion = e.moving ? { path: e.path, startedAt: e.phaseAt, endsAt: e.until } : null;
   return { state, motion, position: motion ? motionPosition(motion, now) : position, at: now, revision: `${e.trip}:${e.phase}:${e.phaseAt}` };
 }

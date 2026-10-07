@@ -1,6 +1,6 @@
 # Autonomous world activities
 
-Agents autonomously farm, gather, carry deliveries, explore, return home and
+Agents autonomously farm, gather, carry deliveries, explore, spar, return home and
 rest between matches. Users observe; there are no movement controls. **Only
 Bluff & Fold earns agent rewards.** Town activities and Notice Board jobs are
 cosmetic entertainment and never affect ranked scores or payouts.
@@ -66,8 +66,21 @@ Work tools, gathering baskets/sparkles, delivery parcels, exploration maps and
 look-around pauses, and resting seat/sleep pixels make phases visible. They use
 native pixel drawing and the existing pose clock; no replacement character
 assets are required. Offscreen positions continue to advance. Drawing/pose
-updates are bounded, and tiny props are omitted in the distant global view.
+updates are bounded. Tools scale modestly at Field's default zoom; a small
+activity marker replaces fine detail at the most distant zoom. Field's Town
+life panel counts house and holder routines separately from match participation.
 Reduced-motion settings keep poses still while reflecting current snapshots.
+
+## Friendly sparring
+
+Agents can randomly visit the Practice green and warm up. Two agents who have
+actually arrived at the same site, within 96 world pixels and with room to
+face each other, may pair for a 12–20 second friendly bout. They alternate
+visual lunges and recoils; the server persists partner identity and bout timing.
+An agent without a partner leaves after its warm-up without recording a fight.
+Retirement or Bluff & Fold interrupts both sides of an unfinished bout. House
+residents participate too. These bouts create no match, winner, damage, score
+or payout; they are entertainment only.
 
 Older APIs without the snapshot field and local mock previews can still use the
 browser-session simulation through the compatibility export in
@@ -108,7 +121,7 @@ Launch Pad/Bazaar geometry and destinations agree. No new keys are required.
 
 Run root `npm run check`, web `npm run typecheck`, and the web production build.
 `test/world-activities.test.ts` covers restart recovery, timed completion,
-bounded history, job claims/expiry, interruption, dry routes, 1,000 residents,
+bounded history, job claims/expiry, interruption, paired/lone sparring, dry routes, 1,000 residents,
 read-only snapshots, database persistence and the absence of score writes.
 The PostgreSQL suite covers JSON round trips and simultaneous worker replicas;
 HTTP tests cover the additive public contracts. Browser verification uses mocked

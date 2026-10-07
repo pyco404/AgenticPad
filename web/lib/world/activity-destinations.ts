@@ -19,4 +19,5 @@ export const ACTIVITY_DESTINATIONS: ActivityDestination[] = [
   { id: "riverside", name: "Riverside rocks", x: 2630, y: 1100, capabilities: ["gather", "explore"], capacity: 64 },
   { id: "south-grove", name: "South Grove", x: 1810, y: 2120, capabilities: ["gather", "explore"], capacity: 64 },
   { id: "terrace", name: "Terrace garden", x: 1925, y: 650, capabilities: ["explore"], capacity: 48 },
+  { id: "practice-green", name: "Practice green", x: 700, y: 840, capabilities: ["spar"], capacity: 24 },
 ];

@@ -41,7 +41,7 @@ describe("autonomous activities", () => {
       preferences.add(JSON.stringify(activityPreferences(id)));
       observed.add(a.activity);
       expect(a.target.capabilities).toContain(a.activity === "delivery" ? "delivery-target" :
-        a.activity === "farming" ? "farm" : a.activity === "gathering" ? "gather" : "explore");
+        a.activity === "farming" ? "farm" : a.activity === "gathering" ? "gather" : a.activity === "sparring" ? "spar" : "explore");
       if (a.source) { expect(a.source.capabilities).toContain("delivery-source"); expect(a.source.id).not.toBe(a.target.id); }
     }
     expect(observed).toEqual(new Set(ACTIVITY_TYPES));

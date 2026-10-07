@@ -167,6 +167,7 @@ export class Hero {
   private activity: ActivityState | null = null;
   private activityProp: Phaser.GameObjects.Graphics | null = null;
   private observingWorld = false;
+  private sparringBeat: string | null = null;
   private pause: Phaser.Time.TimerEvent | null = null;
   /** Its body, arms and legs under the head, redrawn as it steps. */
   private limbs: Phaser.GameObjects.Graphics | null = null;
@@ -269,7 +270,10 @@ export class Hero {
 
   setActivityPose(state: ActivityState | null): void {
     this.activity = state;
-    if (!state) { this.activityProp?.clear(); this.observingWorld = false; }
+    if (!state) {
+      this.activityProp?.clear(); this.observingWorld = false;
+      if (this.sparringBeat) { this.sparringBeat = null; this.stopLunge(); }
+    }
   }
 
   /** Observe an authoritative route; no input, client completion or new path is sent to the API. */
@@ -291,6 +295,18 @@ export class Hero {
     if (moving) this.turn(Math.abs(dy) > Math.abs(dx) * 1.2 ? (dy < 0 ? "back" : "front") : dx < 0 ? "left" : "right");
     this.x = point.x; this.y = point.y;
     this.activity = snapshot.state; this.resting = snapshot.state.phase === "resting";
+    const bout = snapshot.state.sparring;
+    if (bout && this.rendered && !this.opts.still && now < bout.endsAt) {
+      const beat = Math.floor(Math.max(0, now - bout.startedAt) / 900);
+      const key = `${bout.id}:${beat}`;
+      const toward = bout.partnerPosition.x < this.x ? -1 : 1;
+      this.face(toward < 0 ? "left" : "right");
+      if (this.sparringBeat !== key) {
+        this.sparringBeat = key;
+        if (beat % 2 === bout.side) this.lunge(toward * 10);
+        else this.recoil(-toward * 4);
+      }
+    } else if (this.sparringBeat) { this.sparringBeat = null; this.stopLunge(); }
     // Offscreen positions still advance, while visible poses refresh at a bounded rate.
     if (this.rendered && (this.opts.still || this.scene.time.now - this.poseAt >= (moving ? 50 : 120))) {
       this.poseAt = this.scene.time.now; this.place();
@@ -630,7 +646,7 @@ export class Hero {
           const sin = Math.sin(tilt);
           const hx = Math.round(x) + this.hand.x * cos - this.hand.y * sin;
           const hy = Math.round(ground) + (this.hand.x * sin + this.hand.y * cos) / FLOOR_RATIO;
-          this.weapon.setScale(1, 1 / FLOOR_RATIO).setPosition(hx, hy).setRotation(this.hand.angle + tilt).setFlipX(this.view === "left").setVisible(!this.activity || this.activity.phase === "returning");
+          this.weapon.setScale(1, 1 / FLOOR_RATIO).setPosition(hx, hy).setRotation(this.hand.angle + tilt).setFlipX(this.view === "left").setVisible(!this.activity || this.activity.phase === "returning" || this.activity.activity === "sparring");
         }
       }
       // Lying down, the head is on its side: half its height above the ground rather than all of it.
@@ -659,10 +675,21 @@ export class Hero {
 
   /** Tiny native pixel props share the pose clock and are drawn only while visible. */
   private drawActivityProp(feet: number, effort: number): void {
-    if (!this.activity || this.swimming || this.scene.cameras.main.worldView.width > 2400) { this.activityProp?.clear(); return; }
-    const g = this.activityProp ??= this.scene.add.graphics();
-    g.clear().setVisible(this.rendered).setPosition(Math.round(this.x), Math.round(feet)).setScale(1, 1 / FLOOR_RATIO).setDepth(feet + 0.55);
+    if (!this.activity || this.swimming) { this.activityProp?.clear(); return; }
     const state = this.activity;
+    if (!state.carrying && !["working", "resting"].includes(state.phase)) { this.activityProp?.clear(); return; }
+    const g = this.activityProp ??= this.scene.add.graphics();
+    const density = this.scene.game.scale.zoom > 0 ? 1 / this.scene.game.scale.zoom : 1;
+    const zoom = this.scene.cameras.main.zoomX / density;
+    const scale = Math.min(1.8, Math.max(1, 0.9 / zoom));
+    g.clear().setVisible(this.rendered).setPosition(Math.round(this.x), Math.round(feet)).setScale(scale, scale / FLOOR_RATIO).setDepth(feet + 0.55);
+    // Even the distant world view keeps a small activity cue, with no detailed tool drawing.
+    if (this.scene.cameras.main.worldView.width > 4200) {
+      const colour = state.phase === "resting" ? 0xa9cbbb : state.activity === "sparring" ? 0xf1b36b : state.activity === "delivery" ? 0xe4bd76 : 0x8ec8a0;
+      g.fillStyle(0x183c32).fillRect(10, -29, 8, 8);
+      g.fillStyle(colour).fillRect(12, -27, 4, 4);
+      return;
+    }
     if (state.carrying) {
       g.fillStyle(0x39291e).fillRect(9, -20, 15, 13);
       g.fillStyle(0xc99553).fillRect(10, -19, 13, 11);
@@ -680,6 +707,14 @@ export class Hero {
     } else if (state.phase === "working" && state.activity === "exploration") {
       g.fillStyle(0xe9dfaf).fillRect(10, -20, 13, 10);
       g.fillStyle(0x5d8b73).fillRect(13, -18, 3, 6).fillRect(16, -15, 5, 2);
+    } else if (state.activity === "sparring" && state.phase === "working") {
+      g.lineStyle(1, 0xdab675, 0.65).strokeEllipse(0, 1, 30, 10);
+      if (state.sparring && Math.abs(this.lungeX) > 5) {
+        const dx = this.lungeX < 0 ? -24 : 24;
+        g.fillStyle(0xffe29a).fillRect(dx, -25, 2, 9).fillRect(dx - 3, -22, 8, 2);
+      } else if (!state.sparring) {
+        g.fillStyle(0xe2c489).fillRect(18, -28, 4, 4).fillRect(24, -28, 4, 4);
+      }
     } else if (state.phase === "resting") {
       // A seat pad and slow, rising sleep pixels distinguish rest from simply standing.
       g.fillStyle(0x32675b, 0.8).fillRect(-13, 0, 26, 5);

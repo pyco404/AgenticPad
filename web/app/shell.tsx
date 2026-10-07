@@ -15,6 +15,7 @@ import { Welcome } from "@/app/welcome";
 import { BuildingCard, OpenBuildingProvider } from "@/app/village/hud";
 import { placeOf, PLACES } from "@/app/village/places";
 import { placeResidents } from "@/app/village/residents";
+import { townActivityTally } from "@/app/village/activity-tally";
 import { placeLine, worldTally, WorldProvider, type World } from "@/app/village/world";
 import type { VillageHandle } from "@/app/village/game";
 import { arenaLine } from "@/app/village/arena";
@@ -608,12 +609,13 @@ function Village({
  */
 function PhoneStats({ world, hidden }: { world: World; hidden: boolean }) {
   const t = worldTally(world);
+  const town = townActivityTally(world.residents ?? []);
   const n = (v: number | undefined) => (v === undefined ? "–" : v);
   const state = world.online === null ? "Connecting" : world.online ? "Online" : "Offline";
   const tone = world.online === null ? "text-muted" : world.online ? "text-live" : "text-loss";
   const dot = `inline-block h-2 w-2 rounded-full ${world.online ? "live-blink bg-live" : world.online === null ? "bg-muted" : "bg-loss"}`;
   const cells: { label: string; value: number | undefined; tone: string; title?: string }[] = [
-    { label: "Active", value: t?.active, tone: "text-live" },
+    { label: "In matches", value: t?.active, tone: "text-live" },
     { label: "Idle", value: t?.idle, tone: "text-accent" },
     { label: "Done", value: t?.done, tone: "text-text", title: "Player matches finished in the live window; exhibitions excluded" },
     { label: "Total", value: t?.total, tone: "text-text" },
@@ -638,6 +640,15 @@ function PhoneStats({ world, hidden }: { world: World; hidden: boolean }) {
           </span>
         ))}
       </p>
+      <div className="mt-1.5 border-t border-hud-line pt-1.5">
+        <p className="text-live">Town life</p>
+        <div className="grid grid-cols-2 gap-x-3 text-[10px] leading-4">
+          {([['Farming', town.farming], ['Gathering', town.gathering], ['Delivery', town.delivery], ['Exploring', town.exploration], ['Practice', town.sparring], ['Rest/return', town.resting]] as const).map(([label, count]) => (
+            <span key={label} className="flex justify-between gap-2"><span className="text-muted">{label}</span><span className="text-text">{count}</span></span>
+          ))}
+        </div>
+        <p className="text-[9px] leading-4 text-muted">House + holder agents</p>
+      </div>
     </div>
   );
 }

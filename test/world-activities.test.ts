@@ -14,6 +14,42 @@ const route = (from: Point, to: Point) => [from, to];
 const resident = (id = "a") => ({ id, home: { x: 0, y: 0 } });
 
 describe("persisted cosmetic activities", () => {
+  it("pairs nearby sparring partners after arrival, resumes a bout, and completes it once without rewards", () => {
+    const green: ActivityDestination = { id: "green", name: "Practice green", x: 100, y: 100, capabilities: ["spar"], capacity: 24 };
+    let world = new WorldSimulation([green], route);
+    world.sync(Array.from({ length: 24 }, (_, i) => resident(`spar-${i}`)), 0);
+    let at = 0;
+    while (at < 60_000 && !world.save().entries.some((e) => e.sparring)) { at += 1000; world.tick(at); }
+    const saved = world.save(), a = saved.entries.find((e) => e.sparring)!;
+    expect(a?.phase).toBe("working"); expect(a?.moving).toBe(false);
+    const b = saved.entries.find((e) => e.id === a.sparring!.partnerId)!;
+    expect(b.sparring).toMatchObject({ id: a.sparring!.id, partnerId: a.id, endsAt: a.until });
+    expect(Math.hypot(saved.positions[a.id]!.x - saved.positions[b.id]!.x, saved.positions[a.id]!.y - saved.positions[b.id]!.y)).toBeLessThanOrEqual(96);
+    world = new WorldSimulation([green], route, JSON.parse(JSON.stringify(saved)));
+    expect(activitySnapshot(world.save().entries.find((e) => e.id === a.id)!, world.position(a.id)!, at).state.sparring).toEqual(a.sparring);
+    world.tick(a.until + 1000); world.tick(a.until + 1000);
+    for (const [id, partnerId] of [[a.id, b.id], [b.id, a.id]]) {
+      const completed = world.simulation.recent(id!).filter((r) => r.partnerId === partnerId);
+      expect(completed).toHaveLength(1);
+      expect(completed[0]).toMatchObject({ activity: "sparring", partnerId, success: true });
+      for (const key of ["winner", "score", "damage", "xp", "reward", "payout"]) expect(completed[0]).not.toHaveProperty(key);
+    }
+    // Interrupting one partner for a real match cancels both sides of an unfinished bout.
+    world = new WorldSimulation([green], route, saved);
+    world.sync(saved.entries.map((e) => ({ id: e.id, home: e.home, interrupted: e.id === a.id })), at);
+    expect(world.simulation.has(a.id)).toBe(false);
+    expect(world.simulation.state(b.id, at)?.sparring).toBeUndefined();
+    expect(world.simulation.recent(b.id)).toHaveLength(0);
+  });
+
+  it("does not fabricate a fight when a lone agent cannot find a partner", () => {
+    const green: ActivityDestination = { id: "green", name: "Practice green", x: 100, y: 100, capabilities: ["spar"], capacity: 24 };
+    const world = new WorldSimulation([green], route);
+    world.sync([resident()], 0);
+    for (let at = 1000; at <= 240_000; at += 1000) world.tick(at);
+    expect(world.simulation.recent("a")).toHaveLength(0);
+  });
+
   it("interpolates along each bend, clamps stale feeds, and never cuts a corner", () => {
     const motion = { path: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }], startedAt: 1000, endsAt: 3000 };
     expect(motionPosition(motion, 500)).toEqual({ x: 0, y: 0 });

@@ -68,7 +68,7 @@ missing catalog/market data never invents eligibility. Reward payments use
 wallet-approved swaps and transfers; enable and configure the executor separately.
 See [automatic agents](docs/automatic-agents.md) and [reward payouts](docs/reward-payouts.md).
 
-The world also has [persistent autonomous activities](docs/autonomous-activities.md): farming, gathering, deliveries, exploration, rest and rotating Notice Board jobs. They continue with the API running while users are away and are purely cosmetic. **Only Bluff & Fold earns agent rewards.**
+The world also has [persistent autonomous activities](docs/autonomous-activities.md): farming, gathering, deliveries, exploration, friendly sparring, rest and rotating Notice Board jobs. House and holder agents participate. They continue with the API running while users are away and are purely cosmetic. **Only Bluff & Fold earns agent rewards.**
 
 ### No program
 
