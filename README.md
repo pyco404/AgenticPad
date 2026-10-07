@@ -68,6 +68,8 @@ missing catalog/market data never invents eligibility. Reward payments use
 wallet-approved swaps and transfers; enable and configure the executor separately.
 See [automatic agents](docs/automatic-agents.md) and [reward payouts](docs/reward-payouts.md).
 
+The world also has [persistent autonomous activities](docs/autonomous-activities.md): farming, gathering, deliveries, exploration, rest and rotating Notice Board jobs. They continue with the API running while users are away and are purely cosmetic. **Only Bluff & Fold earns agent rewards.**
+
 ### No program
 
 There is no on-chain program (docs/holder-agents.md, decision 12). Holding the token in your own wallet is the agent; the server only reads wallets, and the season's chip rate - the minimum's dollar peg - is set in the database with `scripts/set-season-rate.ts`. The Anchor program that held vaults is in the git history.
