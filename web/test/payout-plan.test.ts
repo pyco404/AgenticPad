@@ -53,6 +53,13 @@ describe("SOL reward payout planning (no swaps or payments)", () => {
     expect(() => plan({ ...settings, delaySeconds: 0 })).toThrow("Wait");
     expect(() => plan({ ...settings, slippageBps: 1000 })).toThrow("Slippage");
   });
+  it("pays one wallet once per token, each agent under its own 10% cap", () => {
+    const both = [{ ...winners[0]!, mint: "agp" }, { ...winners[0]!, agentId: "agent-dox", mint: "dox" }];
+    const result = plan(settings, both);
+    expect(result.winners.map((winner) => winner.lamports)).toEqual(["900000000", "900000000"]);
+    expect(result.allocatedLamports).toBe("1800000000");
+    expect(() => plan(settings, [both[0]!, both[0]!])).toThrow("once per token");
+  });
   it("stores immutable approval details and prevents a second approved plan for the same period", () => {
     const launches = new LaunchStore(":memory:");
     const store = new PayoutStore(launches.db);

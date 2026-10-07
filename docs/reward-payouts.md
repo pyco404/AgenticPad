@@ -24,7 +24,8 @@ estimates or promises that a trade will succeed.
 For a 10 SOL budget at 80%, up to 8 SOL is allocated to winners and at least
 2 SOL stays in the same reward wallet, accumulating alongside new fees for
 future payouts. The platform takes no cut from reward wallets. The existing
-10% per-winner cap still applies; capped or rounded allocations also stay in
+10% per-winner cap still applies, per wallet/token pair: a wallet with agents
+for several tokens is paid once for each, each capped on its own; capped or rounded allocations also stay in
 the reward wallet. Rent, transaction costs and swap fees must be accounted for
 separately. The Pump 15% daily / 50% weekly / 35% platform split is unchanged.
 Older plans with a platform cut remain in history but cannot be approved;

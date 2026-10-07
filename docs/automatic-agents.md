@@ -19,8 +19,10 @@ Ending an agent retires its record, switches off autoplay and persists an opt-ou
 from automatic creation for that wallet/token pair only. The holder can then create a new agent using a chosen
 preset or brief. Both automatic and manual creation take the same wallet lock,
 so concurrent requests cannot produce two active agents for the same wallet/token pair. Ending and manual
-creation move no tokens. Old agent results stay in history. Frozen payout
-recipients merge replacement agents into one receiving wallet, with one 10% cap.
+creation move no tokens. Old agent results stay in history. Each wallet/token
+pair is paid as its own recipient with its own 10% cap, so a wallet holding
+several qualifying tokens is paid for each. Frozen payout recipients merge only
+replacement agents for the same wallet/token pair, under that pair's one cap.
 
 On mainnet, eligibility uses a current DEX Screener price from the token's most
 liquid matching base-token pool and the mint's real decimals. The required amount

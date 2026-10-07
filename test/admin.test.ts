@@ -97,7 +97,7 @@ describe("who may read /admin", () => {
     await db.insert(dailyScores).values({ day, agentId: agent.id, rankedMatches: 3, points: 10, qualified: true, convictionDays: 0, shareOfSupply: 0, power: 0, weight: 1, score: 10 });
     const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-02`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ frozen: true, winners: [{ agentId: agent.id, name: "Payout winner", wallet: owner, share: 0.1 }] });
+    expect(await response.json()).toEqual({ frozen: true, winners: [{ agentId: agent.id, name: "Payout winner", wallet: owner, mint: "", share: 0.1 }] });
   });
   it("merges replacement agents into one capped payout wallet", async () => {
     const owner = someWallet();
@@ -113,6 +113,19 @@ describe("who may read /admin", () => {
     expect(body.winners[0]!.wallet).toBe(owner);
     expect(body.winners[0]!.share).toBe(0.1);
     expect(new Set(body.winners[0]!.agentIds)).toEqual(new Set([first.id, second.id]));
+  });
+  it("pays a wallet's agents for different tokens independently, each capped", async () => {
+    const owner = someWallet();
+    const agp = await createAgent(db, { name: "AGP agent", presetName: "Anchor", ownerId: owner });
+    const dox = await createAgent(db, { name: "DOX agent", presetName: "Mirage", ownerId: owner, holderMint: "DOXmint" });
+    const day = Math.floor(Date.parse("2026-05-04T00:00:00Z") / 86_400_000);
+    await freezeDay(db, day);
+    for (const agent of [agp, dox]) await db.insert(dailyScores).values({ day, agentId: agent.id, rankedMatches: 3, points: 10, qualified: true, convictionDays: 0, shareOfSupply: 0, power: 0, weight: 1, score: 10 });
+    const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-04`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
+    const body = await response.json() as { winners: { agentId: string; wallet: string; mint: string; share: number }[] };
+    expect(body.winners).toHaveLength(2);
+    expect(new Set(body.winners.map((w) => w.mint))).toEqual(new Set(["", "DOXmint"]));
+    expect(body.winners.every((w) => w.wallet === owner && w.share === 0.1)).toBe(true);
   });
   it("needs a session at all", async () => {
     // 401, not 404: being signed out says nothing about who may read this.

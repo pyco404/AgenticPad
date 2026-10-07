@@ -717,23 +717,27 @@ export function createApp(options: AppOptions): Server {
     const table = "day" in tables ? tables.day : tables.season;
     if (!table || !table.frozen) throw new HttpError(409, "payouts require frozen scores");
     const eligible = table.rows.filter((row) => row.qualified && row.share > 0);
-    const owners = eligible.length ? await db.select({ id: agents.id, wallet: agents.ownerId }).from(agents)
+    const owners = eligible.length ? await db.select({ id: agents.id, wallet: agents.ownerId, mint: agents.holderMint }).from(agents)
       .where(inArray(agents.id, eligible.map((row) => row.agentId))) : [];
-    const wallets = new Map(owners.map((row) => [row.id, row.wallet]));
+    const recipients = new Map(owners.map((row) => [row.id, row]));
     const winners = eligible.map((row) => {
-      const wallet = wallets.get(row.agentId);
-      if (!wallet || !isPublicKey(wallet)) throw new HttpError(409, "a winner has no valid receiving wallet");
-      return { agentId: row.agentId, name: row.name, share: row.share, wallet };
+      const owner = recipients.get(row.agentId);
+      if (!owner?.wallet || !isPublicKey(owner.wallet)) throw new HttpError(409, "a winner has no valid receiving wallet");
+      const mint = owner.mint || options.holder?.primaryMint || "";
+      return { agentId: row.agentId, name: row.name, share: row.share, wallet: owner.wallet, mint };
     });
-    // Replacing an agent preserves its score, but never creates another payout
-    // slot for the same wallet or bypasses the 10% recipient cap.
+    // The cap is per agent, and an agent is one wallet holding one token: a
+    // wallet with agents for several tokens takes a capped share for each.
+    // Only a replacement for the same token merges, so ending an agent and
+    // creating another never opens a second slot or bypasses the 10% cap.
     const grouped = new Map<string, typeof winners[number] & { agentIds?: string[] }>();
     for (const winner of winners) {
-      const previous = grouped.get(winner.wallet);
+      const key = `${winner.wallet}:${winner.mint}`;
+      const previous = grouped.get(key);
       if (previous) {
         previous.share = Math.min(0.1, previous.share + winner.share);
         previous.agentIds = [...(previous.agentIds ?? [previous.agentId]), winner.agentId];
-      } else grouped.set(winner.wallet, { ...winner });
+      } else grouped.set(key, { ...winner });
     }
     return { frozen: true, winners: [...grouped.values()] };
   }

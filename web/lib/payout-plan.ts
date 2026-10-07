@@ -4,7 +4,8 @@ export type PayoutInput = {
   kind: "daily" | "weekly"; period: string; budgetSol: string;
   rewardPercent: string; batchSol: string; delaySeconds: number; slippageBps: number;
 };
-export type PayoutWinner = { agentId: string; name: string; wallet: string; share: number };
+/** One agent: a wallet holding one token. A wallet with agents for several tokens is several winners. */
+export type PayoutWinner = { agentId: string; name: string; wallet: string; mint?: string; share: number };
 export type PayoutPlan = {
   id: string; kind: PayoutInput["kind"]; period: string; source: string; platform: string;
   budgetLamports: string; rewardBps: number; platformLamports: string;
@@ -35,8 +36,9 @@ export function buildPayoutPlan(input: PayoutInput, winners: PayoutWinner[], sou
   const seen = new Set<string>();
   let totalShare = 0;
   const recipients = winners.map((winner) => {
-    if (seen.has(winner.wallet)) throw new Error("A payout wallet may appear only once.");
-    seen.add(winner.wallet);
+    const key = `${winner.wallet}:${winner.mint ?? ""}`;
+    if (seen.has(key)) throw new Error("A payout wallet may appear only once per token.");
+    seen.add(key);
     if (!Number.isFinite(winner.share) || winner.share < 0 || winner.share > 0.100000000001) throw new Error("Invalid winner share; each winner is capped at 10%.");
     const share = Math.floor(Math.min(0.1, winner.share) * 1_000_000_000);
     totalShare += share;
