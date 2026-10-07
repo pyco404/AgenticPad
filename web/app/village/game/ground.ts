@@ -100,6 +100,14 @@ export class Ground {
     for (const i of water) this.water.push(this.centre(i));
   }
 
+  /** Trunks occupy ground cells; canopies remain overhead and do not become invisible walls. */
+  blockTrunks(trunks: readonly Point[]): void {
+    for (const p of trunks) {
+      const index = this.index(p);
+      if (index !== null) this.open[index] = false;
+    }
+  }
+
   /** Whether p is in the lake. */
   inWater(p: Point): boolean {
     const i = this.index(p);
@@ -125,16 +133,29 @@ export class Ground {
   /** The nearest dry spot to p: p itself if it is dry. */
   nearestDry(p: Point): Point {
     if (this.walkable(p)) return p;
-    let best = this.anywhere[0] ?? p;
-    for (const q of this.anywhere) if (Math.hypot(q.x - p.x, q.y - p.y) < Math.hypot(best.x - p.x, best.y - p.y)) best = q;
+    let best = this.anywhere.find((q) => this.walkable(q)) ?? p;
+    for (const q of this.anywhere) if (this.walkable(q) && Math.hypot(q.x - p.x, q.y - p.y) < Math.hypot(best.x - p.x, best.y - p.y)) best = q;
     return best;
   }
 
-  /** Whether the straight line a-b stays on dry ground, checked every half tile. */
+  /** Visit every crossed cell, including both banks at an exact corner. Sampling can miss a thin wet corner. */
   private clear(a: Point, b: Point): boolean {
-    const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (TILE / 2));
-    for (let k = 1; k < n; k++) {
-      if (!this.walkable({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n })) return false;
+    if (!this.walkable(a) || !this.walkable(b)) return false;
+    let col = Math.floor(a.x / TILE), row = Math.floor(a.y / TILE);
+    const endCol = Math.floor(b.x / TILE), endRow = Math.floor(b.y / TILE);
+    const dx = b.x - a.x, dy = b.y - a.y, sx = Math.sign(dx), sy = Math.sign(dy);
+    const tx = dx === 0 ? Infinity : TILE / Math.abs(dx), ty = dy === 0 ? Infinity : TILE / Math.abs(dy);
+    let nextX = dx === 0 ? Infinity : ((col + (sx > 0 ? 1 : 0)) * TILE - a.x) / dx;
+    let nextY = dy === 0 ? Infinity : ((row + (sy > 0 ? 1 : 0)) * TILE - a.y) / dy;
+    const open = (c: number, r: number) => this.walkable({ x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 });
+    for (let steps = 0; col !== endCol || row !== endRow; steps++) {
+      if (steps > this.cols + this.rows) return false;
+      if (Math.abs(nextX - nextY) < 1e-9) {
+        if (!open(col + sx, row) || !open(col, row + sy)) return false;
+        col += sx; row += sy; nextX += tx; nextY += ty;
+      } else if (nextX < nextY) { col += sx; nextX += tx; }
+      else { row += sy; nextY += ty; }
+      if (!open(col, row)) return false;
     }
     return true;
   }
@@ -146,10 +167,11 @@ export class Ground {
    * walks the way a person would rather than tile by tile.
    */
   route(from: Point, to: Point): Point[] {
+    const end = this.nearestDry(to);
     const start = this.index(this.nearestDry(from));
-    const goal = this.index(this.nearestDry(to));
-    if (start === null || goal === null) return [from, to];
-    if (this.clear(from, to)) return [from, to];
+    const goal = this.index(end);
+    if (start === null || goal === null) return [from];
+    if (this.clear(from, end)) return [from, end];
 
     const g = new Map<number, number>([[start, 0]]);
     const came = new Map<number, number>();
@@ -211,17 +233,19 @@ export class Ground {
         }
       }
     }
-    if (!came.has(goal) && start !== goal) return [from, to];
+    if (!came.has(goal) && start !== goal) return [from];
 
     const tiles: Point[] = [];
     for (let i: number | undefined = goal; i !== undefined && i !== start; i = came.get(i)) tiles.unshift(this.centre(i));
-    const coarse = [from, ...tiles.slice(0, -1), to];
+    // Keep the start and goal cell centres: off-centre endpoints may not have a safe diagonal to a neighbour.
+    const coarse = [from, this.centre(start), ...tiles, end];
     // Pull the string: from each point, go to the farthest one still in a straight dry line.
     const out = [from];
     let at = 0;
     while (at < coarse.length - 1) {
       let next = coarse.length - 1;
       while (next > at + 1 && !this.clear(coarse[at]!, coarse[next]!)) next--;
+      if (!this.clear(coarse[at]!, coarse[next]!)) return [from];
       out.push(coarse[next]!);
       at = next;
     }

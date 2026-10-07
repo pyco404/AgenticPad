@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MOUNTAINS, MOUNTAIN_BOXES, OCEAN, oceanTerrain, roughWavePosition, seaAnimalPosition } from "../web/app/village/game/landscape.js";
+import { MOUNTAINS, MOUNTAIN_BOXES, OCEAN, ROUGH_SEA, oceanTerrain, roughWavePosition, seaAnimalPosition } from "../web/app/village/game/landscape.js";
 import { CENTRE, lakeTerrain, OUTER, SPOKES, WORLD } from "../web/app/village/game/world.js";
 import { Ground } from "../web/app/village/game/ground.js";
 import type { VillageMap } from "../web/app/village/game/map.js";
 import { nearRoad } from "../web/app/village/game/town.js";
-import { RIVER_BANKS, RIVER_BRIDGES, riverTerrain } from "../web/app/village/game/river.js";
+import { RIVER_BANKS, RIVER_BRIDGES, RIVER_SHORES, riverTerrain, waterTerrain } from "../web/app/village/game/river.js";
 import { NEW_TOWN, plotClearing, overlaps } from "../web/app/village/game/growth.js";
 
 it("keeps the river wet, crosses on dry bridges, and keeps future housing off its banks", () => {
@@ -32,6 +32,28 @@ it("keeps the river wet, crosses on dry bridges, and keeps future housing off it
   for (const plot of NEW_TOWN.plots) expect(RIVER_BANKS.some((bank) => overlaps(plotClearing(plot, 0), bank))).toBe(false);
 });
 
+it("connects the upper lake to the river with continuous water and no grass bank through the mouth", () => {
+  const terrain = waterTerrain();
+  const ground = new Ground({
+    world: { x0: WORLD.x0, y0: WORLD.y0, width: WORLD.x1 - WORLD.x0, height: WORLD.y1 - WORLD.y0 },
+    base: "terrain-color1", terrain, paths: [], decorations: [], buildings: [],
+    spawn: CENTRE, heroScale: 1, textures: [], animations: [],
+  }, []);
+  const start = { x: Math.floor(ROUGH_SEA.x / 64) * 64 + 32, y: Math.floor(ROUGH_SEA.y / 64) * 64 + 32 };
+  const goal = { x: 2400, y: start.y };
+  const wet = new Set(ground.water.map((p) => `${p.x},${p.y}`));
+  const reached = new Set([`${start.x},${start.y}`]), queue = [start];
+  for (let i = 0; i < queue.length; i++) for (const [dx, dy] of [[64, 0], [-64, 0], [0, 64], [0, -64]]) {
+    const p = { x: queue[i]!.x + dx!, y: queue[i]!.y + dy! }, key = `${p.x},${p.y}`;
+    if (wet.has(key) && !reached.has(key)) { reached.add(key); queue.push(p); }
+  }
+  expect(reached.has(`${goal.x},${goal.y}`)).toBe(true);
+  for (let x = 1952; x <= 2400; x += 64) expect(ground.inWater({ x, y: start.y })).toBe(true);
+  expect(RIVER_SHORES.some((p) => p.x > 2000 && p.x < 2350 && Math.abs(p.y - start.y) < 40)).toBe(false);
+  // No legacy shoreline land overlay may silently make a connected-looking water tile walkable.
+  expect(ground.walkable({ x: 2208, y: start.y })).toBe(false);
+});
+
 describe("village ocean and mountains", () => {
   const terrain = oceanTerrain();
   const land = new Set(terrain.filter(([, , texture]) => texture !== "terrain-water").map(([c, r]) => `${c},${r}`));
@@ -40,7 +62,7 @@ describe("village ocean and mountains", () => {
   it("can route agents to dry destinations at all four far corners without crossing water or mountains", () => {
     const map: VillageMap = {
       world: { x0: WORLD.x0, y0: WORLD.y0, width: WORLD.x1 - WORLD.x0, height: WORLD.y1 - WORLD.y0 },
-      base: "terrain-grass", terrain: [...lakeTerrain(), ...terrain], paths: [], decorations: [], buildings: [],
+      base: "terrain-grass", terrain: [...lakeTerrain(), ...waterTerrain()], paths: [], decorations: [], buildings: [],
       spawn: CENTRE, heroScale: 1, textures: [], animations: [],
     };
     const ground = new Ground(map, [], MOUNTAIN_BOXES);

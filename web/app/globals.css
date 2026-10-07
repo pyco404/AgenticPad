@@ -80,14 +80,30 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
-/* The entrance borrows the village's teal banners and square pixel geometry. */
+/* The live world shows through a cinematic, pixel-framed entry menu. */
 .welcome-cover {
-  background: var(--color-hud);
+  background: transparent;
 }
-.welcome-grid {
-  background-image: linear-gradient(rgb(79 179 173 / 0.07) 1px, transparent 1px), linear-gradient(90deg, rgb(79 179 173 / 0.07) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse at center, black, transparent 75%);
+.welcome-fallback { background: #385538; }
+.welcome-road { position: absolute; top: 45%; left: -10%; width: 120%; height: 86px; transform: rotate(-18deg); border: 9px solid; }
+.welcome-shade { background: radial-gradient(ellipse at center, rgb(3 12 10 / .28), rgb(3 12 10 / .7)), linear-gradient(rgb(4 15 12 / .24), rgb(4 15 12 / .48)); }
+.welcome-scanlines { opacity: .16; background: repeating-linear-gradient(transparent 0 3px, #000 3px 4px); }
+.welcome-menu { background: rgb(8 19 16 / .94); border: 2px solid #56765b; box-shadow: 0 0 0 4px #0a1410, 0 0 0 6px #314b38, 8px 10px 0 rgb(0 0 0 / .4), inset 0 3px 0 #25452e; }
+.welcome-menu::before, .welcome-menu::after { content: ""; position: absolute; width: 8px; height: 8px; background: #63dc8b; box-shadow: 0 0 12px rgb(99 220 139 / .4); }
+.welcome-menu::before { left: -5px; top: -5px; }
+.welcome-menu::after { right: -5px; bottom: -5px; }
+.welcome-progress { background: repeating-linear-gradient(90deg, #63dc8b 0 9px, #347b4c 9px 11px); }
+.welcome-button { padding: 13px 8px; border: 2px solid #4b6a50; background: #15291e; color: #e0ead7; box-shadow: inset 0 2px 0 #2e4933, 0 3px 0 #020906; letter-spacing: .06em; font-family: var(--font-pixel); }
+.welcome-button:hover:not(:disabled) { background: #25452e; border-color: #63dc8b; }
+.welcome-button:active:not(:disabled) { transform: translateY(2px); box-shadow: inset 0 2px 0 #2e4933; }
+.welcome-primary { color: #0a1d11; background: #63dc8b; border-color: #98eeae; box-shadow: inset 0 2px 0 #b3f6c0, 0 4px 0 #1e5b32; }
+.welcome-primary:hover:not(:disabled) { color: #e0ead7; }
+.welcome-agent { display: block; width: 72px; height: 72px; image-rendering: pixelated; animation: welcome-agent-idle 1.8s steps(2) infinite; }
+.welcome-spark { width: 3px; height: 3px; background: #87f1a2; box-shadow: 0 0 10px #63dc8b; animation: welcome-spark 5s ease-in-out infinite; }
+@keyframes welcome-agent-idle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes welcome-spark { 0%, 100% { opacity: .15; transform: translateY(0); } 50% { opacity: .7; transform: translateY(-12px); } }
+@media (prefers-reduced-motion: reduce) {
+  .welcome-agent, .welcome-spark { animation: none; }
 }
 
 /*

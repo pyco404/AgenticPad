@@ -1,21 +1,21 @@
 /**
- * The village grows with its holders (docs/holder-agents.md, The village):
- * as more wallets hold an agent, plots open and buildings go up, and the
+ * The village grows with real token agents:
+ * as more agents arrive, plots open and buildings go up, and the
  * trees on their ground come down. Presentation only - nothing here is read
  * by anything that plays, pairs or pays.
  *
  * Pure, and free of Phaser and the web app's aliases, so the root suite can
  * test it. The scene (scene.ts) draws what this says.
  *
- * Growth comes in plans: a list of plots, each opening at a holder count, in
- * the order they open. New Town is one plan, opened by $AGP holders; each
- * launch district will be another (checkpoint 2), opened by its own token's.
+ * Growth comes in plans: a list of plots, each opening at a real-agent count, in
+ * the order they open. New Town is opened by real agents across all qualifying tokens; house
+ * residents, replay stand-ins and retiring agents do not contribute.
  * A plot never moves and never closes again once open in a page's life; if
  * the count falls, what stands stays standing until the page is reloaded.
  */
 
 import { fromEdge, inNewTown, INNER, OUTER, type Pt } from "./world";
-import { ROADS, SITES } from "./town";
+import { BAZAAR_SITE, LAUNCH_SITE, ROADS, SITES } from "./town";
 import { RIVER_BANKS } from "./river";
 import { GARDEN_PONDS } from "./landmarks";
 
@@ -56,14 +56,14 @@ export type GrowthPiece = {
 export type Plot = {
   /** Stable, so a page can tell which plots it has already drawn. */
   id: string;
-  /** Opens once this many wallets hold an agent. */
+  /** Opens once this many real agents are on the field. */
   at: number;
   /** What a builder works at: the plot's front. */
   door: { x: number; y: number };
   pieces: GrowthPiece[];
 };
 
-/** A plan: plots in the order they open, by one count of holders. */
+/** A plan: plots in the order they open, by one count of real agents. */
 export type Plan = { id: string; plots: Plot[] };
 
 /** The plots of a plan open at this many holders, in the order they opened. */
@@ -120,11 +120,11 @@ export function felled(trees: readonly { x: number; y: number; s: number }[], pl
 
 /** The New Town plots' fixed neighbours, which no plot is laid over: the Launch Pad east, the bazaar west (town.ts). */
 export const NEW_TOWN_FIXED: { id: string; at: Pt; room: number }[] = [
-  { id: "launchpad", at: { x: 2860, y: 1250 }, room: 230 },
-  { id: "bazaar", at: { x: -60, y: 1150 }, room: 250 },
+  { id: "launchpad", at: LAUNCH_SITE, room: 230 },
+  { id: "bazaar", at: BAZAAR_SITE, room: 250 },
 ];
 
-/** The holder count each plot opens at, in order: one at a time at first, then further apart as the town fills. */
+/** The real-agent count each plot opens at, in order: one at a time at first, then further apart as the town fills. */
 export function thresholds(n: number): number[] {
   const out: number[] = [];
   let at = 1;

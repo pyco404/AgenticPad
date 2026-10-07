@@ -1,5 +1,7 @@
 // Adapted from Agent Quest (MIT, see ./LICENSE).
 import * as Phaser from "phaser";
+import { FLOOR_RATIO } from "./presentation";
+import { groundShadow } from "./billboard";
 import type { Look } from "../residents";
 import type { Point } from "./roads";
 import { crispText, MONO } from "./text";
@@ -63,13 +65,11 @@ function ensureHalo(scene: Phaser.Scene): void {
   const tex = scene.textures.createCanvas(HALO, size, size);
   if (!tex) return;
   const ctx = tex.getContext();
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, "rgba(255, 255, 255, 0.9)");
-  g.addColorStop(0.35, "rgba(255, 255, 255, 0.45)");
-  g.addColorStop(0.7, "rgba(255, 255, 255, 0.12)");
-  g.addColorStop(1, "rgba(255, 255, 255, 0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = "#f2d682";
+  for (let y = 0; y < size; y += 4) for (let x = 0; x < size; x += 4) {
+    const radius = Math.hypot(x - size / 2, (y - size / 2) * 2);
+    if (radius > 45 && radius < 56) ctx.fillRect(x, y, 4, 4);
+  }
   tex.refresh();
 }
 
@@ -158,7 +158,11 @@ export class Hero {
   private nameAllowed = true;
   /** The agent's character: its portrait, as pixel art, standing where a knight would. */
   private portrait: Phaser.GameObjects.Image | null = null;
-  private shadow: Phaser.GameObjects.Ellipse | null = null;
+  private shadow: Phaser.GameObjects.Image | null = null;
+  private rendered = true;
+  private poseAt = 0;
+  private resting = false;
+  private pause: Phaser.Time.TimerEvent | null = null;
   /** Its body, arms and legs under the head, redrawn as it steps. */
   private limbs: Phaser.GameObjects.Graphics | null = null;
   /** What it carries (weapons.ts), and where its weapon hand is, in the body's own frame, and at what angle. */
@@ -201,13 +205,15 @@ export class Hero {
     this.y = at.y;
     this.anims = ensureAnims(scene, look);
     this.sprite = scene.add.sprite(at.x, at.y, heroTexture(look)).setScale(scale).play(this.anims.idle);
-    // Unseen until it turns out there is no portrait for this agent.
-    this.sprite.setVisible(false);
+    // Stay visible while the portrait loads; a slow or unavailable API must never leave only a name.
     this.clickable(this.sprite);
+    if (opts.still) this.sprite.anims.pause();
 
     // The sheets pad each figure generously, so the name sits well inside the frame.
     this.labelOffset = -this.sprite.displayHeight * 0.3;
     this.footOffset = this.sprite.displayHeight * 0.17;
+    this.sprite.scaleY /= FLOOR_RATIO;
+    this.shadow = groundShadow(scene, this.x, this.y + this.footOffset, HEAD * 0.85, HEAD * 0.25);
     this.fullName = name;
     this.label = crispText(scene, at.x, at.y + this.labelOffset, shortName(name), {
       fontSize: "12px",
@@ -222,14 +228,52 @@ export class Hero {
 
   /** Keeps the name a readable size on screen as the camera zooms out; 1 at the village's own scale. */
   setLabelScale(scale: number): void {
-    this.label.setScale(scale);
-    this.marker?.setScale(scale);
+    this.label.setScale(scale, scale / FLOOR_RATIO);
+    this.marker?.setScale(scale, scale / FLOOR_RATIO);
     this.place();
+  }
+
+  /** Cull offscreen drawing and sprite animation; movement and API state keep running. */
+  setRenderVisible(on: boolean): void {
+    if (on === this.rendered) return;
+    this.rendered = on;
+    this.sprite.setVisible(on && !this.portrait);
+    this.portrait?.setVisible(on);
+    this.limbs?.setVisible(on && !this.swimming);
+    this.shadow?.setVisible(on && !this.swimming);
+    this.weapon?.setVisible(on && Boolean(this.portrait) && !this.swimming);
+    this.halo?.setVisible(on);
+    this.marker?.setVisible(on && this.mine);
+    this.ripple?.setVisible(on && this.swimming);
+    if (on) { if (!this.opts.still) this.sprite.anims.resume(); this.place(); }
+    else this.sprite.anims.pause();
+    this.refreshLabel();
+  }
+
+  animateIdle(time: number): void {
+    if (!this.rendered || !this.portrait || !this.idle || this.opts.still || time - this.poseAt < 120) return;
+    this.poseAt = time;
+    this.place();
+  }
+
+  setResting(on: boolean): void {
+    this.resting = on;
+    this.place();
+  }
+
+  highlight(): void {
+    if (this.opts.still) return;
+    const g = this.scene.add.graphics().setPosition(this.x, this.y + this.footOffset).setDepth(this.y + 200);
+    g.fillStyle(0xf0ce79);
+    for (const x of [-30, 24]) for (const y of [-16, 12]) {
+      g.fillRect(x, y, 8, 3).fillRect(x, y, 3, 7);
+    }
+    this.scene.tweens.add({ targets: g, scaleX: 1.6, scaleY: 1.6, alpha: 0, duration: 1600, onComplete: () => g.destroy() });
   }
 
   /** Whichever the agent is drawn as answers the pointer: its name on hover, its page on a click. */
   private clickable(target: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite): void {
-    target.setInteractive({ useHandCursor: true, pixelPerfect: false });
+    target.setInteractive({ useHandCursor: true, pixelPerfect: true, alphaTolerance: 24 });
     target.on("pointerup", () => this.opts.onClick());
     target.on("pointerover", () => {
       this.hovered = true;
@@ -247,11 +291,12 @@ export class Hero {
     this.views = views;
     this.colours = colours;
     this.sprite.setVisible(false);
-    this.portrait = this.scene.add.image(this.x, this.y, views.front).setOrigin(0.5, 1).setDisplaySize(HEAD, HEAD);
+    this.portrait = this.scene.add.image(this.x, this.y, views.front).setOrigin(0.5, 1).setDisplaySize(HEAD, HEAD / FLOOR_RATIO);
     this.clickable(this.portrait);
     this.turn(this.view);
-    this.shadow = this.scene.add.ellipse(this.x, this.y, HEAD * 0.8, HEAD * 0.22, 0x000000, 0.28);
-    this.limbs = this.scene.add.graphics();
+    this.limbs = this.scene.add.graphics().setScale(1, 1 / FLOOR_RATIO);
+    this.portrait.setVisible(this.rendered);
+    this.limbs.setVisible(this.rendered);
     if (this.swimming) this.cropForWater(true);
     this.place();
   }
@@ -266,7 +311,7 @@ export class Hero {
 
   /** No portrait to be had: the knight it has always been, then. */
   useSprite(): void {
-    if (!this.portrait) this.sprite.setVisible(true);
+    if (!this.portrait) this.sprite.setVisible(this.rendered);
   }
 
   private cropForWater(on: boolean): void {
@@ -390,7 +435,7 @@ export class Hero {
 
   /** The name as it would sit, for the layout to place; null when it would not show at all. */
   nameLabel(id: string): NameLabel | null {
-    if (!this.wantsName()) return null;
+    if (!this.rendered || !this.wantsName()) return null;
     return { id, x: this.nameSpot.x, y: this.nameSpot.y, width: this.label.displayWidth, height: this.label.displayHeight, forced: this.nameForced };
   }
 
@@ -414,7 +459,7 @@ export class Hero {
       const d = this.sprite.displayHeight * 0.7;
       this.halo = this.scene.add.image(this.x, this.y, HALO).setDisplaySize(d, d).setAlpha(0.35);
       const base = this.halo.scaleX;
-      this.haloTween = this.scene.tweens.add({
+      if (!this.opts.still) this.haloTween = this.scene.tweens.add({
         targets: this.halo,
         alpha: 0.75,
         scaleX: base * 1.25,
@@ -451,7 +496,7 @@ export class Hero {
   private refreshLabel(): void {
     const text = this.hovered || this.selected ? this.fullName : shortName(this.fullName);
     if (this.label.text !== text) this.label.setText(text);
-    this.label.setVisible(this.wantsName() && (this.nameAllowed || this.nameForced));
+    this.label.setVisible(this.rendered && this.wantsName() && (this.nameAllowed || this.nameForced));
     this.label.setStroke(this.selected ? "#5c4a22" : "#000000", this.selected ? 5 : 3);
   }
 
@@ -511,17 +556,19 @@ export class Hero {
 
   /** Move the sprite and everything that follows it to (x, y), and sort by the feet. */
   private place(): void {
+    if (!this.rendered) return;
     const wet = this.opts.inWater?.(this) ?? false;
     if (wet !== this.swimming) this.setSwimming(wet);
-    const y = this.y + this.bob;
+    const y = this.y + this.bob + (this.resting ? 4 : 0);
     const x = this.x + this.lungeX;
-    this.sprite.setPosition(x, y);
+    const baseline = y + this.footOffset;
+    this.sprite.setPosition(x, baseline - this.footOffset / FLOOR_RATIO);
     // The character on its feet: stepping and rocking as it walks, standing square when it stops;
     // in the water, sunk to the chest at the waterline.
-    let nameAt = y + this.labelOffset;
+    let nameAt = baseline + (this.labelOffset - this.footOffset) / FLOOR_RATIO;
     if (this.portrait) {
       const phase = this.walking && !this.swimming && !this.opts.still ? ((this.scene.time.now - this.stepFrom) / 1000) * (SPEED / STRIDE) * Math.PI * 2 : 0;
-      const hop = Math.abs(Math.sin(phase)) * HOP;
+      const hop = Math.abs(Math.sin(phase)) * HOP + (!this.walking && !this.opts.still ? Math.sin(this.scene.time.now / 900) * 0.5 : 0);
       const ground = y + this.footOffset;
       // Standing on its body: the head sits down over the top of the torso, lifted with it on each step.
       // Knocked down, the whole figure turns over about its feet, head and body together.
@@ -529,9 +576,9 @@ export class Hero {
       const tilt = this.fall * this.fallSide * (Math.PI / 2);
       const foot = this.swimming
         ? { x, y: y + this.waterline() + HEAD * (1 - ABOVE_WATER) }
-        : { x: x - neck * Math.sin(tilt), y: ground + neck * Math.cos(tilt) };
+        : { x: x - neck * Math.sin(tilt), y: ground + neck * Math.cos(tilt) / FLOOR_RATIO };
       this.portrait.setPosition(foot.x, foot.y).setRotation(Math.sin(phase) * SWAY + tilt);
-      this.shadow?.setPosition(x + this.fallSide * this.fall * HEAD * 0.6, ground).setScale(1 - hop / (HOP * 5) + this.fall * 0.9, 1);
+      this.shadow?.setPosition(x + this.fallSide * this.fall * HEAD * 0.6, ground).setDisplaySize(HEAD * (0.85 - hop / (HOP * 5) + this.fall * 0.9), HEAD * 0.25);
       if (!this.swimming) {
         this.drawBody(0, 0, phase, hop);
         this.limbs?.setPosition(Math.round(x), Math.round(ground)).setRotation(tilt);
@@ -540,12 +587,12 @@ export class Hero {
           const cos = Math.cos(tilt);
           const sin = Math.sin(tilt);
           const hx = Math.round(x) + this.hand.x * cos - this.hand.y * sin;
-          const hy = Math.round(ground) + this.hand.x * sin + this.hand.y * cos;
-          this.weapon.setPosition(hx, hy).setRotation(this.hand.angle + tilt).setFlipX(this.view === "left").setVisible(true);
+          const hy = Math.round(ground) + (this.hand.x * sin + this.hand.y * cos) / FLOOR_RATIO;
+          this.weapon.setScale(1, 1 / FLOOR_RATIO).setPosition(hx, hy).setRotation(this.hand.angle + tilt).setFlipX(this.view === "left").setVisible(true);
         }
       }
       // Lying down, the head is on its side: half its height above the ground rather than all of it.
-      nameAt = (this.swimming ? y + this.waterline() - HEAD * ABOVE_WATER : foot.y - HEAD * (1 - 0.5 * this.fall)) - 2;
+      nameAt = (this.swimming ? y + this.waterline() - HEAD * ABOVE_WATER : foot.y - HEAD * (1 - 0.5 * this.fall) / FLOOR_RATIO) - 2;
     }
     this.nameSpot = { x, y: nameAt };
     this.label.setPosition(x, nameAt + this.nameNudge);
@@ -554,7 +601,7 @@ export class Hero {
     this.marker?.setPosition(x, nameAt + this.nameNudge - nameTop + this.markerBob).setDepth(10_001 + this.y);
     this.halo?.setPosition(this.x, this.y);
     // The frame's foot, as decorations and buildings sort, so all three interleave.
-    const feet = this.y + this.sprite.displayHeight * 0.5;
+    const feet = this.y + this.footOffset;
     this.sprite.setDepth(feet + 0.5);
     this.halo?.setDepth(feet + 0.4);
     this.ripple?.setPosition(this.x, this.y + this.waterline()).setDepth(feet + 0.6);
@@ -579,6 +626,8 @@ export class Hero {
    */
   knockDown(): void {
     if (this.opts.still || !this.portrait || this.swimming || this.fallTween) return;
+    this.pause?.remove();
+    this.pause = null;
     this.walk?.stop();
     this.walk = null;
     this.stopLunge();
@@ -684,7 +733,7 @@ export class Hero {
     if (p.texture.key !== key) {
       p.setTexture(key);
       // A new texture resets the crop and the size: keep what the water and the scale had set.
-      p.setDisplaySize(HEAD, HEAD);
+      p.setDisplaySize(HEAD, HEAD / FLOOR_RATIO);
       if (this.swimming) this.cropForWater(true);
     }
     p.setFlipX(view === "left");
@@ -692,6 +741,9 @@ export class Hero {
 
   /** Be at (x, y) now, without walking there. */
   standAt(to: Point, facing?: "left" | "right"): void {
+    this.pause?.remove();
+    this.pause = null;
+    this.resting = false;
     this.fallTween?.stop();
     this.fallTween = null;
     this.afterFall = null;
@@ -705,6 +757,7 @@ export class Hero {
     this.y = to.y;
     this.place();
     this.sprite.play(this.anims.idle, true);
+    if (this.opts.still) this.sprite.anims.pause();
     if (facing) this.face(facing);
     else this.turn("front");
   }
@@ -715,7 +768,7 @@ export class Hero {
    * speed: an errand is 1, a stroll less. A new walk replaces one under way,
    * and its `then` is dropped with it.
    */
-  walkTo(to: Point, facing?: "left" | "right", how: { pace?: number; straight?: boolean; within?: number; then?: () => void } = {}): void {
+  walkTo(to: Point, facing?: "left" | "right", how: { pace?: number; straight?: boolean; within?: number; pauses?: boolean; path?: readonly Point[]; then?: () => void } = {}): void {
     if (this.opts.still) {
       this.standAt(to, facing);
       how.then?.();
@@ -725,11 +778,14 @@ export class Hero {
       this.afterFall = () => this.walkTo(to, facing, how);
       return;
     }
+    this.pause?.remove();
+    this.pause = null;
+    this.resting = false;
     this.walk?.stop();
     this.walk = null;
     this.stopLunge();
     const from = { x: this.x, y: this.y };
-    const full = how.straight ? [from, to] : this.router(from, to);
+    const full = how.path ?? (how.straight ? [from, to] : this.router(from, to));
     // `within` a time: hurry, however far it is - an agent called to a match that lasts seconds.
     let length = 0;
     for (let k = 1; k < full.length; k++) length += Math.hypot(full[k]!.x - full[k - 1]!.x, full[k]!.y - full[k - 1]!.y);
@@ -776,7 +832,13 @@ export class Hero {
         onUpdate: () => this.place(),
         onComplete: () => {
           this.walk = null;
-          leg();
+          const after = route[0];
+          const turning = after && dx * (after.x - next.x) + dy * (after.y - next.y) < distance * Math.hypot(after.x - next.x, after.y - next.y) * 0.65;
+          if (how.pauses && !how.within && turning) {
+            this.setWalking(false);
+            this.sprite.play(this.anims.idle, true);
+            this.pause = this.scene.time.delayedCall(450 + Math.random() * 500, () => { this.pause = null; leg(); });
+          } else leg();
         },
       });
     };
@@ -794,6 +856,7 @@ export class Hero {
       strokeThickness: 3,
     })
       .setOrigin(0.5, 1)
+      .setScale(1, 1 / FLOOR_RATIO)
       .setDepth(20_000);
     this.scene.tweens.add({
       targets: t,
@@ -808,6 +871,8 @@ export class Hero {
 
   /** Fade out and go, for an agent that has left the field. */
   leave(): void {
+    this.pause?.remove();
+    this.pause = null;
     this.walk?.stop();
     this.setSelected(false);
     this.scene.tweens.add({
@@ -819,6 +884,7 @@ export class Hero {
   }
 
   destroy(): void {
+    this.pause?.remove();
     this.markerTween?.stop();
     this.marker?.destroy();
     this.walk?.stop();

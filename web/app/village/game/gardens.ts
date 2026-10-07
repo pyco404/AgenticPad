@@ -1,3 +1,4 @@
+import { groundDepth } from "./depth";
 import type * as Phaser from "phaser";
 import { nearRoad, ROADS, SITES, SQUARE, type Rect } from "./town";
 import { CROSSROADS } from "./world";
@@ -86,11 +87,11 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
   for (let i = 0; i < 2400; i++) {
     const p = { x: 230 + rand() * 2310, y: -120 + rand() * 1990 };
     if (nearRoad(p, 15) || byRiver(p) || byGardenPond(p) || taken.some((b) => inside(p, b, 2))) continue;
-    scene.add.image(Math.round(p.x), Math.round(p.y), `garden-flowers-${i % 4}`).setScale(1.15).setDepth(-390);
+    scene.add.image(Math.round(p.x), Math.round(p.y), `garden-flowers-${i % 4}`).setScale(1.15).setDepth(groundDepth(-390));
   }
   for (const b of GARDEN_PONDS) {
     scene.add.image((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, "garden-pond")
-      .setDisplaySize(b.x1 - b.x0, b.y1 - b.y0).setDepth(-790);
+      .setDisplaySize(b.x1 - b.x0, b.y1 - b.y0).setDepth(groundDepth(-790));
   }
   // Low timber rails and benches divide the gardens into tended little
   // clearings without closing any of the walking routes.
@@ -141,18 +142,18 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
   }
   // Flower wreaths and crests mark the small countryside gathering places.
   for (const p of CROSSROADS) {
-    const bed = scene.add.graphics().setDepth(-398);
+    const bed = scene.add.graphics().setDepth(groundDepth(-398));
     bed.fillStyle(0x6f7056).fillCircle(p.x, p.y, 29);
     bed.fillStyle(0xd1c6a4).fillCircle(p.x, p.y, 27);
     bed.fillStyle(0x6d8a35).fillCircle(p.x, p.y, 23);
     for (let k = 0; k < 9; k++) {
       const a = k * Math.PI * 2 / 9;
-      scene.add.image(p.x + Math.cos(a) * 19, p.y + Math.sin(a) * 19, `garden-flowers-${k % 3}`).setScale(0.5).setDepth(-397);
+      scene.add.image(p.x + Math.cos(a) * 19, p.y + Math.sin(a) * 19, `garden-flowers-${k % 3}`).setScale(0.5).setDepth(groundDepth(-397));
     }
     if (scene.textures.exists("ac-banner")) scene.add.image(p.x, p.y + 8, "ac-banner").setOrigin(0.5, 1).setScale(1.2).setDepth(p.y + 8);
   }
   // Decorative stonework around the fountain, clear of the north/south route.
-  const plaza = scene.add.graphics().setDepth(-398);
+  const plaza = scene.add.graphics().setDepth(groundDepth(-398));
   for (let r = 48; r < 144; r += 16) {
     plaza.lineStyle(1.5, 0x918879, 0.75).strokeEllipse(SQUARE.x, SQUARE.y, r * 2, r * 0.72);
   }

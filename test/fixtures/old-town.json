@@ -7,7 +7,7 @@
       "art": "/village/agenticpad/arena.png",
       "door": {
         "dx": 0,
-        "dy": -212
+        "dy": 35
       }
     },
     "tavern": {
@@ -81,9 +81,9 @@
   },
   "field": {
     "dx": 0,
-    "dy": -152,
-    "rx": 236,
-    "ry": 100
+    "dy": -175,
+    "rx": 270,
+    "ry": 125
   },
   "grounds": [
     {

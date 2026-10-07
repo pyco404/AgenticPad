@@ -33,7 +33,7 @@ const NAV: Section[] = [
         { href: "/explore", label: "Explore" },
       ]
     : []),
-  { href: "/", label: "Agent" },
+  { href: "/agent", label: "Agent" },
   { href: "/live", label: "Live" },
   { href: "/field", label: "Field" },
   { href: "/ladder", label: "Ladder" },
@@ -46,7 +46,7 @@ const NAV: Section[] = [
 
 /** Which section a path belongs to: match pages live under Live, agent pages under Ladder. */
 function sectionOf(path: string): string | null {
-  if (path === "/") return "/";
+  if (path === "/" || path === "/agent") return "/agent";
   if (path.startsWith("/m/") || path.startsWith("/live")) return "/live";
   if (path.startsWith("/a/") || path.startsWith("/ladder")) return "/ladder";
   if (path.startsWith("/field")) return "/field";

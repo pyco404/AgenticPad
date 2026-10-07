@@ -18,10 +18,10 @@
 export const TERRAIN = {
   grass: { light: "#91b75c", base: "#7ba34c", low: "#719748", shade: "#52763a" },
   tree: { tip: "#899a2b", light: "#5f8a2c", mid: "#3d6a2a", low: "#29542a", deep: "#163e24", shadow: "#051d18" },
-  /** Warm limestone paving, shaded joints, and a darker kerb. */
+  /** Grey stone paving, shaded joints, and a darker kerb. */
   paved: { hi: "#c6c8b5", base: "#a5aa9c", mid: "#879183", edge: "#6d7169" },
-  /** Old Town's roads, the square, and the paths out in the Wilds. */
-  dirt: { hi: "#dcbb88", base: "#d2ae79", edge: "#a8875a" },
+  /** Same stone colours on narrow paths; legacy key retained for map compatibility. */
+  dirt: { hi: "#c6c8b5", base: "#a5aa9c", edge: "#6d7169" },
   water: { base: "#398cc0", mid: "#327fb0", edge: "#286687" },
 } as const;
 
@@ -50,11 +50,11 @@ export type RoadColours = { shadow: number; shadowAlpha: number; edge: number; s
 export const ROAD_COLOURS: Record<"dirt" | "paved", RoadColours> = {
   dirt: {
     shadow: num(darker(TERRAIN.dirt.edge, 0.6)),
-    shadowAlpha: 0.25,
+    shadowAlpha: 0.3,
     edge: num(TERRAIN.dirt.edge),
     surface: num(TERRAIN.dirt.base),
     hi: num(TERRAIN.dirt.hi),
-    line: num(darker(TERRAIN.dirt.base, 0.12)),
+    line: num(TERRAIN.paved.mid),
   },
   paved: {
     shadow: num(darker(TERRAIN.paved.edge, 0.6)),

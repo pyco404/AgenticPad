@@ -1,5 +1,7 @@
 // Adapted from Agent Quest (MIT, see ./LICENSE).
 import * as Phaser from "phaser";
+import type { ViewMode } from "./presentation";
+import type { Point } from "./roads";
 import type { Resident } from "../residents";
 import type { BuildingLabel } from "./building";
 import type { VillageMap } from "./map";
@@ -17,13 +19,15 @@ export type VillageHandle = {
   setInsets: (inset: { top: number; right: number; bottom: number }) => void;
   setNotes: (notes: Record<string, { text: string; lively: boolean }>) => void;
   setNight: (on: boolean) => void;
-  /** How many wallets hold an agent: the village grows with it (growth.ts). */
-  setHolders: (count: number) => void;
   /** The signed-in owner's agents, marked in gold. */
   setMine: (ids: ReadonlySet<string>) => void;
+  /** Dedicated Agent view observes its owner; camera gestures cannot detach it. */
+  setObservation: (on: boolean) => void;
   /** Pans to the owner's next agent; false when none of theirs is in the village. */
   findMine: () => boolean;
   zoom: (step: 1 | -1) => void;
+  view: (mode: ViewMode) => void;
+  lookAt: (point: Point) => void;
   destroy: () => void;
 };
 
@@ -108,10 +112,12 @@ export async function startVillage(
     setInsets: (inset) => scene.setInsets(inset),
     setNotes: (notes) => scene.setNotes(notes),
     setNight: (on) => scene.setNight(on),
-    setHolders: (count) => scene.setHolders(count),
     setMine: (ids) => scene.setMine(ids),
+    setObservation: (on) => scene.setObservation(on),
     findMine: () => scene.findMine(),
     zoom: (step) => scene.zoomBy(step),
+    view: (mode) => scene.showView(mode),
+    lookAt: (point) => scene.lookAt(point),
     destroy: () => {
       observer.disconnect();
       window.removeEventListener("resize", resize);

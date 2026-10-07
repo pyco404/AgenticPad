@@ -1,5 +1,7 @@
 import type { Point } from "./roads";
 import { curvedPath, LAKE_PATH, onOldGround, RING_WIDTH, withSpurs, WORLD_ROADS } from "./world";
+import { ARENA_BLOCKS, ARENA_ENTRANCES, ARENA_RESERVED, COLOSSEUM, COLOSSEUM_FLOOR } from "./arena-geometry";
+import { groundDepth } from "./depth";
 
 /** Legacy default width; individual village streets and trails vary by use. */
 export const ROAD_WIDTH = RING_WIDTH;
@@ -52,10 +54,9 @@ export type Site = {
 
 const ART = "/village/agenticpad";
 
-/** The arena: 330 × 230 art pixels (scripts/village-art.ts), its sand an oval 236 × 100 world pixels across. */
+/** Keep the Arena's town anchor; share the new oval floor with match placement. */
 const ARENA_FOOT = { x: 1400, y: 975 };
-const ARENA_TOP = ARENA_FOOT.y - 230 * 2;
-export const ARENA_FIELD = { x: 1400, y: ARENA_TOP + 154 * 2, rx: 236, ry: 100 };
+export const ARENA_FIELD = COLOSSEUM_FLOOR;
 
 /** Matches stand on the sand in rows of this many, each pair this far from the next. */
 export const ARENA_LAYOUT = { cols: 3, pairX: 132, pairY: 58 };
@@ -68,7 +69,8 @@ export const ARENA_LAYOUT = { cols: 3, pairX: 132, pairY: 58 };
  */
 const LAUNCHPAD = process.env.NEXT_PUBLIC_LAUNCHPAD === "1";
 const LAUNCH_ART = { width: 64, height: 86, scale: 1.8 };
-const LAUNCH_FOOT = { x: 2860, y: 1250 };
+// On a clear plot north of the east lane; only the entrance spur reaches it.
+const LAUNCH_FOOT = { x: 3060, y: 1190 };
 export const LAUNCH_SITE: Site = {
   ...LAUNCH_FOOT,
   art: `${ART}/launch-pad.png`,
@@ -91,19 +93,11 @@ export const SITES: Record<string, Site> = {
     ...ARENA_FOOT,
     art: `${ART}/arena.png`,
     scale: 2,
-    // The first row of matches: three rows fit on the sand.
-    door: { x: ARENA_FIELD.x, y: ARENA_FIELD.y - 60 },
-    depth: -300,
-    // Over the canopied box at the back, clear of the running scores over the matches below it.
-    labelY: ARENA_TOP + 146,
-    // The stands and the walls; the sand and the three gates stay open.
-    blocks: [
-      { x0: 1080, y0: 600, x1: 1720, y1: 712 },
-      { x0: 1072, y0: 712, x1: 1150, y1: 950 },
-      { x0: 1650, y0: 712, x1: 1728, y1: 950 },
-      { x0: 1150, y0: 928, x1: 1340, y1: 968 },
-      { x0: 1412, y0: 928, x1: 1650, y1: 968 },
-    ],
+    door: ARENA_ENTRANCES.front,
+    depth: groundDepth(-350),
+    labelY: 560,
+    // Tiered walls wrap the oval; front/east gates and the sand stay open.
+    blocks: ARENA_BLOCKS,
   },
   // Each sign follows its building's individual roofline, including the low
   // recruitment pavilion and the observation tower's mast.
@@ -113,17 +107,17 @@ export const SITES: Record<string, Site> = {
   library: { x: 1530, y: 300, art: `${ART}/modern-hall-of-fame.png`, scale: 1.2, labelY: 150 },
   chapel: { x: 1960, y: 450, art: `${ART}/modern-treasury.png`, scale: 1.2, labelY: 283 },
   watchtower: { x: 860, y: 40, art: `${ART}/modern-lookout.png`, scale: 1.2, labelY: -135 },
-  alchemist: { x: 1670, y: 1580, art: `${ART}/modern-rulebook-house.png`, scale: 1.2, labelY: -1356 },
+  alchemist: { x: 1670, y: 1580, art: `${ART}/modern-rulebook-house.png`, scale: 1.2, labelY: 1436 },
   board: { x: 1840, y: 1230, art: `${ART}/leaderboard.png`, scale: 1.6, sheet: { width: 84, height: 74, frameRate: 1.5 } },
   ...(LAUNCHPAD ? { launchpad: LAUNCH_SITE, bazaar: BAZAAR_SITE } : {}),
 };
 
 /** The arena's sand: open to walkers, but nowhere anyone strolls to. */
-export const RESERVED: Rect[] = [{ x0: 1150, y0: 712, x1: 1650, y1: 930 }];
+export const RESERVED: Rect[] = ARENA_RESERVED;
 
 /**
  * Every road is drawn by map.ts; its style says what kind of road it is.
- * Village streets use cobbles; country lanes use narrow dirt.
+ * All streets use the same grey stone colours; country lanes have narrower, weathered cobbles.
  */
 type Path = { style: "main" | "secondary" | "trail" | "paved" | "dirt"; width: number; points: [number, number][] };
 
@@ -134,27 +128,28 @@ type Path = { style: "main" | "secondary" | "trail" | "paved" | "dirt"; width: n
  */
 export const ROADS: Path[] = [
   // Short, uneven streets tie the districts together; no road rings the Arena.
-  curvedPath("main", 54, [[665,790],[830,875],[1000,1010],[1190,1060],[1300,1200],[1400,1370]]),
-  curvedPath("main", 54, [[1400,962],[1400,1010],[1190,1060]]),
-  curvedPath("main", 48, [[1300,1200],[1510,1270],[1730,1320],[1966,1472]]),
-  curvedPath("secondary", 38, [[1730,1320],[1840,1235],[2040,1150],[2060,1035]]),
-  curvedPath("secondary", 40, [[2040,1150],[2180,1150],[2220,980],[2130,790]]),
-  curvedPath("secondary", 40, [[2130,790],[1990,750],[1800,488],[1570,440],[1300,420],[1000,488]]),
-  curvedPath("secondary", 36, [[1000,488],[920,675],[830,875]]),
-  curvedPath("secondary", 32, [[665,790],[600,730],[600,685]]),
-  curvedPath("secondary", 32, [[830,875],[760,1050],[740,1305]]),
-  curvedPath("secondary", 32, [[1300,420],[1440,410],[1530,305]]),
-  curvedPath("secondary", 32, [[1800,488],[1900,500],[1960,455]]),
-  curvedPath("trail", 26, [[930,390],[860,240],[860,45]]),
-  curvedPath("trail", 28, [[1730,1320],[1770,1420],[1740,1550],[1670,1585]]),
-  curvedPath("trail", 26, [[665,790],[655,860],[650,930]]),
-  curvedPath("trail", 26, [[1990,750],[1975,690],[1975,630]]),
-  curvedPath("trail", 26, [[740,1305],[710,1320],[650,1295]]),
-  curvedPath("trail", 28, [[1510,1270],[1510,1460],[1400,1470],[1400,1370]]),
-  curvedPath("trail", 26, [[1966,1472],[2080,1490],[2160,1380],[2050,1310]]),
-  curvedPath("trail", 24, [[600,685],[480,675],[330,660]]),
-  curvedPath("trail", 24, [[650,1295],[530,1480],[530,1810]]),
-  curvedPath("trail", 26, [[350,850],[320,1040],[330,1180],[280,1200]]),
+  curvedPath("main", 60, [[665,790],[830,875],[1000,1010],[1190,1060],[1300,1200],[1400,1370]]),
+  curvedPath("main", 60, [[1400,975],[1400,1010],[1190,1060]]),
+  curvedPath("main", 54, [[1300,1200],[1510,1270],[1730,1320],[1966,1472]]),
+  curvedPath("secondary", 44, [[1730,1320],[1840,1235],[2040,1150],[2060,1035]]),
+  curvedPath("secondary", 46, [[2040,1150],[2180,1150],[2220,980],[2130,790]]),
+  curvedPath("secondary", 46, [[2130,790],[1990,750],[1800,488],[1570,440],[1300,420],[1000,488]]),
+  curvedPath("secondary", 36, [[1990,750],[1890,790],[1810,775],[1780,775]]),
+  curvedPath("secondary", 42, [[1000,488],[920,675],[830,875]]),
+  curvedPath("secondary", 38, [[665,790],[600,730],[600,685]]),
+  curvedPath("secondary", 38, [[830,875],[760,1050],[740,1305]]),
+  curvedPath("secondary", 38, [[1300,420],[1440,410],[1530,305]]),
+  curvedPath("secondary", 38, [[1800,488],[1900,500],[1960,455]]),
+  curvedPath("trail", 32, [[930,390],[860,240],[860,45]]),
+  curvedPath("trail", 34, [[1730,1320],[1770,1420],[1740,1550],[1670,1585]]),
+  curvedPath("trail", 32, [[665,790],[655,860],[650,930]]),
+  curvedPath("trail", 32, [[1990,750],[1975,690],[1975,630]]),
+  curvedPath("trail", 32, [[740,1305],[710,1320],[650,1295]]),
+  curvedPath("trail", 34, [[1510,1270],[1510,1460],[1400,1470],[1400,1370]]),
+  curvedPath("trail", 32, [[1966,1472],[2080,1490],[2160,1380],[2050,1310]]),
+  curvedPath("trail", 30, [[600,685],[480,675],[330,660]]),
+  curvedPath("trail", 30, [[650,1295],[530,1480],[530,1810]]),
+  curvedPath("trail", 32, [[350,850],[320,1040],[330,1180],[280,1200]]),
   ...withSpurs(WORLD_ROADS, LAUNCHPAD ? [LAUNCH_SITE.door!, BAZAAR_SITE.door!] : []),
   LAKE_PATH,
 ];
@@ -165,14 +160,9 @@ export const ROADS: Path[] = [
  * wall. Never drawn.
  */
 export const HIDDEN_ROADS: Point[][] = [
-  [
-    { x: 1400, y: 1010 },
-    { x: 1400, y: 950 },
-    { x: 1400, y: 880 },
-    { x: 1400, y: 820 },
-    { x: 1400, y: 762 },
-  ],
-  ...[762, 820, 878].map((y) => [-220, -150, -80, 0, 80, 150, 220].map((dx) => ({ x: 1400 + dx, y }))),
+  [ARENA_ENTRANCES.front, { x: 1400, y: 975 }, { x: 1400, y: 920 }, { x: 1400, y: 860 }, { x: 1400, y: 800 }],
+  [ARENA_ENTRANCES.east, { x: 1720, y: 775 }, { x: 1640, y: 775 }, { x: 1540, y: 800 }, { x: 1400, y: 800 }],
+  ...[762, 800, 860].map((y) => [-180, -100, 0, 100, 180].map((dx) => ({ x: 1400 + dx, y }))),
 ];
 
 /** Paving the roads do not draw: the town square round the fountain, and a carpet up to the Hall of Fame. */
@@ -224,7 +214,7 @@ const overlaps = (a: Rect, b: Rect) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1
  */
 export function lots(pieces: { x: number; y: number; width: number; height: number }[]): Rect[] {
   const out: Rect[] = [
-    { x0: 1050, y0: 500, x1: 1750, y1: 990 },
+    { x0: COLOSSEUM.x - COLOSSEUM.rx - 30, y0: COLOSSEUM.y - COLOSSEUM.ry - 90, x1: COLOSSEUM.x + COLOSSEUM.rx + 30, y1: COLOSSEUM.y + COLOSSEUM.ry + 30 },
     { x0: SQUARE.x - SQUARE.rx - 30, y0: SQUARE.y - SQUARE.ry - 40, x1: SQUARE.x + SQUARE.rx + 30, y1: SQUARE.y + SQUARE.ry + 30 },
   ];
   for (const [id, s] of Object.entries(SITES)) {

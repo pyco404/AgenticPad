@@ -74,6 +74,11 @@ const atBuilding = (id: string, from: { x: number; y: number }, pieces: Piece[])
 };
 
 export const PIECES: Piece[] = [
+  // Small gathering spaces around the oval, clear of its gate corridors.
+  art("bench", 1240, 1000, 1.6),
+  art("bench", 1575, 1000, 1.6),
+  banner(1280, 1040),
+  banner(1550, 1040),
   cottage("Yellow", 230, 1090),
   cottage("Blue", 200, 1350),
   cottage("Red", 650, 1570),

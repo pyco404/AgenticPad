@@ -3,7 +3,7 @@ import { GARDEN_PONDS } from "../web/app/village/game/landmarks.js";
 import { chunksIn, chunkTrees, type ForestRules } from "../web/app/village/game/forest.js";
 import { canopy, felled, NEW_TOWN, NEW_TOWN_FIXED, nextPlot, openPlots, overlaps, plotClearing, thresholds } from "../web/app/village/game/growth.js";
 import { BAZAAR_SITE, LAUNCH_SITE, nearRoad, SITES } from "../web/app/village/game/town.js";
-import { fromEdge, inNewTown, INNER, onOldGround, OUTER } from "../web/app/village/game/world.js";
+import { fromEdge, inNewTown, INNER, onOldGround, OUTER, WORLD_ROADS } from "../web/app/village/game/world.js";
 
 // The village grows with its holders (docs/holder-agents.md, The village).
 // Presentation only: these check the plan is sound, not anything that plays.
@@ -72,6 +72,21 @@ describe("New Town's growth", () => {
     }
     expect(Math.sign(LAUNCH_SITE.x - INNER.cx)).toBe(-Math.sign(BAZAAR_SITE.x - INNER.cx));
     expect(fromEdge(INNER, LAUNCH_SITE)).toBeGreaterThan(0);
+  });
+
+  it("keeps the Launch Pad's whole platform clear of the country lane, including its widened kerb", () => {
+    // Testing only the rocket's centre missed its base overlapping the road.
+    const halfWidth = 64 * LAUNCH_SITE.scale / 2;
+    for (const x of [LAUNCH_SITE.x - halfWidth, LAUNCH_SITE.x, LAUNCH_SITE.x + halfWidth]) {
+      for (const y of [LAUNCH_SITE.y - 20, LAUNCH_SITE.y]) {
+        for (const road of WORLD_ROADS) for (let i = 1; i < road.points.length; i++) {
+          const [ax, ay] = road.points[i - 1]!, [bx, by] = road.points[i]!;
+          const dx = bx - ax, dy = by - ay;
+          const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+          expect(Math.hypot(x - ax - t * dx, y - ay - t * dy)).toBeGreaterThan(road.width / 2 + 6);
+        }
+      }
+    }
   });
 
   it("takes down the trees whose canopy reaches a plot as it opens, and no others", () => {

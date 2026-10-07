@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layOutNames, shortName, type Box, type NameLabel } from "../web/app/village/game/labels.js";
+import { layOutNames, namesInView, shortName, type Box, type NameLabel } from "../web/app/village/game/labels.js";
 
 // The village's names (web/app/village/game/labels.ts). Presentation only.
 
@@ -16,6 +16,18 @@ function shown(names: NameLabel[], placed: ReturnType<typeof layOutNames>): Box[
 }
 
 describe("the village's names", () => {
+  it("bounds collision work for 1,000 residents, preserving selected and owner labels and restoring names after panning", () => {
+    const names = Array.from({ length: 1000 }, (_, i) => name(`a${i}`, i * 10, 100, i === 999));
+    const first = namesInView(names, { x0: -100, y0: 0, x1: 11_000, y1: 200 }, { x: 0, y: 100 });
+    expect(first).toHaveLength(150);
+    expect(first).toContainEqual(names[999]);
+    expect(first).toContainEqual(names[0]);
+    const shifted = namesInView(names, { x0: 8500, y0: 0, x1: 11_000, y1: 200 }, { x: 9990, y: 100 });
+    expect(shifted).toHaveLength(150);
+    expect(shifted).not.toContainEqual(names[0]);
+    expect(shifted).toContainEqual(names[998]);
+  });
+
   it("never shows two names over each other, however many crowd one spot", () => {
     const names = Array.from({ length: 24 }, (_, i) => name(`a${i}`, 500 + (i % 5) * 9, 400 + Math.floor(i / 5) * 4));
     const out = shown(names, layOutNames(names, [], { x: 500, y: 400 }));

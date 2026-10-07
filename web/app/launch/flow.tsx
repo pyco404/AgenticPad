@@ -73,7 +73,6 @@ export function LaunchFlow() {
   return (
     <div className="space-y-3">
       {launchpad.mock ? <MockNote /> : null}
-      {!launchpad.mock ? <p className="hud-card px-4 py-3 text-[13px] text-accent">Real pump.fun launch · Solana mainnet. Your wallet approves the launch, fee split and any initial buy together.</p> : null}
       {config.ready === false ? <Board sign="Launch setup">{config.unavailableReason}</Board> : null}
       {!config.agentsEnabled ? <p className="hud-card px-4 py-3 text-[12px] text-muted">Token launches are being integrated. Holder-agent activation will be available separately; launching currently creates the token and locks its creator fee split.</p> : null}
       {pending && step !== "launch" && step !== "done" ? (

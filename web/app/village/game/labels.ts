@@ -20,6 +20,14 @@ export type Placement = { dy: number; shown: boolean };
 
 const overlaps = (a: Box, b: Box) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
 
+/** Off-screen names need no collision work. Keep a bounded set of ordinary names, with selected/owner names first. */
+export function namesInView(names: readonly NameLabel[], view: Box, centre: { x: number; y: number }, limit = 150): NameLabel[] {
+  const visible = names.filter((n) => overlaps(view, { x0: n.x - n.width / 2, x1: n.x + n.width / 2, y0: n.y - n.height, y1: n.y }));
+  const forced = visible.filter((n) => n.forced);
+  const ordinary = visible.filter((n) => !n.forced).sort((a, b) => Math.hypot(a.x - centre.x, a.y - centre.y) - Math.hypot(b.x - centre.x, b.y - centre.y));
+  return [...forced, ...ordinary.slice(0, Math.max(0, limit - forced.length))];
+}
+
 export function layOutNames(names: readonly NameLabel[], buildings: readonly Box[], centre: { x: number; y: number }, gap = 1): Map<string, Placement> {
   const taken: Box[] = [...buildings];
   const out = new Map<string, Placement>();

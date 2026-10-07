@@ -1,3 +1,5 @@
+import { standee } from "./billboard";
+import { groundDepth } from "./depth";
 import * as Phaser from "phaser";
 
 import { ROAD_COLOURS, warm } from "./palette";
@@ -44,11 +46,11 @@ export type Bounds = { x: number; y: number; width: number; height: number };
 /** Draw the dressing, each piece at the depth of its foot like the map's own; return what is solid, and where everything is. */
 export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bounds[]; placed: Bounds[] } {
   // A stone market clearing beneath the two awnings and the avenue.
-  const market = scene.add.graphics().setDepth(-410);
+  const market = scene.add.graphics().setDepth(groundDepth(-410));
   market.fillStyle(ROAD_COLOURS.paved.edge).fillEllipse(1380, 1440, 420, 190);
   market.fillStyle(ROAD_COLOURS.paved.surface).fillEllipse(1380, 1440, 400, 172);
   // The square and the carpet first, just over the map's roads, so they join them without a seam.
-  const g = scene.add.graphics().setDepth(-399);
+  const g = scene.add.graphics().setDepth(groundDepth(-399));
   const sq = SQUARE;
   // The same stone colour as the roads, so they join without a colour change.
   const road = ROAD_COLOURS.paved;
@@ -77,6 +79,7 @@ export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bou
     }
     if (p.solid) solids.push({ x: p.x, y: p.y, width: p.solid.width, height: p.solid.height });
     placed.push({ x: p.x, y: p.y, width: obj.displayWidth, height: obj.displayHeight * (p.foot ?? 1) });
+    if (!p.key.includes("farm-bed") && !p.key.includes("pier")) standee(obj, Boolean(p.solid));
   }
   return { solids, placed };
 }

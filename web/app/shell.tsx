@@ -11,12 +11,16 @@ import { prefersReducedMotion } from "@/lib/motion";
 import { sound } from "@/lib/sound";
 import { SiteBar, useNight } from "@/app/site-bar";
 import { CloseIcon } from "@/app/icons";
+import { Welcome } from "@/app/welcome";
 import { BuildingCard, OpenBuildingProvider } from "@/app/village/hud";
 import { placeOf, PLACES } from "@/app/village/places";
 import { placeResidents } from "@/app/village/residents";
 import { placeLine, worldTally, WorldProvider, type World } from "@/app/village/world";
 import type { VillageHandle } from "@/app/village/game";
 import { arenaLine } from "@/app/village/arena";
+import { WorldLens } from "@/app/village/world-lens";
+import { AgentStatus, type AgentAccount } from "@/app/village/agent-status";
+import type { WorldView } from "@/app/village/game/presentation";
 import { useArena } from "@/app/village/use-arena";
 
 /** The phone layout ends here: from md up the page is a panel on the right, below it a sheet along the bottom. */
@@ -31,6 +35,7 @@ const COVER_MAX_MS = 10_000;
 
 /** The agent whose page is open, from /a/<id>. */
 const agentOf = (path: string) => /^\/a\/([^/]+)/.exec(path)?.[1] ?? null;
+const cameraPage = (path: string) => path === "/agent" || path === "/field";
 
 /** Pages that open wider than the rest: lists with many columns, laid out side by side on a desktop. */
 const WIDE_PAGES = ["/explore"];
@@ -96,14 +101,17 @@ function VillageShell({ children, chip }: ShellProps) {
   const live = useLive();
   // The signed-in owner's agents, to mark in the village. Read again now and then, so a new rental is marked too.
   const { session } = useWallet();
-  const [mine, setMine] = useState<ReadonlySet<string>>(() => new Set());
+  const [accountRead, setAccountRead] = useState<{ token: string; data: AgentAccount | null; failed: boolean } | null>(null);
+  const account = session && accountRead?.token === session.token ? accountRead.data : null;
+  const accountError = !!session && accountRead?.token === session.token && accountRead.failed;
+  const mine = useMemo<ReadonlySet<string>>(() => new Set(account?.agents.filter((a) => !a.retired).map((a) => (a.id ?? a.agentId)!).filter(Boolean)), [account]);
   useEffect(() => {
-    if (!session) return setMine(new Set());
+    if (!session) return;
     let gone = false;
     const load = () =>
       api.me(session.token).then(
-        (r) => !gone && setMine(new Set(r.agents.map((a) => (a.id ?? a.agentId)!).filter(Boolean))),
-        () => {},
+        (r) => !gone && setAccountRead({ token: session.token, data: r, failed: false }),
+        () => !gone && setAccountRead((old) => ({ token: session.token, data: old?.token === session.token ? old.data : null, failed: true })),
       );
     void load();
     const timer = setInterval(load, 60_000);
@@ -160,16 +168,20 @@ function VillageShell({ children, chip }: ShellProps) {
   useEffect(() => {
     if (!moved.current && path === loadedOn.current) return;
     moved.current = true;
-    setOpen(true);
+    setOpen(!cameraPage(path));
     setBuilding(null);
     scroller.current?.scrollTo(0, 0);
   }, [path]);
 
-  // Any link to a page of the site opens the panel, the one already showing included: a click is the ask.
+  // Content links open a panel; Agent and Field open their dedicated camera views.
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       const a = (e.target as Element | null)?.closest?.("a[href^='/']");
-      if (a && !a.closest("footer")) setOpen(true);
+      if (a && !a.closest("footer")) {
+        const href = a.getAttribute("href") ?? "";
+        setOpen(!cameraPage(href));
+        if (href === "/field") villageHandle.current?.view("world");
+      }
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
@@ -198,7 +210,7 @@ function VillageShell({ children, chip }: ShellProps) {
   const go = useCallback(
     (href: string) => {
       setBuilding(null);
-      setOpen(true);
+      setOpen(!cameraPage(href));
       router.push(href);
     },
     [router],
@@ -243,6 +255,9 @@ function VillageShell({ children, chip }: ShellProps) {
           mine={mine}
           onStatus={setVillageStatus}
           handleRef={villageHandle}
+          account={account}
+          accountError={accountError}
+          ownerKey={session?.token ?? null}
         />
         <SiteBar night={night} onNight={toggleNight} showing={open} villageUp={villageUp} />
 
@@ -304,9 +319,9 @@ function VillageShell({ children, chip }: ShellProps) {
           reload of the site, village and all.
         */}
         <div
-          className={`${open ? "hidden" : "flex"} fixed bottom-[46px] right-2 z-20 flex-col items-stretch gap-2 md:bottom-auto md:right-4 md:top-[4.5rem]`}
+          className={`${open || path === "/agent" ? "hidden" : "flex"} fixed bottom-[46px] right-2 z-20 flex-col items-stretch gap-2 md:bottom-auto md:right-4 md:top-[4.5rem]`}
         >
-          <button type="button" onClick={() => setOpen(true)} className={`flex ${QUICK}`}>
+          <button type="button" onClick={() => setOpen(true)} className={`${cameraPage(path) ? "hidden" : "flex"} ${QUICK}`}>
             Show the page
           </button>
           {/* Not on a phone: the ☰ menu there already has the pages and Rent. */}
@@ -322,7 +337,7 @@ function VillageShell({ children, chip }: ShellProps) {
         {/* From md the village's own controls stack just above it, at the screen's right edge. */}
         {/* On a phone the open page's sheet covers the bottom edge, so the chip is put away with the village's controls. */}
         <div className={`fixed bottom-2 right-2 z-20 ${open ? "hidden md:flex" : "flex"} max-w-[calc(100vw-1rem)] flex-col items-end gap-2 md:bottom-4 md:right-4 md:max-w-[min(760px,calc(100vw-2rem))]`}>
-          {villageStatus === "ready" ? (
+          {villageStatus === "ready" && path !== "/agent" ? (
             <div className="hidden flex-col items-end gap-1 md:flex">
               <VillageControls village={villageHandle} mine={mine} findLast />
             </div>
@@ -339,7 +354,7 @@ function VillageShell({ children, chip }: ShellProps) {
             <BuildingCard place={place} onClose={() => setBuilding(null)} onEnter={go} />
           </div>
         ) : null}
-        <Cover up={villageUp || villageStatus === "failed" || waited} drawn={villageStatus === "ready"} />
+        <Welcome ready={villageUp || villageStatus === "failed" || waited} drawn={villageStatus === "ready"} failed={villageStatus === "failed"} onEnter={(href) => { if (href) go(href); else if (path === "/") go("/field"); }} />
       </OpenBuildingProvider>
     </WorldProvider>
   );
@@ -358,6 +373,9 @@ function Village({
   onStatus,
   mine,
   handleRef,
+  account,
+  accountError,
+  ownerKey,
 }: {
   world: World;
   path: string;
@@ -375,6 +393,9 @@ function Village({
   mine: ReadonlySet<string>;
   /** Shared with the shell, so the controls in the footer chip's row can drive the village too. */
   handleRef: React.MutableRefObject<VillageHandle | null>;
+  account: AgentAccount | null;
+  accountError: boolean;
+  ownerKey: string | null;
 }) {
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   useEffect(() => onStatus(status), [status, onStatus]);
@@ -388,6 +409,9 @@ function Village({
   }, [empty]);
   const box = useRef<HTMLDivElement>(null);
   const village = useRef<VillageHandle | null>(null);
+  const [view, setView] = useState<WorldView | null>(null);
+  const observing = path === "/agent";
+  const observation = useRef<{ owner: string | null; id: string | null }>({ owner: null, id: null });
 
   // With a page open, a wheel anywhere is someone reading: over the village - the margins round the panel,
   // or the strip beside it - it scrolls the page. Only ctrl or ⌘, as a trackpad pinch sends, still zooms the
@@ -425,6 +449,7 @@ function Village({
           nameFont: face,
           events: {
             ready: () => setStatus("ready"),
+            view: (next) => { if (!gone) setView(next); },
             selectAgent: (id) => {
               if (id) latest.current.go(`/a/${id}`);
             },
@@ -443,7 +468,6 @@ function Village({
           handle.setNotes(now.notes);
           handle.setNight(now.night);
           handle.setMine(now.mine);
-          if (now.world.counters?.holders !== undefined) handle.setHolders(now.world.counters.holders);
           if (now.world.residents) handle.setResidents(now.world.residents);
           handle.select(now.agent, true);
         },
@@ -470,12 +494,6 @@ function Village({
     latest.current.world = world;
     if (residents) village.current?.setResidents(residents);
   }, [world, residents]);
-
-  // The village grows with its holders: told whenever the live stream's count changes.
-  const holders = world.counters?.holders;
-  useEffect(() => {
-    if (holders !== undefined) village.current?.setHolders(holders);
-  }, [holders]);
 
   useEffect(() => {
     latest.current.notes = notes;
@@ -504,6 +522,40 @@ function Village({
     village.current?.select(agent, true);
   }, [agent]);
 
+  // Field and Agent share this scene. Only their camera and HUD differ.
+  useEffect(() => {
+    const handle = village.current;
+    if (!handle) return;
+    handle.setObservation(observing);
+    observation.current = { owner: null, id: null };
+    if (path === "/field") handle.view("world");
+  }, [path, status, observing]);
+
+  useEffect(() => {
+    const handle = village.current;
+    if (!handle || !observing) return;
+    const before = observation.current;
+    if (before.owner !== ownerKey) {
+      handle.select(null);
+      observation.current = { owner: ownerKey, id: null };
+    }
+    const here = (id: string) => mine.has(id) && !!residents?.some((r) => r.id === id && r.place !== "gate");
+    // Keep the chosen owned agent through feed refreshes and match transitions.
+    if (view?.selected && here(view.selected.id)) {
+      if (!view.following) handle.select(view.selected.id, true);
+      observation.current.id = view.selected.id;
+      return;
+    }
+    const id = [...mine].find(here);
+    if (id && (observation.current.id !== id || !view?.following)) {
+      handle.select(id, true);
+      observation.current.id = id;
+    } else if (!id && observation.current.id) {
+      handle.select(null);
+      observation.current.id = null;
+    }
+  }, [observing, ownerKey, mine, residents, status, view?.selected?.id, view?.following]);
+
   return (
     <div className="fixed inset-0 z-0 bg-ink">
 
@@ -512,7 +564,9 @@ function Village({
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-ink/10" />
       {/* On a phone the bar has no room for the world's numbers: they sit on the village, top left. */}
       {/* Not on a phone with a page open: the sheet takes the screen, and the strip above it is for the village. */}
-      {status === "ready" ? <PhoneStats world={world} hidden={scrolls !== null} /> : null}
+      {status === "ready" && !observing ? <PhoneStats world={world} hidden={scrolls !== null} /> : null}
+      {status === "ready" ? <WorldLens view={view} village={village} inset={inset} observing={observing} hidden={scrolls !== null && inset.bottom > 0} /> : null}
+      {observing ? <AgentStatus account={account} accountError={accountError} view={view} village={village} /> : null}
       {/* The village's own controls, kept in the part the panel leaves uncovered. */}
       <div
         className="pointer-events-none absolute left-0 top-14 z-10 flex items-end justify-between gap-2 p-2 md:p-3"
@@ -520,7 +574,7 @@ function Village({
       >
         <p
           className={`rounded-panel border border-hud-line bg-hud px-2.5 py-1 text-[11px] uppercase tracking-wide text-muted ${
-            status === "ready" && !stranded ? "hidden md:block" : "mb-10 max-w-[55%] md:mb-0 md:max-w-none"
+            observing || status === "ready" && !stranded ? "hidden md:block" : "mb-10 max-w-[55%] md:mb-0 md:max-w-none"
           }`}
         >
           {status === "failed"
@@ -529,95 +583,19 @@ function Village({
               ? "Opening..."
               : stranded
                 ? "Can't reach the game server, so no agents yet. Retrying…"
-                : scrolls
+                : observing
+                  ? "Following your autonomous agent"
+                  : scrolls
                   ? "Drag to look around · ctrl + scroll or pinch to zoom"
                   : "Drag to look around · scroll or pinch to zoom"}
         </p>
-        {status === "ready" && !scrolls ? (
+        {status === "ready" && !scrolls && !observing ? (
           // On a phone the footer chip runs along the bottom edge and "Show the page" sits over it, so these
           // stack above both. From md the shell puts them in the chip's own row instead. Put away with an open page.
           <div className="pointer-events-auto mb-[76px] ml-auto flex flex-col items-end gap-1 md:hidden">
             <VillageControls village={village} mine={mine} findLast />
           </div>
         ) : null}
-      </div>
-    </div>
-  );
-}
-
-/**
- * What shows while the world is loading: a branded entrance, on the village's own
- * dark, over everything - no bar, no page, no half-drawn map. It fades once the
- * village is drawn with its agents standing in it, and is gone for the rest of
- * the visit: moving between pages never brings it back.
- */
-function Cover({ up, drawn }: { up: boolean; drawn: boolean }) {
-  const [gone, setGone] = useState(false);
-  // How long the cover has been up, for the bar's creep between the steps it can actually see.
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (up) return;
-    const started = Date.now();
-    const timer = setInterval(() => setElapsed(Date.now() - started), 200);
-    return () => clearInterval(timer);
-  }, [up]);
-  useEffect(() => {
-    if (!up) return;
-    const timer = setTimeout(() => setGone(true), prefersReducedMotion() ? 0 : 700);
-    return () => clearTimeout(timer);
-  }, [up]);
-  if (gone) return null;
-  // Two steps it can see - the village drawn, then its agents in it - and a creep toward each so it never sits still.
-  const creep = 1 - Math.exp(-elapsed / 2500);
-  const pct = up ? 100 : Math.round(Math.max(6, (drawn ? 45 : 0) + creep * 45));
-  return (
-    <div
-      aria-hidden={up}
-      className={`welcome-cover fixed inset-0 z-50 flex items-center justify-center overflow-hidden px-6 py-8 transition-opacity delay-200 duration-500 motion-reduce:transition-none ${
-        up ? "pointer-events-none opacity-0" : "opacity-100"
-      }`}
-    >
-      <div aria-hidden className="welcome-grid absolute inset-0" />
-      <div className="relative flex max-h-[calc(100dvh-4rem)] w-full max-w-md flex-col items-center overflow-y-auto text-center">
-        <div className="relative mb-7 flex h-28 w-28 shrink-0 items-center justify-center sm:h-36 sm:w-36">
-          <img
-            src="/agenticpad-tb.png"
-            alt=""
-            width={372}
-            height={370}
-            className="h-20 w-20 object-contain [image-rendering:pixelated] sm:h-24 sm:w-24"
-          />
-        </div>
-        <p className="font-pixel text-[clamp(26px,7vw,42px)] font-bold leading-tight text-text">
-          AgenticPad
-        </p>
-        <p className="mt-3 text-sm leading-6 text-muted">Launch your token. Let your agent play.</p>
-        <div className="mt-6 flex items-center gap-4 text-[10px] uppercase tracking-[0.18em] text-teal sm:text-xs">
-          <span>Launch</span><span aria-hidden className="h-1 w-1 bg-accent" /><span>Hold</span><span aria-hidden className="h-1 w-1 bg-accent" /><span>Compete</span>
-        </div>
-        <div className="mt-10 w-full max-w-xs">
-          <div className="mb-2 flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-muted">
-            <span>{up ? "Ready" : drawn ? "Gathering agents" : "Building field"}</span>
-            <span className="text-teal">{pct}%</span>
-          </div>
-          <div
-            role="progressbar"
-            aria-label="Loading the village"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={pct}
-            className="h-2 w-full border border-teal/30 bg-ink p-px"
-          >
-            <div
-              className="h-full bg-teal transition-[width] duration-300 ease-out motion-reduce:transition-none"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <p role="status" className="mt-3 text-xs text-muted">
-            {up ? "Your village is ready." : "Preparing your entrance…"}
-          </p>
-        </div>
-        <p className="mt-10 text-[10px] uppercase tracking-[0.22em] text-muted">Built on Solana</p>
       </div>
     </div>
   );
@@ -681,15 +659,14 @@ function VillageControls({
 }) {
   const find =
     mine.size > 0 ? (
-      <button
-        type="button"
-        onClick={() => village.current?.findMine()}
+      <Link
+        href="/agent"
         aria-label="Find my agent"
         title="Find my agent"
         className="rounded-panel flex h-9 items-center gap-1.5 whitespace-nowrap border border-accent bg-hud px-2.5 text-[12px] font-medium text-accent shadow-[0_4px_16px_rgb(0_0_0/0.5)] hover:text-text"
       >
         <span aria-hidden>◎</span> Find my agent
-      </button>
+      </Link>
     ) : null;
   return (
     <>

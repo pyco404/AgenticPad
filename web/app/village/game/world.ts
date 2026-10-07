@@ -19,7 +19,7 @@ export type Octagon = { cx: number; cy: number; hw: number; hh: number; chamfer:
 export const INNER: Octagon = { cx: CENTRE.x, cy: CENTRE.y, hw: 1080, hh: 780, chamfer: 330 };
 /** Invisible limit of the first expansion area. */
 export const OUTER: Octagon = { cx: CENTRE.x, cy: CENTRE.y, hw: 1840, hh: 1480, chamfer: 560 };
-/** Ring roads and main roads: wide and paved. District paths (checkpoint 2) are narrow dirt. */
+/** Ring roads and main roads: wide and paved. District paths are narrower weathered stone. */
 export const RING_WIDTH = 64;
 export const SPOKE_WIDTH = 64;
 /** How far past the outer ring the world runs, for now: the Wilds' first band. The far edge is not built yet. */
@@ -110,11 +110,11 @@ export const SPOKES: Spoke[] = COUNTRY_LANES.map(({id, controls}) => {
 });
 /** A handful of small gathering places, rather than a roundabout at every bend. */
 export const CROSSROADS: Pt[] = [{x:350,y:850},{x:2490,y:850},{x:1220,y:1790}];
-export const WORLD_ROADS: Path[] = COUNTRY_LANES.map(({controls}) => curvedPath("dirt", 38, controls));
+export const WORLD_ROADS: Path[] = COUNTRY_LANES.map(({controls}) => curvedPath("dirt", 44, controls));
 const round = (p: Pt): [number, number] => [Math.round(p.x), Math.round(p.y)];
 
 /** How wide a spur is: a narrow walking path from a building to its lane. */
-export const SPUR_WIDTH = 28;
+export const SPUR_WIDTH = 34;
 
 /** Connect building doors to the nearest country lane, splitting at the shared junction. */
 export function withSpurs(roads: readonly Path[], doors: readonly Pt[]): Path[] {
@@ -172,7 +172,7 @@ export const PIER: Pt = { x: pierCol * TILE + TILE / 2, y: pierRow * TILE + 40 }
 /** The path down to the pier, branching from the southern country lane. */
 export const LAKE_PATH: Path = {
   style: "dirt",
-  width: 28,
+  width: 34,
   points: [[1220,1790], [1100,2130], [Math.round(PIER.x + 260), Math.round(PIER.y - 230)], [Math.round(PIER.x), Math.round(PIER.y - 70)]],
 };
 

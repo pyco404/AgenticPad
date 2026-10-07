@@ -1,5 +1,7 @@
 // Adapted from Agent Quest (MIT, see ./LICENSE).
 import type * as Phaser from "phaser";
+import { standee } from "./billboard";
+import { FLOOR_RATIO } from "./presentation";
 import { crispText, SANS } from "./text";
 import type { Site } from "./town";
 
@@ -54,15 +56,17 @@ export class Building {
     this.door = site.door ?? { x: site.x, y: site.y + 5 };
     this.footprint = { x: site.x, y: site.y, width: image.displayWidth, height: image.displayHeight };
     image.setDepth(site.depth ?? this.door.y);
+    if (def.id !== "arena") standee(image);
 
     // Name, then its line, both clear above the roof, and above the trees, the night and the walkers.
     const clearAbove = site.art.includes("/modern-") ? 0.03 : (CLEAR_ABOVE[def.id] ?? 0);
-    const top = site.labelY ?? site.y - image.displayHeight * (1 - clearAbove) - 2;
+    const logicalTop = site.labelY ?? site.y - this.footprint.height * (1 - clearAbove) - 2;
+    const top = def.id === "arena" ? logicalTop : site.y + (logicalTop - site.y) / FLOOR_RATIO;
     const name = crispText(scene, 0, -16, def.label, {
       fontSize: "20px",
       fontStyle: "700",
       fontFamily: "Georgia, serif",
-      color: "#f5ecd8",
+      color: def.id === "arena" ? "#ffe2a0" : "#f5ecd8",
       stroke: "#000000",
       strokeThickness: 1,
       shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 0, fill: true },
@@ -77,8 +81,8 @@ export class Building {
     // Above agents' names too (hero.ts puts those at 10,000 and up): the map's own labels always read.
     const width = Math.ceil(name.width) + 26;
     const sign = scene.add.graphics();
-    sign.fillStyle(0x171e18, 0.96).fillRoundedRect(-width / 2, -48, width, 35, 3);
-    sign.lineStyle(2, 0xc49a49, 1).strokeRoundedRect(-width / 2, -48, width, 35, 3);
+    sign.fillStyle(def.id === "arena" ? 0x153c32 : 0x171e18, 0.96).fillRoundedRect(-width / 2, -48, width, 35, 3);
+    sign.lineStyle(2, def.id === "arena" ? 0xf6d77d : 0xc49a49, 1).strokeRoundedRect(-width / 2, -48, width, 35, 3);
     sign.lineStyle(1, 0x6d603b, 1).strokeRect(-width / 2 + 4, -44, width - 8, 27);
     for (const x of [-width / 2 + 3, width / 2 - 5]) {
       sign.fillStyle(0xf0d18b, 1).fillRect(x, -45, 2, 2).fillRect(x, -19, 2, 2);
@@ -93,7 +97,7 @@ export class Building {
   }
 
   setLabelScale(scale: number): void {
-    this.label.setScale(scale);
+    this.label.setScale(scale, scale / FLOOR_RATIO);
   }
 
   setNote(text: string, colour: string): void {

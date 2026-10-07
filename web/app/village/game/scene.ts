@@ -1,18 +1,23 @@
 // Adapted from Agent Quest (MIT, see ./LICENSE).
 import * as Phaser from "phaser";
+import { standee, standingVisible } from "./billboard";
+import { AGENT_ZOOM, DISTRICT_ZOOM, FLOOR_RATIO, MAX_ZOOM, followAmount, framedCentre, viewMode, type ViewMode, type WorldView } from "./presentation";
 import { inMatch, type Place, type Resident } from "../residents";
 import { duelPhase, meetingSpot, pathSpots, ringsInFull, WATCH_RADIUS, type Spot } from "./duels";
 import { Building, type BuildingLabel } from "./building";
 import { Ground } from "./ground";
 import { byGardenPond, drawGardens, GARDEN_PONDS } from "./gardens";
-import { byLandscape, LANDSCAPE_BOXES, MOUNTAIN_BOXES, oceanTerrain } from "./landscape";
+import { byLandscape, LANDSCAPE_BOXES, MOUNTAIN_BOXES } from "./landscape";
 import { drawScenery } from "./scenery";
+import { ActivitySimulation, ACTIVITY_CONFIG, describeActivity } from "./activities";
+import { ACTIVITY_DESTINATIONS } from "./activity-destinations";
+import { drawDistrictProps, drawDistrictTerrain } from "./district-scenery";
 import { Hero } from "./hero";
 import { CardTable } from "./table";
 import { drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
 import { loadShips, sailShips } from "./ships";
-import { drawArena, loadArena, type ArenaHandle } from "./arena";
-import { ARENA_FIELD, GROUNDS, HIDDEN_ROADS, inTown, lots, NEW_TOWN_SITES, RESERVED, ROADS, SITES, SQUARE, stands, townBounds } from "./town";
+import { buildArenaArt, drawArena, loadArena, type ArenaHandle } from "./arena";
+import { ARENA_FIELD, HIDDEN_ROADS, inTown, lots, NEW_TOWN_SITES, RESERVED, ROADS, SITES, SQUARE, stands, townBounds } from "./town";
 import { CROSSROADS, inNewTown, onOldGround, PIER, WORLD } from "./world";
 import { nightOf, num, VOID, warm } from "./palette";
 import { chunkKey, chunksIn, chunkTrees, CHUNK, type ForestRules, type Tree } from "./forest";
@@ -21,10 +26,11 @@ import { drawMap, loadMap, type VillageMap } from "./map";
 import { canopy, NEW_TOWN, openPlots, overlaps, PIECE_ART, plotClearing, type Box, type Plot } from "./growth";
 import { Roads, type Point } from "./roads";
 import { referenceArt } from "./reference-art";
-import { byRiver, RIVER_BANKS, riverTerrain } from "./river";
+import { byRiver, RIVER_BANKS, waterTerrain } from "./river";
 import { drawRiver } from "./river-scenery";
 import { crispText, MONO } from "./text";
-import { layOutNames, type NameLabel } from "./labels";
+import { layOutNames, namesInView, type NameLabel } from "./labels";
+import { agentPopulation, allocateHomes, clearRoute, neighbourhoodSpots } from "./population";
 import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
 import { bodyColours, GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
@@ -62,31 +68,15 @@ const GRID_Y = 42;
 /** A match takes two spots facing each other, this far apart. */
 const PAIR_GAP = 72;
 /** The Arena's one match stands in the middle of the sand (town.ts); a replay's stand-ins come in by the south gate. */
-const ARENA_SPOT = { x: ARENA_FIELD.x, y: 820 };
+const ARENA_SPOT = { x: ARENA_FIELD.x, y: ARENA_FIELD.y };
 const ARENA_GATE = { x: ARENA_FIELD.x, y: 1010 };
 /** How long an agent called to a match takes to get there, from wherever it is. */
 const ARRIVE_MS = 2500;
 /** How far a drag goes before it is a drag and not a tap. */
 const DRAG = 8;
 
-/** A stroll is an amble, not an errand: this share of walking speed. */
+/** House construction errands use the existing unhurried walking pace. */
 const STROLL_PACE = 0.7;
-/** How long a waiting agent stands at its hall before it might wander, and how long it lingers where it went. */
-const AT_HOME_MS: [number, number] = [2_000, 8_000];
-const AWAY_MS: [number, number] = [6_000, 14_000];
-/** The chance, each time it has stood a while, that it goes for a stroll rather than staying put. */
-const STROLL_CHANCE = 0.7;
-/** A stroll's end: the agent grounds at the edge of town this often; of the rest, the lake shore this often, anywhere else in the world otherwise. */
-const GROUNDS_CHANCE = 0.4;
-const SHORE_CHANCE = 0.15;
-/** Of all strolls, this share go down the south road to the dock; of those, this share go in for a swim. */
-const DOCK_CHANCE = 0.25;
-const SWIM_CHANCE = 0.6;
-/** Swimming is slower than walking; a swim is a few strokes out and about before climbing back out. */
-const SWIM_PACE = 0.35;
-const SWIM_LEGS: [number, number] = [2, 4];
-/** How far out from the dock a swimmer goes: close enough to be watched from the shore. */
-const SWIM_REACH = 200;
 /** Within this of a road, a walk keeps to the roads; beyond it, it crosses open ground. */
 const NEAR_ROAD = 110;
 /** The widest the camera ever looks, in world pixels: the world runs on much further than anyone needs to see at once. */
@@ -101,8 +91,6 @@ const FOREST_REACH = 140;
 /** How far the forest's canopies keep off a road's edge. */
 const FOREST_VERGE = 10;
 
-const between = ([lo, hi]: [number, number]) => lo + Math.random() * (hi - lo);
-
 /** How long a structure takes to rise when it opens while someone is watching, and how long its builder stays at it. */
 const RISE_MS = 6_000;
 const BUILD_MS = 18_000;
@@ -111,6 +99,7 @@ const COLOUR = { text: "#ede6d6", accent: "#e8b84b", live: "#6f9e5c", loss: "#d4
 
 export type VillageEvents = {
   ready: () => void;
+  view?: (view: WorldView) => void;
   selectAgent: (id: string | null) => void;
   selectBuilding: (id: string) => void;
   /** The Arena's match, by id, has played out in full. */
@@ -140,6 +129,7 @@ export class VillageScene extends Phaser.Scene {
   private arena: ArenaHandle | null = null;
   /** Whether someone has panned or zoomed since the village was last framed: a resize then keeps their view. */
   private moved = false;
+  private observing = false;
   private heroes = new Map<string, Hero>();
   private residents = new Map<string, Resident>();
   /** Who is at each place, in the order they arrived, so a newcomer joins the end rather than reshuffling everyone. */
@@ -147,35 +137,42 @@ export class VillageScene extends Phaser.Scene {
   /** Where each hero was last sent, so an update only moves those whose spot changed. */
   private targets = new Map<string, string>();
   private ground!: Ground;
+  private fixedFootprints: { x: number; y: number; width: number; height: number }[] = [];
+  private fixedBlocks: Box[] = [];
+  private neighbourhoodHomes = new Map<string, Point>();
+  private neighbourhoodPlaces: Point[] = [];
   /** Where retiring agents leave and new ones arrive: the map's own spawn point is in the lake, so the dry ground nearest it. */
   private gate: Point = { x: 0, y: 0 };
-  /** Each waiting agent's spot at its hall, which it walks back to after a stroll. */
+  /** Each resident's resting spot, updated when its hall/neighbourhood changes. */
   private home = new Map<string, Point & { facing?: "left" | "right" }>();
-  /** Agents out on a stroll, and the timers that move each one along its routine. */
+  /** Residents away from home. Activity work/rest uses one shared tick, not per-agent timers. */
   private strolling = new Set<string>();
+  private activities: ActivitySimulation | null = null;
+  /** Only the occasional house construction animation uses a delayed callback. */
   private routine = new Map<string, Phaser.Time.TimerEvent>();
-  /** The dock at the end of the south road, and the open water near it that swimmers make for. */
+  /** Dry pier planks over the southern lake remain valid walking ground. */
   private dock: { x: number; y: number; halfWidth: number; halfHeight: number } | null = null;
-  private swimSpots: Point[] = [];
-  /** Where a stroll may end: the village and the forest's near edge. */
-  private strollable: Point[] = [];
   /** The forest's chunks now made, each its trees and the sprite drawn for each (forest.ts). */
   private chunks = new Map<string, { tree: Tree; sprite: Phaser.GameObjects.Image }[]>();
   private forestRules: ForestRules | null = null;
   private forestAt = "";
+  private navigationChunks = new Set<string>();
   private pending: Resident[] | null = null;
   /** The map's trees, so the village can clear them as it grows (growth.ts). */
   private trees: { d: { k: string; x: number; y: number; s: number }; sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite }[] = [];
   /** Which trees have been taken down, and which plots stand. */
   private cleared = new Set<number>();
   private grown = new Set<string>();
-  /** The holder count, once known; held until the scene exists. */
-  private holders: number | null = null;
+  /** The highest real-agent count seen by this scene; opened districts do not close while watching. */
+  private population = -1;
   /** Whether the village has been drawn at a count yet: only plots opening after that go up in front of the watcher. */
   private grownOnce = false;
   private placed = false;
   private selected: string | null = null;
   private dragged = false;
+  private following: string | null = null;
+  private cameraTravel: Phaser.Tweens.Tween | null = null;
+  private lastView = 0;
   /** How much of the canvas the bar and the page panel cover, in CSS pixels: the village is framed in the rest. */
   private inset = { top: 0, right: 0, bottom: 0 };
 
@@ -194,7 +191,8 @@ export class VillageScene extends Phaser.Scene {
     for (const b of this.opts.buildings) {
       const site = SITES[b.id];
       if (!site) continue;
-      const art = b.id === "arena" ? `${site.art}?v=agp-logo-1` : referenceArt(site.art);
+      if (b.id === "arena") continue; // The oval shares runtime art and collision geometry.
+      const art = referenceArt(site.art);
       if (site.sheet) this.load.spritesheet(`building-${b.id}`, art, { frameWidth: site.sheet.width, frameHeight: site.sheet.height });
       else this.load.image(`building-${b.id}`, art);
     }
@@ -212,20 +210,25 @@ export class VillageScene extends Phaser.Scene {
   }
 
   create(): void {
+    buildArenaArt(this);
     // Water is real terrain: navigation treats the ocean as wet ground.
-    const scenicTerrain = [...oceanTerrain(), ...riverTerrain()];
+    const scenicTerrain = waterTerrain();
     const scenicTiles = new Set(scenicTerrain.map(([c, r]) => `${c},${r}`));
     this.map = { ...this.map, terrain: [...this.map.terrain.filter(([c, r]) => !scenicTiles.has(`${c},${r}`)), ...scenicTerrain] };
     this.cameras.main.setBackgroundColor(VOID);
     // The dressing (dressing.ts), then the map with the town's roads (town.ts) in place of its own: its
     // forest, less what stands where the town is - its buildings, their props, its roads.
-    const { solids, placed } = drawDressing(this, this.opts.still);
+    const dressing = drawDressing(this, this.opts.still);
+    const districts = drawDistrictProps(this);
+    const solids = [...dressing.solids, ...districts.solids];
+    const placed = [...dressing.placed, ...districts.placed];
     const taken = lots(placed);
     this.trees = drawMap(this, {
       ...this.map,
       paths: ROADS,
       decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS) && !byGardenPond(d) && !byLandscape(d) && !byRiver(d)),
     });
+    drawDistrictTerrain(this);
     drawGardens(this, taken);
     drawScenery(this, this.opts.still);
     drawRiver(this, this.opts.still);
@@ -247,18 +250,18 @@ export class VillageScene extends Phaser.Scene {
     // A building is solid as its picture's box, but the arena as its walls: agents fight inside it.
     const footprints = [...this.buildings].filter(([id]) => !SITES[id]?.blocks).map(([, b]) => b.footprint);
     const blocks = Object.values(SITES).flatMap((s) => s.blocks ?? []);
-    this.ground = new Ground(this.map, [...footprints, ...solids], [...blocks, ...GARDEN_PONDS, ...MOUNTAIN_BOXES], RESERVED);
+    this.fixedFootprints = [...footprints, ...solids];
+    this.fixedBlocks = [...blocks, ...GARDEN_PONDS, ...MOUNTAIN_BOXES];
+    this.ground = new Ground(this.map, this.fixedFootprints, this.fixedBlocks, RESERVED);
+    this.ground.blockTrunks(this.trees.map((t) => t.d));
     // Where a match out in the village may meet: along every path.
     this.ringSpots = pathSpots(ROADS);
     // Open ground for a ring when the paths are full: Old Town's and New Town's, not the Wilds'.
     this.ringClearings = this.ground.anywhere.filter((p) => inTown(p) || inNewTown(p));
-    // Every safe open tile is a destination, including the world's far edges.
-    this.strollable = this.ground.anywhere;
     this.gate = this.ground.nearestDry(this.map.spawn);
 
-    // The pier on the small lake out in the Wilds (world.ts): strollers walk out to its end, and some swim off it.
+    // The existing southern pier remains walkable; routine activities do not send agents swimming.
     this.dock = { x: PIER.x, y: PIER.y + 20, halfWidth: 22, halfHeight: 70 };
-    this.swimSpots = this.ground.water.filter((p) => Math.hypot(p.x - PIER.x, p.y - PIER.y) < SWIM_REACH && p.y > PIER.y + 40 && !this.onDock(p));
 
     // One sailboat on the lake, clear of the pier.
     sailShips(this, this.ground, { count: 1, still: this.opts.still, moored: null, rocks: [], dock: PIER });
@@ -272,6 +275,20 @@ export class VillageScene extends Phaser.Scene {
       cleared: [],
     };
     this.events.on("update", () => this.tendForest());
+    this.activities = new ActivitySimulation(ACTIVITY_DESTINATIONS, {
+      position: (id) => this.heroes.get(id) ?? null,
+      prepare: (id, to) => {
+        const hero = this.heroes.get(id);
+        if (!hero) return null;
+        const path = this.route(hero, to), end = path.at(-1);
+        // A* may reject a route or choose a dry substitute. Stay within the work site's area.
+        return path.length >= 2 && end && Math.hypot(end.x - to.x, end.y - to.y) <= 96 &&
+          clearRoute(path, (p) => this.ground.walkable(p) || this.onDock(p)) ? path : null;
+      },
+      travel: (id, path, arrived) => this.heroes.get(id)?.walkTo(path.at(-1)!, undefined,
+        { path, pace: ACTIVITY_CONFIG.pace, then: arrived }),
+      rest: (id, resting) => this.heroes.get(id)?.setResting(resting),
+    });
 
     // Night: the palette's own (palette.ts nightOf) - every colour multiplied darker and a little cooler,
     // so the same hues hold - over the world, under the names so they still read.
@@ -291,21 +308,20 @@ export class VillageScene extends Phaser.Scene {
     this.setNotes(this.notes);
     this.opts.events.ready();
     if (this.pending) this.setResidents(this.pending);
-    if (this.holders !== null) this.setHolders(this.holders);
   }
 
   // --- Growth -------------------------------------------------------------
 
   /**
-   * The village grows with its holders (growth.ts): each plot that has opened
+   * The village grows with real agents across all tokens (growth.ts): each plot that has opened
    * is built, and the trees on its ground come down. The first count a page
    * hears is the village as it stands, drawn at once. A plot that opens while
    * someone is watching goes up in front of them: a house agent walks over
    * and stands at it while it rises. Presentation only.
    */
-  setHolders(count: number): void {
-    this.holders = count;
-    if (!this.roads) return;
+  private growPopulation(count: number): void {
+    if (count <= this.population) return;
+    this.population = count;
     const live = this.grownOnce && !this.opts.still;
     this.grownOnce = true;
     const fresh = openPlots(NEW_TOWN, count).filter((p) => !this.grown.has(p.id));
@@ -314,7 +330,7 @@ export class VillageScene extends Phaser.Scene {
       const pieces = this.build(plot);
       // Its ground is cleared for good: the forest never grows a tree there again (forest.ts), and the
       // trees standing there now come down.
-      const clearing = plotClearing(plot);
+      const clearing = plotClearing(plot, 180);
       if (this.forestRules) this.forestRules = { ...this.forestRules, cleared: [...this.forestRules.cleared, clearing] };
       for (const chunk of this.chunks.values()) {
         for (const t of chunk) {
@@ -324,11 +340,27 @@ export class VillageScene extends Phaser.Scene {
           else sprite.destroy();
         }
       }
-      for (const t of this.trees) if (overlaps(canopy(t.d), clearing)) t.sprite.setVisible(false);
+      for (const t of this.trees) if (overlaps(canopy(t.d), clearing)) standingVisible(t.sprite, false);
       if (live) this.rise(plot, pieces);
     }
+    if (fresh.length > 0) this.refreshNeighbourhoods();
     // The land has grown: frame it all, unless someone has moved the view, which is theirs.
     if (fresh.length > 0 && !this.moved) this.fit();
+  }
+
+  /** New buildings are solid, and their dry forecourts become residential destinations. */
+  private refreshNeighbourhoods(): void {
+    const plots = NEW_TOWN.plots.filter((p) => this.grown.has(p.id));
+    const footprints = plots.flatMap((plot) => plot.pieces.filter((p) => p.image !== "planter").map((p) => {
+      const art = PIECE_ART[p.image];
+      return { x: p.x, y: p.y + art.height * p.scale * (1 - art.foot), width: art.width * p.scale, height: art.height * p.scale };
+    }));
+    this.ground = new Ground(this.map, [...this.fixedFootprints, ...footprints], this.fixedBlocks, RESERVED);
+    this.navigationChunks.clear();
+    this.ground.blockTrunks(this.trees.filter((t) => t.sprite.visible).map((t) => t.d));
+    this.ringClearings = this.ground.anywhere.filter((p) => inTown(p) || inNewTown(p));
+    const clear = (p: Point) => this.ground.walkable(p) && !RESERVED.some((b) => p.x >= b.x0 && p.x <= b.x1 && p.y >= b.y0 && p.y <= b.y1);
+    this.neighbourhoodPlaces = neighbourhoodSpots(plots, clear);
   }
 
   /** New Town's ground nothing grows on: its fixed buildings and their forecourts (the plots clear their own as they open). */
@@ -371,15 +403,16 @@ export class VillageScene extends Phaser.Scene {
       this.chunks.set(
         chunkKey(cx, cy),
         chunkTrees(cx, cy, rules).map((tree) => {
-          const sprite = this.add.image(tree.x, tree.y, tree.k, tree.f).setScale(tree.s);
-          sprite.setDepth(tree.y + sprite.displayHeight * 0.5);
+          const sprite = this.add.image(tree.x, tree.y, tree.k, tree.f).setOrigin(0.5, 1).setScale(tree.s);
+          sprite.setDepth(tree.y);
+          standee(sprite, true);
           return { tree, sprite };
         }),
       );
     }
     for (const [key, trees] of this.chunks) {
       const on = shown.has(key);
-      for (const t of trees) if (t.sprite.active && t.sprite.visible !== on) t.sprite.setVisible(on);
+      for (const t of trees) if (t.sprite.active && t.sprite.visible !== on) standingVisible(t.sprite, on);
     }
     // Done for this view only once every chunk near it is made; until then, a few more next frame.
     if (missing.length <= FOREST_PER_FRAME) this.forestAt = at;
@@ -393,7 +426,18 @@ export class VillageScene extends Phaser.Scene {
     for (const c of this.chunks.values()) trees += c.length;
     let drawn = 0;
     for (const c of this.chunks.values()) for (const t of c) if (t.sprite.visible) drawn++;
-    (window as unknown as { __village?: object }).__village = { chunks: this.chunks.size, trees, drawn, objects: this.children.length, textures: this.textures.getTextureKeys().length };
+    (window as unknown as { __village?: object }).__village = {
+      chunks: this.chunks.size, trees, drawn, objects: this.children.length, textures: this.textures.getTextureKeys().length,
+      camera: { zoom: this.cameras.main.zoomX / renderScale(this), floorRatio: this.cameras.main.zoomY / this.cameras.main.zoomX, x: this.cameras.main.midPoint.x, y: this.cameras.main.midPoint.y, following: this.following, selected: this.selected },
+      sample: [...this.heroes.entries()].slice(0, 8).map(([id, hero]) => ({ id, x: hero.x, y: hero.y,
+        activity: this.activities?.state(id, this.time.now), recent: this.activities?.recent(id) })),
+      activities: [...this.heroes.keys()].reduce((counts, id) => {
+        const state = this.activities?.state(id, this.time.now);
+        if (state) { counts[state.activity] = (counts[state.activity] ?? 0) + 1; counts[state.phase] = (counts[state.phase] ?? 0) + 1; }
+        return counts;
+      }, {} as Record<string, number>),
+      agents: this.heroes.size, population: this.population, plots: this.grown.size, neighbourhoodHomes: this.neighbourhoodHomes.size,
+    };
   }
 
   /** Draws a plot's pieces at the depth of their feet, like everything else on the ground. */
@@ -409,6 +453,7 @@ export class VillageScene extends Phaser.Scene {
         if (!this.anims.exists(anim)) this.anims.create({ key: anim, frames: this.anims.generateFrameNumbers(key, {}), frameRate: 6, repeat: -1 });
         obj.play(anim);
       }
+      if (!["Plot", "Yard", "planter"].includes(p.image)) standee(obj, p.image !== "lamp");
       return [obj];
     });
   }
@@ -423,6 +468,7 @@ export class VillageScene extends Phaser.Scene {
     const builder = this.builder();
     if (!builder) return;
     const hero = this.heroes.get(builder)!;
+    this.stopRoutine(builder);
     this.roam(builder, true);
     hero.walkTo(plot.door, undefined, {
       pace: STROLL_PACE,
@@ -433,7 +479,7 @@ export class VillageScene extends Phaser.Scene {
   /** A house agent waiting at its hall and not already out: the one to send to a new plot. */
   private builder(): string | null {
     for (const [id, r] of this.residents) {
-      if (r.house && this.heroes.has(id) && this.isHall(r.place) && !this.strolling.has(id) && id !== this.selected) return id;
+      if (r.house && this.heroes.has(id) && this.isHall(r.place) && this.activities?.state(id, this.time.now)?.phase === "resting" && id !== this.selected) return id;
     }
     return null;
   }
@@ -456,7 +502,7 @@ export class VillageScene extends Phaser.Scene {
   private minZoom(): number {
     const cam = this.cameras.main;
     // The world is larger than anyone needs to see at once: no further out than MAX_VIEW across.
-    return Math.max(cam.width / (WORLD.x1 - WORLD.x0), cam.height / (WORLD.y1 - WORLD.y0), cam.width / MAX_VIEW);
+    return Math.max(cam.width / (WORLD.x1 - WORLD.x0), cam.height / ((WORLD.y1 - WORLD.y0) * FLOOR_RATIO), cam.width / MAX_VIEW);
   }
 
   /**
@@ -473,18 +519,18 @@ export class VillageScene extends Phaser.Scene {
   /** Building names keep a readable size on screen however far out the village is zoomed, as a game's map labels do. */
   private rescaleLabels(): void {
     // Capped so the longest name ("Rulebook House") still fits between its neighbours on a phone.
-    const scale = Phaser.Math.Clamp((0.85 * renderScale(this)) / this.cameras.main.zoom, 1, 1.45);
+    const scale = Phaser.Math.Clamp((0.85 * renderScale(this)) / this.cameras.main.zoomX, 0.35, 1.45);
     for (const b of this.buildings.values()) b.setLabelScale(scale);
     for (const h of this.heroes.values()) h.setLabelScale(this.heroLabelScale());
   }
 
   /** Agents' names keep a readable size too, up to a point: past it, they would crowd the whole map. */
   private heroLabelScale(): number {
-    return Phaser.Math.Clamp((0.9 * renderScale(this)) / this.cameras.main.zoom, 1, 1.8);
+    return Phaser.Math.Clamp((0.9 * renderScale(this)) / this.cameras.main.zoomX, 0.45, 1.8);
   }
 
   private maxZoom(): number {
-    return 2 * renderScale(this);
+    return MAX_ZOOM * renderScale(this);
   }
 
   /** The canvas's uncovered part, in canvas pixels: its size, and how far its centre sits from the canvas's. */
@@ -497,32 +543,110 @@ export class VillageScene extends Phaser.Scene {
     return { width: Math.max(1, cam.width - right), height: Math.max(1, cam.height - top - bottom), dx: right / 2, dy: (bottom - top) / 2 };
   }
 
-  /** Put the world point (x, y) in the middle of the uncovered part. */
-  private centreOn(x: number, y: number, duration = 0): void {
-    const cam = this.cameras.main;
+  /** Upright art keeps its size while the floor is foreshortened. Logical coordinates never change. */
+  private setZoom(zoom: number): void {
+    const x = Phaser.Math.Clamp(zoom, this.minZoom(), this.maxZoom());
+    this.cameras.main.setZoom(x, x * FLOOR_RATIO);
+    this.rescaleLabels();
+  }
+
+  private centreOn(x: number, y: number): void {
     const { dx, dy } = this.visible();
-    const tx = x + dx / cam.zoom;
-    const ty = y + dy / cam.zoom;
-    if (duration > 0) cam.pan(tx, ty, duration, "Sine.easeInOut");
-    else cam.centerOn(tx, ty);
+    const target = framedCentre({ x, y }, dx, dy, this.cameras.main.zoomX);
+    this.cameras.main.centerOn(target.x, target.y);
+  }
+
+  private worldZoom(): number {
+    const v = this.villageBounds();
+    const { width, height } = this.visible();
+    let zoom = Math.min(width / v.width, height / (v.height * FLOOR_RATIO));
+    if (height > width) zoom = Math.max(zoom, width / 1100);
+    return zoom;
   }
 
   private fit(): void {
     this.moved = false;
-    const cam = this.cameras.main;
-    const v = this.villageBounds();
-    const { width, height } = this.visible();
-    let zoom = Math.min(width / v.width, height / v.height);
-    // On a portrait screen - a phone - fitting all of New Town's width would show nearly the whole world's
-    // height, tiny: Old Town fills the width instead, and New Town's rows above and below it are in view,
-    // its sides a swipe away.
-    if (height > width) {
-      const old = townBounds();
-      zoom = Math.max(zoom, width / Math.min(1100, old.x1 - old.x0));
-    }
-    cam.setZoom(Phaser.Math.Clamp(zoom, this.minZoom(), this.maxZoom()));
+    this.setZoom(this.worldZoom());
     this.updateBounds();
+    const v = this.villageBounds();
     this.centreOn(v.centerX, v.centerY);
+  }
+
+  /** Dragging, pinching and wheel zoom hand control back to the visitor. */
+  private releaseCamera(): void {
+    this.cameraTravel?.stop();
+    this.cameraTravel = null;
+    this.following = null;
+  }
+
+  /** Pan and zoom together; recompute a moving agent's endpoint during the transition. */
+  private travelTo(point: Point, zoom: number): void {
+    this.cameraTravel?.stop();
+    this.cameraTravel = null;
+    this.moved = true;
+    const cam = this.cameras.main;
+    const from = { x: cam.midPoint.x, y: cam.midPoint.y, zoom: cam.zoomX };
+    const goal = Phaser.Math.Clamp(zoom, this.minZoom(), this.maxZoom());
+    const step = { t: 0 };
+    const paint = () => {
+      this.setZoom(Phaser.Math.Linear(from.zoom, goal, step.t));
+      const hero = this.following ? this.heroes.get(this.following) : null;
+      const { dx, dy } = this.visible();
+      const target = framedCentre(hero ?? point, dx, dy, cam.zoomX);
+      cam.centerOn(Phaser.Math.Linear(from.x, target.x, step.t), Phaser.Math.Linear(from.y, target.y, step.t));
+    };
+    if (this.opts.still) { step.t = 1; paint(); return; }
+    this.cameraTravel = this.tweens.add({ targets: step, t: 1, duration: 900, ease: "Sine.easeInOut", onUpdate: paint,
+      onComplete: () => { this.cameraTravel = null; } });
+  }
+
+  showView(mode: ViewMode): void {
+    if (this.observing && mode !== "agent") return;
+    if (!this.roads) return;
+    this.releaseCamera();
+    if (mode === "agent" && this.selected && this.heroes.has(this.selected)) {
+      this.following = this.selected;
+      this.travelTo(this.heroes.get(this.selected)!, AGENT_ZOOM * renderScale(this));
+    } else if (mode === "world") {
+      const v = this.villageBounds();
+      this.travelTo({ x: v.centerX, y: v.centerY }, this.worldZoom());
+    } else this.travelTo({ x: this.cameras.main.midPoint.x, y: this.cameras.main.midPoint.y }, (mode === "agent" ? AGENT_ZOOM : DISTRICT_ZOOM) * renderScale(this));
+  }
+
+  lookAt(point: Point): void {
+    if (this.observing) return;
+    if (!this.roads) return;
+    this.releaseCamera();
+    this.travelTo(point, DISTRICT_ZOOM * renderScale(this));
+  }
+
+  private followCamera(delta: number): void {
+    if (!this.following || this.cameraTravel) return;
+    const hero = this.heroes.get(this.following);
+    if (!hero) { this.releaseCamera(); return; }
+    const cam = this.cameras.main;
+    const { dx, dy } = this.visible();
+    const target = framedCentre(hero, dx, dy, cam.zoomX);
+    const amount = followAmount(delta, this.opts.still);
+    cam.centerOn(Phaser.Math.Linear(cam.midPoint.x, target.x, amount), Phaser.Math.Linear(cam.midPoint.y, target.y, amount));
+  }
+
+  /** A small HUD snapshot, never a React node per resident. */
+  private publishView(time: number): void {
+    if (time - this.lastView < 200) return;
+    this.lastView = time;
+    this.debugCount();
+    const cam = this.cameras.main, hero = this.selected ? this.heroes.get(this.selected) : null;
+    const resident = this.selected ? this.residents.get(this.selected) : null;
+    const activity = resident ? this.activities?.state(resident.id, time) : null;
+    this.opts.events.view?.({
+      mode: viewMode(cam.zoomX / renderScale(this), this.following !== null), following: this.following !== null,
+      selected: hero && resident ? { id: resident.standIn ?? resident.id, name: resident.name, house: resident.house,
+        activity: inMatch(resident.place) ? "Competing" : activity ? describeActivity(activity) : hero.idle ? "Resting" : "Walking",
+        destination: inMatch(resident.place) ? "Arena / live match" : activity?.route ?? activity?.destination ?? "Home forecourt",
+        activityState: activity ?? null, x: hero.x, y: hero.y } : null,
+      bounds: { x: cam.worldView.x, y: cam.worldView.y, width: cam.worldView.width, height: cam.worldView.height },
+    });
   }
 
   /** The bar, the panel or the tab bar moved: frame the village again in what they leave uncovered. */
@@ -530,25 +654,26 @@ export class VillageScene extends Phaser.Scene {
     const i = this.inset;
     if (inset.top === i.top && inset.right === i.right && inset.bottom === i.bottom) return;
     this.inset = inset;
-    if (this.roads) this.fit();
+    if (this.roads && !this.moved) this.fit();
   }
 
   /** Zoom with the world point under (sx, sy) kept where it is on screen. */
   private zoomAround(sx: number, sy: number, zoom: number): void {
+    this.releaseCamera();
     this.moved = true;
     const cam = this.cameras.main;
-    const before = cam.getWorldPoint(sx, sy);
-    cam.setZoom(Phaser.Math.Clamp(zoom, this.minZoom(), this.maxZoom()));
+    const x = sx - cam.width / 2, y = sy - cam.height / 2;
+    const before = { x: cam.midPoint.x + x / cam.zoomX, y: cam.midPoint.y + y / cam.zoomY };
+    this.setZoom(zoom);
     this.updateBounds();
-    const after = cam.getWorldPoint(sx, sy);
-    cam.scrollX += before.x - after.x;
-    cam.scrollY += before.y - after.y;
+    cam.centerOn(before.x - x / cam.zoomX, before.y - y / cam.zoomY);
   }
 
   zoomBy(step: number): void {
+    if (this.observing) return;
     if (!this.roads) return;
     const { width, height } = this.visible();
-    this.zoomAround(width / 2, height / 2, this.cameras.main.zoom * (step > 0 ? 1.25 : 0.8));
+    this.zoomAround(width / 2, height / 2, this.cameras.main.zoomX * (step > 0 ? 1.25 : 0.8));
   }
 
   private setUpCamera(): void {
@@ -563,12 +688,16 @@ export class VillageScene extends Phaser.Scene {
       // A new density changes what every zoom value means, so a view kept from before would be wrong: frame again.
       const now = renderScale(this);
       if (now !== density) {
+        const zoom = cam.zoomX / density * now;
         density = now;
-        return this.fit();
+        if (!this.moved) return this.fit();
+        this.setZoom(zoom);
+        this.updateBounds();
+        return;
       }
       if (!this.moved) return this.fit();
       const centre = cam.midPoint.clone();
-      cam.setZoom(Phaser.Math.Clamp(cam.zoom, this.minZoom(), this.maxZoom()));
+      this.setZoom(cam.zoomX);
       this.updateBounds();
       cam.centerOn(centre.x, centre.y);
     });
@@ -580,25 +709,39 @@ export class VillageScene extends Phaser.Scene {
       this.dragged = false;
     });
     this.input.on("pointermove", (p: Phaser.Input.Pointer) => {
+      if (this.observing) return;
       if (!p.isDown || (this.input.pointer1.isDown && this.input.pointer2.isDown)) return;
       if (!this.dragged && Math.abs(p.x - start.x) + Math.abs(p.y - start.y) > DRAG) this.dragged = this.moved = true;
       if (this.dragged) {
-        cam.scrollX -= (p.x - p.prevPosition.x) / cam.zoom;
-        cam.scrollY -= (p.y - p.prevPosition.y) / cam.zoom;
+        this.releaseCamera();
+        cam.scrollX -= (p.x - p.prevPosition.x) / cam.zoomX;
+        cam.scrollY -= (p.y - p.prevPosition.y) / cam.zoomY;
       }
     });
     // A tap on nothing clears the selection.
     this.input.on("pointerup", (_p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
-      if (!this.dragged && over.length === 0) this.opts.events.selectAgent(null);
+      if (this.observing) return;
+      if (!this.dragged && over.length === 0) { this.select(null, false); this.opts.events.selectAgent(null); }
     });
 
     // The page scrolls in its panel, so the wheel over the village is the village's: it zooms.
     this.input.on("wheel", (p: Phaser.Input.Pointer, _over: unknown, _dx: number, dy: number) => {
-      this.zoomAround(p.x, p.y, cam.zoom * Math.exp(-dy * 0.002));
+      if (this.observing) return;
+      this.zoomAround(p.x, p.y, cam.zoomX * Math.exp(-dy * 0.002));
     });
 
     // Names kept apart every frame: agents walk, and the camera moves and zooms. Rings too.
-    this.events.on("update", () => {
+    this.events.on("update", (time: number, delta: number) => {
+      if (!this.opts.still) this.activities?.tick(this.time.now);
+      this.followCamera(delta);
+      this.publishView(time);
+      const view = this.cameras.main.worldView;
+      for (const [id, hero] of this.heroes) {
+        const visible = hero.x >= view.x - 130 && hero.x <= view.right + 130 && hero.y >= view.y - 150 && hero.y <= view.bottom + 150;
+        hero.setRenderVisible(visible);
+        if (visible) hero.animateIdle(time);
+        if (visible) this.giveFace(id, this.residents.get(id)?.standIn);
+      }
       this.frameDuels();
       this.layOutNames();
     });
@@ -608,13 +751,14 @@ export class VillageScene extends Phaser.Scene {
     let pinch = { dist: 0, zoom: 0 };
     this.events.on("update", () => {
       const [a, b] = [this.input.pointer1, this.input.pointer2];
+      if (this.observing) return;
       if (!a.isDown || !b.isDown) {
         pinch.dist = 0;
         return;
       }
       this.dragged = true;
       const dist = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
-      if (pinch.dist === 0) pinch = { dist, zoom: cam.zoom };
+      if (pinch.dist === 0) pinch = { dist, zoom: cam.zoomX };
       else this.zoomAround((a.x + b.x) / 2, (a.y + b.y) / 2, pinch.zoom * (dist / pinch.dist));
     });
   }
@@ -637,7 +781,11 @@ export class VillageScene extends Phaser.Scene {
       const r = b.score.getBounds();
       fixed.push({ x0: r.x, y0: r.y, x1: r.right, y1: r.bottom });
     }
-    const placed = layOutNames(names, fixed, this.cameras.main.midPoint);
+    const view = this.cameras.main.worldView;
+    const visible = namesInView(names, { x0: view.x, y0: view.y, x1: view.right, y1: view.bottom }, this.cameras.main.midPoint, this.cameras.main.zoomX / renderScale(this) < 0.75 ? 0 : 40);
+    const visibleIds = new Set(visible.map((n) => n.id));
+    for (const n of names) if (!visibleIds.has(n.id)) this.heroes.get(n.id)?.placeName({ dy: 0, shown: false });
+    const placed = layOutNames(visible, fixed, this.cameras.main.midPoint);
     for (const [id, p] of placed) this.heroes.get(id)?.placeName(p);
   }
 
@@ -665,23 +813,30 @@ export class VillageScene extends Phaser.Scene {
     for (const [id, hero] of this.heroes) hero.setMine(this.mine.has(id));
   }
 
+  setObservation(on: boolean): void {
+    this.observing = on;
+  }
+
   /** Brings the camera to the owner's next agent in the village, in turn; false when none is here. */
   findMine(): boolean {
     const here = [...this.mine].filter((id) => this.heroes.has(id));
     if (here.length === 0) return false;
     this.found = (this.found + 1) % here.length;
-    const hero = this.heroes.get(here[this.found]!)!;
-    this.moved = true;
-    this.centreOn(hero.x, hero.y, this.opts.still ? 0 : 600);
+    this.select(here[this.found]!, true);
     return true;
   }
 
   select(id: string | null, pan: boolean): void {
     if (this.selected) this.heroes.get(this.selected)?.setSelected(false);
-    this.selected = id;
-    const hero = id ? this.heroes.get(id) : undefined;
+    const key = id && !this.heroes.has(id) ? [...this.residents.values()].find((r) => r.standIn === id)?.id ?? id : id;
+    this.selected = key;
+    const hero = key ? this.heroes.get(key) : undefined;
     hero?.setSelected(true);
-    if (hero && pan) this.centreOn(hero.x, hero.y, this.opts.still ? 0 : 600);
+    if (hero && pan) {
+      this.following = key;
+      this.travelTo(hero, AGENT_ZOOM * renderScale(this));
+      hero.highlight();
+    } else if (!key) this.releaseCamera();
   }
 
   setResidents(incoming: Resident[]): void {
@@ -691,6 +846,17 @@ export class VillageScene extends Phaser.Scene {
     }
     this.pending = null;
     this.latest = incoming;
+    this.growPopulation(agentPopulation(incoming));
+    const people = incoming.filter((r) => !r.house && !r.standIn && r.place !== "gate");
+    // The first twelve real residents per hall keep the central forecourt. Others live in new districts.
+    const atHall = new Map<string, number>();
+    const neighbours = people.filter((r) => {
+      const n = (atHall.get(r.hall) ?? 0) + 1;
+      atHall.set(r.hall, n);
+      return n > 12 || this.neighbourhoodHomes.has(r.id);
+    });
+    const validHomes = new Map([...this.neighbourhoodHomes].filter(([, p]) => this.ground.walkable(p)));
+    this.neighbourhoodHomes = allocateHomes(neighbours.map((r) => r.id), this.neighbourhoodPlaces, validHomes);
     const list = this.withHeld(incoming);
     const ids = new Set(list.map((r) => r.id));
 
@@ -703,6 +869,7 @@ export class VillageScene extends Phaser.Scene {
       this.unorder(id);
       this.stopRoutine(id);
       this.home.delete(id);
+      if (this.selected === id) this.select(null, false);
     }
 
     const spawn = this.gate;
@@ -715,12 +882,13 @@ export class VillageScene extends Phaser.Scene {
           nameColour: r.house ? COLOUR.text : COLOUR.accent,
           still: this.opts.still,
           onClick: () => {
-            if (!this.dragged) this.opts.events.selectAgent(r.standIn ?? r.id);
+            if (this.observing) return;
+            if (!this.dragged) { this.select(r.id, true); this.opts.events.selectAgent(r.standIn ?? r.id); }
           },
           inWater: (p) => this.ground.inWater(p) && !this.onDock(p),
         });
         this.heroes.set(r.id, hero);
-        this.giveFace(r.id, r.standIn);
+        this.faceRequests.delete(r.id);
         hero.setWeapon(weaponOf(r.standIn ?? r.id));
         hero.setLabelScale(this.heroLabelScale());
         if (this.mine.has(r.id)) hero.setMine(true);
@@ -756,13 +924,16 @@ export class VillageScene extends Phaser.Scene {
       this.targets.set(id, key);
       const hero = this.heroes.get(id)!;
       const waiting = this.isHall(this.residents.get(id)?.place);
-      if (waiting) this.home.set(id, spot);
+      if (waiting) {
+        this.home.set(id, spot);
+        if (this.activities?.has(id)) this.activities.add(id, spot, this.time.now);
+      }
       else {
-        // A match or a farewell cuts any stroll short.
+        // Matches and retirement always take priority over a world activity.
         this.stopRoutine(id);
         this.home.delete(id);
       }
-      // Out on a stroll, it comes back to its new spot when the stroll ends; no need to call it in.
+      // An active routine uses its new home on return without restarting its journey.
       if (waiting && this.strolling.has(id)) continue;
       // The hall's grid reshuffles whenever someone comes or goes; stepping to a new spot is not a new
       // arrival, so it leaves a routine already under way alone rather than starting its wait over.
@@ -778,25 +949,41 @@ export class VillageScene extends Phaser.Scene {
     }
     if (list.length > 0) this.placed = true;
     this.syncBrawls();
+    this.debugCount();
   }
 
-  // --- Strolls --------------------------------------------------------------
+  // --- Autonomous world activities ------------------------------------------
 
   private isHall(place: Place | undefined): boolean {
     return place === "tavern" || place === "forge" || place === "castle";
   }
 
   /** The way from one point to another: by road inside the village, over dry ground out in the world. */
-  private route = (from: Point, to: Point): Point[] =>
-    this.roads.near(from, NEAR_ROAD) && this.roads.near(to, NEAR_ROAD) ? this.roads.route(from, to) : this.ground.route(from, to);
+  private route = (from: Point, to: Point): Point[] => {
+    // Collision is prepared from the same seed as rendered trees, even before a distant chunk is drawn.
+    // Cache tile occupancy, not sprites, so following a walker never creates the entire forest.
+    if (this.forestRules) for (const { cx, cy } of chunksIn({ x0: Math.min(from.x, to.x) - CHUNK, y0: Math.min(from.y, to.y) - CHUNK, x1: Math.max(from.x, to.x) + CHUNK, y1: Math.max(from.y, to.y) + CHUNK })) {
+      const key = chunkKey(cx, cy);
+      if (this.navigationChunks.has(key)) continue;
+      this.navigationChunks.add(key);
+      this.ground.blockTrunks(chunkTrees(cx, cy, this.forestRules).filter((t) => t.k.includes("tree")));
+    }
+    if (this.roads.near(from, NEAR_ROAD) && this.roads.near(to, NEAR_ROAD)) {
+      const path = this.roads.route(from, to);
+      if (clearRoute(path, (p) => this.ground.walkable(p) || this.onDock(p))) return path;
+    }
+    return this.ground.route(from, to);
+  };
 
   private stopRoutine(id: string): void {
     this.routine.get(id)?.remove();
     this.routine.delete(id);
+    this.activities?.remove(id);
+    this.heroes.get(id)?.setResting(false);
     this.roam(id, false);
   }
 
-  /** Out on a stroll or back from one: while out, the agent's name shows. */
+  /** While a resident is on an activity or construction errand, its name can show. */
   private roam(id: string, on: boolean): void {
     if (on) this.strolling.add(id);
     else this.strolling.delete(id);
@@ -808,69 +995,18 @@ export class VillageScene extends Phaser.Scene {
     this.routine.set(id, this.time.delayedCall(ms, then));
   }
 
-  /** At its hall: stand a while, then perhaps go for a stroll. Nothing moves with reduced motion. */
+  /** Start once on arrival; feed refreshes update home without restarting the activity. */
   private standAWhile(id: string): void {
-    if (this.opts.still) return;
-    this.after(id, between(AT_HOME_MS), () => {
-      if (!this.isHall(this.residents.get(id)?.place)) return;
-      if (Math.random() < STROLL_CHANCE) this.stroll(id);
-      else this.standAWhile(id);
-    });
-  }
-
-  /** Out down the south road to the dock, to the agent grounds, the lake shore, or anywhere in the world; a while there, then home. */
-  private stroll(id: string): void {
-    if (this.dock && Math.random() < DOCK_CHANCE) return this.toTheDock(id);
-    const hero = this.heroes.get(id);
-    const places =
-      Math.random() < GROUNDS_CHANCE ? GROUNDS : Math.random() < SHORE_CHANCE && this.ground.shore.length > 0 ? this.ground.shore : this.strollable;
-    const to = places[Math.floor(Math.random() * places.length)];
-    if (!hero || !to) return this.standAWhile(id);
+    if (this.opts.still || !this.isHall(this.residents.get(id)?.place)) return;
+    const home = this.home.get(id);
+    if (!home) return;
+    this.activities?.add(id, home, this.time.now);
     this.roam(id, true);
-    // A little off the tile's centre, so two strollers to one tile don't stand in each other.
-    const spot = { x: to.x + (Math.random() - 0.5) * 30, y: to.y + (Math.random() - 0.5) * 20 };
-    hero.walkTo(spot, undefined, { pace: STROLL_PACE, then: () => this.after(id, between(AWAY_MS), () => this.goHome(id, hero)) });
-  }
-
-  /** Down the road to the end of the dock; then a swim off it, or a while looking out over the water. */
-  private toTheDock(id: string): void {
-    const hero = this.heroes.get(id);
-    const dock = this.dock;
-    if (!hero || !dock) return this.standAWhile(id);
-    this.roam(id, true);
-    const end = { x: dock.x + (Math.random() - 0.5) * 24, y: dock.y + 12 };
-    hero.walkTo(end, undefined, {
-      pace: STROLL_PACE,
-      then: () => {
-        if (this.swimSpots.length > 0 && Math.random() < SWIM_CHANCE) this.swim(id, hero, end, Math.round(between(SWIM_LEGS)));
-        else this.after(id, between(AWAY_MS), () => this.goHome(id, hero));
-      },
-    });
-  }
-
-  /**
-   * Off the dock and about the lake: a few strokes to somewhere nearby in open
-   * water, a pause, another, then back to the dock to climb out and go home.
-   * The hero swims on its own wherever it is in the water (Hero.place).
-   */
-  private swim(id: string, hero: Hero, dock: Point, strokes: number): void {
-    if (strokes <= 0) {
-      hero.walkTo(dock, undefined, { straight: true, pace: SWIM_PACE, then: () => this.after(id, between([1_500, 4_000]), () => this.goHome(id, hero)) });
-      return;
-    }
-    const near = this.swimSpots.filter((p) => Math.hypot(p.x - hero.x, p.y - hero.y) < 220);
-    const pool = near.length > 0 ? near : this.swimSpots;
-    const to = pool[Math.floor(Math.random() * pool.length)]!;
-    const spot = { x: to.x + (Math.random() - 0.5) * 40, y: to.y + (Math.random() - 0.5) * 30 };
-    hero.walkTo(spot, undefined, {
-      straight: true,
-      pace: SWIM_PACE,
-      then: () => this.after(id, between([800, 2_500]), () => this.swim(id, hero, dock, strokes - 1)),
-    });
   }
 
   /** Back to its spot at the hall, and the routine starts over there. */
   private goHome(id: string, hero: Hero): void {
+    hero.setResting(false);
     const home = this.home.get(id);
     if (!home) return this.roam(id, false);
     hero.walkTo(home, home.facing, {
@@ -916,10 +1052,15 @@ export class VillageScene extends Phaser.Scene {
       }
       const door = this.doors.get(place);
       if (!door) continue;
-      const cols = Math.ceil(Math.sqrt(ids.length));
-      ids.forEach((id, i) => {
-        out.set(id, { x: door.x - ((cols - 1) * GRID_X) / 2 + (i % cols) * GRID_X, y: door.y + Math.floor(i / cols) * GRID_Y });
+      const central = ids.filter((id) => !this.neighbourhoodHomes.has(id));
+      const cols = Math.ceil(Math.sqrt(central.length));
+      central.forEach((id, i) => {
+        out.set(id, this.ground.nearestDry({ x: door.x - ((cols - 1) * GRID_X) / 2 + (i % cols) * GRID_X, y: door.y + Math.floor(i / cols) * GRID_Y }));
       });
+      for (const id of ids) {
+        const home = this.neighbourhoodHomes.get(id);
+        if (home) out.set(id, home);
+      }
     }
     return out;
   }
@@ -932,14 +1073,19 @@ export class VillageScene extends Phaser.Scene {
    */
   /** Each character's body colours, kept with its textures. */
   private bodies = new Map<string, { main: number; dark: number }>();
+  private faceRequests = new Set<string>();
+  private facesLoading = 0;
 
   private giveFace(id: string, face = id): void {
+    if (this.faceRequests.has(id) || this.facesLoading >= 4) return;
+    this.faceRequests.add(id);
     const views = { front: `head-${face}`, side: `head-${face}-side`, back: `head-${face}-back` };
     const known = this.bodies.get(face);
     if (known && this.textures.exists(views.back)) {
       this.heroes.get(id)?.setFace(views, known);
       return;
     }
+    this.facesLoading++;
     pixelate(portraitUrl(face, false), GRID_LARGE, true).then((data) => {
       if (!this.sys.isActive()) return;
       if (!data) {
@@ -958,7 +1104,7 @@ export class VillageScene extends Phaser.Scene {
       const colours = bodyColours(data);
       this.bodies.set(face, colours);
       this.heroes.get(id)?.setFace(views, colours);
-    });
+    }).finally(() => { this.facesLoading--; });
   }
 
   // --- Matches at the table -----------------------------------------------

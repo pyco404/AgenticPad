@@ -35,6 +35,11 @@ describe("Old Town", () => {
 
   it("spaces landmarks apart and connects each entrance to the arena's approach", () => {
     const halls = Object.entries(SITES).filter(([id]) => id !== "arena" && !NEW_TOWN_SITES.has(id));
+    // Roof signs stay with their halls, including those north of world y=0.
+    for (const [id, site] of halls) if (site.labelY !== undefined) {
+      expect(site.y - site.labelY, `${id} sign above its roof`).toBeGreaterThan(50);
+      expect(site.y - site.labelY, `${id} sign near its building`).toBeLessThan(250);
+    }
     for (let i = 0; i < halls.length; i++) for (let j = i + 1; j < halls.length; j++) {
       const [aId, a] = halls[i]!, [bId, b] = halls[j]!;
       expect(Math.hypot(a.x - b.x, a.y - b.y), `${aId} and ${bId}`).toBeGreaterThan(280);
