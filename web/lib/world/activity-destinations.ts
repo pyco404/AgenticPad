@@ -1,4 +1,4 @@
-import type { ActivityDestination, Capability } from "../../src/world/activities";
+import type { ActivityDestination, Capability } from "./activities";
 import { SITES } from "./town";
 import { VISITS } from "./districts";
 

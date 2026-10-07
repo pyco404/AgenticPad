@@ -9,7 +9,7 @@ import { shortName, type NameLabel, type Placement } from "./labels";
 import { sound } from "@/lib/sound";
 import { WEAPONS, weaponTexture, type WeaponName } from "./weapons";
 import type { ActivityState } from "./activities";
-import { motionPosition, type WorldActivity } from "../../../../src/world/simulation";
+import { motionPosition, type WorldActivity } from "../../../lib/world/simulation";
 
 /** The points to walk from one place to another, starting where the walker stands. */
 export type Router = (from: Point, to: Point) => Point[];

@@ -1,2 +1,2 @@
 // Shared, renderer-independent geometry.
-export * from "../../../../shared/world/districts";
+export * from "../../../lib/world/districts";

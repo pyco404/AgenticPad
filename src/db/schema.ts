@@ -18,7 +18,7 @@ import type { MatchLog, Seat } from "../types.js";
 import type { Policy } from "../agents/policy.js";
 import type { Deal, Stakes, TurnOrder } from "../round.js";
 import type { Funding } from "../chips.js";
-import type { WorldCheckpoint } from "../world/simulation.js";
+import type { WorldCheckpoint } from "../../web/lib/world/simulation.js";
 
 /** Cosmetic world state only; deliberately separate from match scores, holdings and payouts. */
 export const worldActivities = pgTable("world_activities", {

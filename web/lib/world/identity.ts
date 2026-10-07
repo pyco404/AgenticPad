@@ -1,4 +1,4 @@
-import { activityHash as hash } from "../../src/world/activities";
+import { activityHash as hash } from "./activities";
 
 export const HALLS = ["tavern", "forge", "castle"] as const;
 export type Hall = (typeof HALLS)[number];

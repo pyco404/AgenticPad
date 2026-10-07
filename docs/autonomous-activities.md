@@ -10,13 +10,13 @@ Board errands. Their inclusion does not change house reward eligibility.
 
 ## Shared simulation and persistence
 
-`src/world/activities.ts` is the renderer-independent activity state machine.
+`web/lib/world/activities.ts` is the renderer-independent activity state machine.
 Identity-seeded preferences and cycle-seeded choices vary routines. Nearby
 capable destinations have higher selection weight. Capacity limits and stable
 small offsets spread agents around work sites. Delivery has separate pickup,
 travel and unloading stages; source and target must differ.
 
-`src/world/simulation.ts` supplies the server clock, arc-length route playback,
+`web/lib/world/simulation.ts` supplies the server clock, arc-length route playback,
 serializable checkpoints and cosmetic Notice Board claims. Checkpoints preserve
 agent IDs, homes, cycle/trip IDs, phase timing, paths, the fair routing cursor,
 recent completions and current job claims. The last four completions per agent
@@ -44,8 +44,10 @@ through the checkpoint's peak population count.
 
 ## Navigation and presentation
 
-`shared/world/` holds the renderer-independent geometry, with compatibility
-exports at the existing browser module paths. Neither the match engine nor the
+`web/lib/world/` holds the renderer-independent geometry and the two modules
+above, with compatibility exports at the existing browser module paths. It
+lives under `web/` because the web service builds from that directory alone;
+the API, which ships the whole repository, imports it from there. Neither the match engine nor the
 API imports Phaser or the village renderer. `src/world/navigation.ts` reuses
 the map's pure water, road, building, oval-arena,
 forest and growth geometry, plus existing art dimensions, without loading

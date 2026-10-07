@@ -5,8 +5,8 @@ import * as Phaser from "phaser";
 
 import { ROAD_COLOURS, warmMap } from "./palette";
 
-import type { VillageMap } from "../../../../shared/world/map-data";
-export type { VillageMap } from "../../../../shared/world/map-data";
+import type { VillageMap } from "../../../lib/world/map-data";
+export type { VillageMap } from "../../../lib/world/map-data";
 
 const TILE = 64;
 

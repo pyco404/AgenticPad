@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { WorldSimulation, motionPosition, noticeJobs, JOB_WINDOW_MS, activitySnapshot } from "../src/world/simulation.js";
-import { type ActivityDestination, type Point } from "../src/world/activities.js";
+import { WorldSimulation, motionPosition, noticeJobs, JOB_WINDOW_MS, activitySnapshot } from "../web/lib/world/simulation.js";
+import { type ActivityDestination, type Point } from "../web/lib/world/activities.js";
 import { connect, migrate } from "../src/db/client.js";
 import { agents, dailyScores, matches, worldActivities } from "../src/db/schema.js";
 import { tickWorldActivities, readWorldActivities } from "../src/db/world-activities.js";

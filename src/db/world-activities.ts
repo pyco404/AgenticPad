@@ -1,8 +1,8 @@
 import { eq, gt, isNull } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { agents, matches, worldActivities } from "./schema.js";
-import { activitySnapshot, noticeJobs, WorldSimulation, type WorldCheckpoint } from "../world/simulation.js";
-import { ACTIVITY_DESTINATIONS } from "../../shared/world/activity-destinations.js";
+import { activitySnapshot, noticeJobs, WorldSimulation, type WorldCheckpoint } from "../../web/lib/world/simulation.js";
+import { ACTIVITY_DESTINATIONS } from "../../web/lib/world/activity-destinations.js";
 import { worldNavigation } from "../world/navigation.js";
 import { PLAY_MS } from "../http/live.js";
 

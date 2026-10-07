@@ -8,7 +8,7 @@
  * shapes below are the parts of FieldAgent and LiveMatch it reads.
  */
 
-import type { WorldActivity } from "../../../src/world/simulation";
+import type { WorldActivity } from "../../lib/world/simulation";
 
 export type FieldEntry = {
   id: string;
@@ -71,9 +71,9 @@ export type Place = "arena" | "duel" | "tavern" | "forge" | "castle" | "gate";
 /** Whether an agent is in a match, in the Arena or out in the village. */
 export const inMatch = (place: Place) => place === "arena" || place === "duel";
 
-export { HALLS, hallOf } from "../../../shared/world/identity";
-import { hallOf, type Hall } from "../../../shared/world/identity";
-export type { Hall } from "../../../shared/world/identity";
+export { HALLS, hallOf } from "../../lib/world/identity";
+import { hallOf, type Hall } from "../../lib/world/identity";
+export type { Hall } from "../../lib/world/identity";
 
 export const HERO_UNITS = ["warrior", "archer", "pawn"] as const;
 export const HERO_COLOURS = ["blue", "yellow", "red", "purple"] as const;

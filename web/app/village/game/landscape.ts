@@ -1,2 +1,2 @@
 // Shared, renderer-independent geometry.
-export * from "../../../../shared/world/landscape";
+export * from "../../../lib/world/landscape";

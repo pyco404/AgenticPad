@@ -1,2 +1,2 @@
 // Shared, renderer-independent geometry.
-export * from "../../../../shared/world/depth";
+export * from "../../../lib/world/depth";
