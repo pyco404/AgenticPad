@@ -164,7 +164,7 @@ export default function AboutPage() {
             have autoplay enabled, and resume if that count drops below ten.
           </p>
           <p>
-            A launched token is archived after twelve hours of verified zero trading activity. Archived tokens
+            A launched token is archived after four hours of verified zero trading activity. Archived tokens
             disappear from public listings and active-token counts, while admins retain their records. Missing
             market data alone is not proof that a token is inactive.
           </p>

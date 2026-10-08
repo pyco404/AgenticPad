@@ -4,15 +4,15 @@ import { LaunchStore } from "../lib/launchpad-store";
 const HOUR = 3_600_000;
 const quiet: Pair = { chainId: "solana", pairAddress: "pool", baseToken: { address: "mint" }, quoteToken: { address: "sol" }, priceUsd: "0.01", marketCap: 1000, volume: { h1: 0, h24: 100 }, txns: { h1: { buys: 0, sells: 0 } } };
 describe("token inactivity", () => {
-  it("archives only after twelve overlapping hours of verified zero activity", () => {
+  it("archives only after four overlapping hours of verified zero activity", () => {
     let market = observeMarket("mint", 0, [quiet], null, HOUR);
     expect(market.inactiveAt).toBeNull();
-    for (let hour = 2; hour < 12; hour++) market = observeMarket("mint", 0, [quiet], market, hour * HOUR);
+    for (let hour = 2; hour < INACTIVITY_MS / HOUR; hour++) market = observeMarket("mint", 0, [quiet], market, hour * HOUR);
     expect(market.inactiveAt).toBeNull();
     market = observeMarket("mint", 0, [quiet], market, INACTIVITY_MS);
     expect(market.inactiveAt).toBe(INACTIVITY_MS);
   });
-  it("a sale, buy or volume resets inactivity; new launches get twelve hours", () => {
+  it("a sale, buy or volume resets inactivity; new launches get four hours", () => {
     const prev = observeMarket("mint", 0, [quiet], null, HOUR);
     const sale = { ...quiet, txns: { h1: { buys: 0, sells: 1 } } };
     expect(observeMarket("mint", 0, [sale], prev, 2 * HOUR).zeroSince).toBeNull();

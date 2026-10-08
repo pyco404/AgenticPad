@@ -1,6 +1,6 @@
 import { launchStore, type LaunchStore } from "./launchpad-store";
 
-export const INACTIVITY_MS = 12 * 60 * 60_000;
+export const INACTIVITY_MS = 4 * 60 * 60_000;
 const HOUR = 60 * 60_000;
 export type Market = {
   mint: string; checkedAt: number; observedAt: number | null;
