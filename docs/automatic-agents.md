@@ -66,11 +66,11 @@ keep the launch SQLite database on a persistent volume.
 
 The web Node server polls DEX Screener every five minutes and persists readings
 in the existing launch SQLite database on the persistent volume. A token is
-archived after twelve continuously covered hours of zero buys, zero sells and
+archived after four continuously covered hours of zero buys, zero sells and
 zero USD volume across its reported pools. The hourly observation windows must
 overlap; an outage, missing market or malformed response resets the evidence
 window. A missing listing is not proof of inactivity. Recently launched tokens
-are given the full twelve hours. An archived token remains archived even if
+are given the full four hours. An archived token remains archived even if
 trading later restarts; no launch records are deleted.
 
 Public lists, search, rankings, token detail routes and active-token counts exclude
@@ -83,9 +83,9 @@ classified as inactive: they remain visible with unknown figures.
 Use a single persistent Node web service and `PUMP_LAUNCH_DB_PATH`; the
 instrumentation hook starts the monitor when Pump mode is enabled. Do not run
 independent replicas with separate databases. No new market-data API key is
-required. DEX Screener does not provide a twelve-hour zero-volume field: the
+required. DEX Screener does not provide a four-hour zero-volume field: the
 continuous observation window is persisted rather than treating 24-hour volume
-as twelve-hour activity.
+as four-hour activity.
 
 ## Public totals
 
