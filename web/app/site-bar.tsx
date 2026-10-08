@@ -45,7 +45,7 @@ const NAV: Section[] = [
 
 /** Which section a path belongs to: match pages live under Live, agent pages under Ladder. */
 function sectionOf(path: string): string | null {
-  if (path === "/" || path === "/agent") return "/agent";
+  if (path === "/agents" || path === "/agent") return "/agent";
   if (path.startsWith("/m/") || path.startsWith("/live")) return "/live";
   if (path.startsWith("/a/") || path.startsWith("/ladder")) return "/ladder";
   if (path.startsWith("/games")) return "/games";
@@ -61,7 +61,7 @@ const LOGO_CLASS = "h-6 w-6 rounded-sm bg-[#0c1018] object-contain [image-render
 function Mark() {
   return (
     // The logo opens the village itself, with no page over it.
-    <Link href="/field" aria-label="AgenticPad home" className="flex shrink-0 items-center gap-2">
+    <Link href="/" aria-label="AgenticPad home" className="flex shrink-0 items-center gap-2">
       <img src="/agenticpad-tb.png" alt="" width={372} height={370} className={LOGO_CLASS} />
     </Link>
   );
@@ -430,7 +430,7 @@ function MenuPanel({ active, onClose }: { active: string | null; onClose: () => 
 
       <div className="mt-3 flex gap-2">
         <Link
-          href="/"
+          href="/agents"
           onClick={onClose}
           className="rounded-panel flex h-11 flex-1 items-center justify-center bg-accent px-3 text-[13px] font-semibold text-ink hover:bg-accent/90"
         >

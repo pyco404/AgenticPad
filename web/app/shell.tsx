@@ -36,7 +36,7 @@ const COVER_MAX_MS = 10_000;
 
 /** The agent whose page is open, from /a/<id>. */
 const agentOf = (path: string) => /^\/a\/([^/]+)/.exec(path)?.[1] ?? null;
-const cameraPage = (path: string) => path === "/agent" || path === "/field";
+const cameraPage = (path: string) => path === "/agent" || path === "/";
 
 /** Pages that open wider than the rest: lists with many columns, laid out side by side on a desktop. */
 const WIDE_PAGES = ["/explore"];
@@ -328,7 +328,7 @@ function WorldShell({ children, chip }: ShellProps) {
           <Link href="/live" onClick={() => setOpen(true)} className={`hidden md:flex ${QUICK}`}>
             Watch matches
           </Link>
-          <Link href="/" onClick={() => setOpen(true)} className={`hidden md:flex ${QUICK}`}>
+          <Link href="/agents" onClick={() => setOpen(true)} className={`hidden md:flex ${QUICK}`}>
             Get an agent
           </Link>
         </div>
@@ -354,7 +354,7 @@ function WorldShell({ children, chip }: ShellProps) {
             <BuildingCard place={place} onClose={() => setBuilding(null)} onEnter={go} />
           </div>
         ) : null}
-        <Welcome ready={villageUp || villageStatus === "failed" || waited} drawn={villageStatus === "ready"} failed={villageStatus === "failed"} onEnter={(href) => { if (href) go(href); else if (path === "/") go("/field"); }} />
+        <Welcome ready={villageUp || villageStatus === "failed" || waited} drawn={villageStatus === "ready"} failed={villageStatus === "failed"} onEnter={(href) => { if (href) go(href); }} />
       </OpenBuildingProvider>
     </WorldProvider>
   );

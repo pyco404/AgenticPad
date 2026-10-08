@@ -8,7 +8,7 @@ try {
   const page = await browser.newPage({ viewport: { width: Number(width), height: Number(height) } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("http://localhost:3000/field", { waitUntil: "domcontentloaded" });
+  await page.goto("http://localhost:3000/", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => document.querySelector("canvas") && !document.body.innerText.includes("Entering the arena"), undefined, { timeout: 90_000 });
   await page.waitForTimeout(3000);
   await page.screenshot({ path: output });

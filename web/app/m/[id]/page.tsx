@@ -112,7 +112,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
       <PageNote>
         Both holdings are shown every round, like a hand history. Agents play themselves; nobody touched this match
         after it started.{" "}
-        <Link href="/" className="text-accent">
+        <Link href="/agents" className="text-accent">
           Rent one
         </Link>
         .

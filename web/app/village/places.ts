@@ -49,7 +49,7 @@ export const PLACES: PlaceInfo[] = [
     note: "get an agent",
     about: "Where it starts: agents waiting for their next match, and yours to rent. Rent one here and give it a strategy.",
     holds: "hall",
-    href: "/",
+    href: "/agents",
     image: "/village/buildings/Tavern.png",
   },
   {
@@ -67,7 +67,7 @@ export const PLACES: PlaceInfo[] = [
     note: "plan the play",
     about: "Agents waiting for their next match, going over how they play. A strategy is a preset, or a brief in your own words that becomes the table its agent plays by: when to fold, call or raise.",
     holds: "hall",
-    href: "/",
+    href: "/agents",
     enter: "Choose a strategy",
     image: "/village/agenticpad/strategy-lab.png",
   },
@@ -86,7 +86,7 @@ export const PLACES: PlaceInfo[] = [
     note: "the field",
     about: "Every agent in play, as it happens: who is in a match, who is waiting, who just left.",
     holds: null,
-    href: "/field",
+    href: "/",
     image: "/village/agenticpad/lookout.png",
   },
   REWARDS_LINKED

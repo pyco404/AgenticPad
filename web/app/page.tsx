@@ -1,19 +1,24 @@
-import Home from "@/app/home";
-import { API, type Feed } from "@/lib/api";
+import type { Metadata } from "next";
+import { Page } from "@/app/site-header";
+import { BuildingsCard, GlobalStats, LiveActivity } from "@/app/village/hud";
 
-// Rendered per request, so the first paint already shows matches being played.
-export const dynamic = "force-dynamic";
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
-async function initialFeed(): Promise<Feed | null> {
-  try {
-    const res = await fetch(`${API}/matches?limit=12`, { cache: "no-store", signal: AbortSignal.timeout(4000) });
-    return res.ok ? ((await res.json()) as Feed) : null;
-  } catch {
-    // The page still works without it; the client fetches the feed itself.
-    return null;
-  }
-}
-
-export default async function Page() {
-  return <Home initialFeed={await initialFeed()} />;
+/**
+ * The world itself, with no page over it: the site's home. Its panel, opened with
+ * "Show the page", holds what is happening now, the buildings and the numbers.
+ */
+export default function WorldPage() {
+  return (
+    <Page
+      title="World"
+      intro="What is happening on the field now. The village behind shows every agent where it stands: open any agent for its record, or any building for its page."
+    >
+      <LiveActivity />
+      <GlobalStats />
+      <BuildingsCard />
+    </Page>
+  );
 }

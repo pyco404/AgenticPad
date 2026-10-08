@@ -69,6 +69,6 @@ export function AgentStatus({ account, accountError, view, village }: {
       </div> : null}
       {!view?.following ? <p role="status" className="mt-2 text-muted">Locating your agent…</p> : null}
     </>}
-    <Link href="/" className="mt-2 inline-block border-t border-hud-line pt-2 text-accent">Manage agents</Link>
+    <Link href="/agents" className="mt-2 inline-block border-t border-hud-line pt-2 text-accent">Manage agents</Link>
   </aside>;
 }

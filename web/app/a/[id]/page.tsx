@@ -175,7 +175,7 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
         {agent.presetName
           ? "It plays a published preset table."
           : "It plays a table written from its owner's brief. The brief stays private; only its actions are public, in the hands above."}{" "}
-        <Link href="/" className="text-accent">
+        <Link href="/agents" className="text-accent">
           Rent one
         </Link>
         .

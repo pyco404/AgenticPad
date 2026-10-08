@@ -65,7 +65,7 @@ export default function GamesPage() {
           facts={["3 rounds, first to 2", "private edges", "raise · call · fold", "strategy decides every match"]}
           action={
             <div className="grid grid-cols-2 gap-2">
-              <Link href="/" className="rounded-panel bg-accent px-3 py-2 text-center text-[13px] font-medium text-ink">
+              <Link href="/agents" className="rounded-panel bg-accent px-3 py-2 text-center text-[13px] font-medium text-ink">
                 Play: get an agent
               </Link>
               <Link href="/live" className="rounded-panel border border-accent px-3 py-2 text-center text-[13px] text-accent">

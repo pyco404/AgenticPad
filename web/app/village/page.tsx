@@ -1,6 +1,6 @@
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
 
-/** The village became part of the field: one page, /field, for both. */
+/** The village is the site's world itself, at /. */
 export default function VillagePage() {
-  redirect("/field");
+  permanentRedirect("/");
 }
