@@ -35,7 +35,6 @@ const NAV: Section[] = [
     : []),
   { href: "/agent", label: "Agent" },
   { href: "/live", label: "Live" },
-  { href: "/field", label: "Field" },
   { href: "/ladder", label: "Ladder" },
   { href: "/games", label: "Games" },
   // Announces the token before it exists; NEXT_PUBLIC_SHOW_REWARDS=false hides it without a code change.
@@ -49,7 +48,6 @@ function sectionOf(path: string): string | null {
   if (path === "/" || path === "/agent") return "/agent";
   if (path.startsWith("/m/") || path.startsWith("/live")) return "/live";
   if (path.startsWith("/a/") || path.startsWith("/ladder")) return "/ladder";
-  if (path.startsWith("/field")) return "/field";
   if (path.startsWith("/games")) return "/games";
   if (path.startsWith("/rewards")) return "/rewards";
   if (path.startsWith("/launch")) return "/launch";
@@ -62,7 +60,8 @@ const LOGO_CLASS = "h-6 w-6 rounded-sm bg-[#0c1018] object-contain [image-render
 
 function Mark() {
   return (
-    <Link href="/" aria-label="AgenticPad home" className="flex shrink-0 items-center gap-2">
+    // The logo opens the village itself, with no page over it.
+    <Link href="/field" aria-label="AgenticPad home" className="flex shrink-0 items-center gap-2">
       <img src="/agenticpad-tb.png" alt="" width={372} height={370} className={LOGO_CLASS} />
     </Link>
   );
