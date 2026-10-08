@@ -7,13 +7,19 @@ const SCALE = ARENA_ART_SCALE, W = ARENA_ART_WIDTH, H = ARENA_ART_HEIGHT;
 export const ARENA_ART_LEFT = O.x - W, ARENA_ART_TOP = 975 - H * SCALE;
 const STEP = Math.PI * 2 / 96;
 /** A single material palette: identity colours carry the landmark; stone supports it. */
+/**
+ * The village's own materials (projected-materials.ts VILLAGE_MATERIAL, and the timber, stone,
+ * thatch and red roofs of the Hall of Fame, Treasury, Game Hall and Rulebook House): warm stone
+ * walls, dark timber seating, muted red roofs, a natural beige floor. AgenticPad green is a trim
+ * and pennant accent, gold a thin brass highlight.
+ */
 export const ARENA_PALETTE = {
-  emerald: "#075138", green: "#169459", teal: "#138f87", dark: "#102e29", mint: "#79e5a3",
-  gold: "#e6ac32", goldLight: "#ffe298", goldDark: "#8b5728",
-  stone: "#9d9d86", stoneLight: "#e1d5af", stoneShade: "#6d7666", joint: "#414d43",
-  wood: ["#74442b", "#915631", "#ad713d", "#c28a4a"], woodDark: "#38281f",
-  roof: "#bc6c28", roofLight: "#e49c3f", roofShade: "#754523", roofTile: "#ffd178",
-  sand: "#e5b96f", sandLight: "#f7d794", sandShade: "#c28e49", sandEdge: "#805631",
+  emerald: "#24543a", green: "#2f7a52", teal: "#2c6d63", dark: "#2c241c", mint: "#8fc9a0",
+  gold: "#c9a256", goldLight: "#e3c98a", goldDark: "#7a5a30",
+  stone: "#a39582", stoneLight: "#c2b394", stoneShade: "#7b6e5c", joint: "#4e4236",
+  wood: ["#4a3020", "#5e3d28", "#734c31", "#8a5d3b"], woodDark: "#2e2118",
+  roof: "#9a4630", roofLight: "#b85d3c", roofShade: "#5e2b1e", roofTile: "#cf8a5e",
+  sand: "#c8b48c", sandLight: "#d9c8a3", sandShade: "#a8946e", sandEdge: "#6f5a40",
 } as const;
 const C = ARENA_PALETTE;
 type P = [number, number];

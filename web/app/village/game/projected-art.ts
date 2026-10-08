@@ -151,17 +151,19 @@ function arena(b: Brush, view: Projection, o: WorldObject): void {
     b.polygon([a, c, { ...c, z: o.height }, { ...a, z: o.height }], A.stoneLight, A.joint);
     const midpoint = { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 };
     b.line([{ ...midpoint, z: 8 }, { ...midpoint, z: o.height - 12 }], A.dark, 11);
-    b.polygon([{ ...a, z: o.height }, { ...c, z: o.height }, { ...ic, z: 8 }, { ...ia, z: 8 }], A.emerald, A.dark);
-    for (const t of [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6]) b.line([{ x: a.x + (ia.x - a.x) * t, y: a.y + (ia.y - a.y) * t, z: o.height * (1 - t) },
-      { x: c.x + (ic.x - c.x) * t, y: c.y + (ic.y - c.y) * t, z: o.height * (1 - t) }], A.wood[2], 3);
-    b.line([{ ...a, z: o.height - 7 }, { ...c, z: o.height - 7 }], A.green, 9);
-    b.line([{ ...a, z: o.height - 3 }, { ...c, z: o.height - 3 }], A.goldLight, 3);
+    // Timber seating, like the village's framing; alternate rows a lighter board for variation.
+    b.polygon([{ ...a, z: o.height }, { ...c, z: o.height }, { ...ic, z: 8 }, { ...ia, z: 8 }], A.wood[1], A.woodDark);
+    for (const [i, t] of [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6].entries()) b.line([{ x: a.x + (ia.x - a.x) * t, y: a.y + (ia.y - a.y) * t, z: o.height * (1 - t) },
+      { x: c.x + (ic.x - c.x) * t, y: c.y + (ic.y - c.y) * t, z: o.height * (1 - t) }], i % 2 ? A.wood[3] : A.woodDark, 3);
+    // AgenticPad green as a trim band under a thin brass rail, not a structural colour.
+    b.line([{ ...a, z: o.height - 7 }, { ...c, z: o.height - 7 }], A.green, 4);
+    b.line([{ ...a, z: o.height - 3 }, { ...c, z: o.height - 3 }], A.goldLight, 2);
     if (b.detail) {
       const mid = { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 };
       b.line([{ ...mid, z: 2 }, { ...mid, z: o.height - 11 }], A.stoneShade, 4);
       b.line([{ ...mid, z: o.height - 13 }, { ...mid, z: o.height - 10 }], A.gold, 7);
     }
-    b.line([{ ...a, z: o.height + 2 }, { ...c, z: o.height + 2 }], COLOUR.gold, 5);
+    b.line([{ ...a, z: o.height + 2 }, { ...c, z: o.height + 2 }], A.gold, 3);
     if (midpoint.y < o.y - o.depth * 0.08) {
       const point = (outer: Pt, inner: Pt, t: number, z: number) => ({ x: inner.x + (outer.x - inner.x) * t, y: inner.y + (outer.y - inner.y) * t, z });
       const ridgeA = point(a, ia, 0.82, o.height), ridgeC = point(c, ic, 0.82, o.height);
@@ -175,7 +177,7 @@ function arena(b: Brush, view: Projection, o: WorldObject): void {
   for (const dx of [-1, 1]) {
     const tower = { ...o, x: o.x + dx * o.width * 0.35, y: o.y + o.depth * 0.34, width: 45, depth: 42, height: o.height + 24, shape: undefined };
     cottage(b, view, tower, { wall: A.stoneLight, roof: A.roof, roofLight: A.roofLight });
-    b.line([{ x: tower.x, y: tower.y, z: tower.height }, { x: tower.x, y: tower.y, z: tower.height + 26 }], COLOUR.gold, 3);
+    b.line([{ x: tower.x, y: tower.y, z: tower.height }, { x: tower.x, y: tower.y, z: tower.height + 26 }], A.gold, 3);
     b.polygon([{ x: tower.x, y: tower.y, z: tower.height + 26 }, { x: tower.x + 20, y: tower.y, z: tower.height + 22 }, { x: tower.x, y: tower.y, z: tower.height + 13 }], A.green);
   }
 }
