@@ -231,6 +231,26 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         lastDraw = now;
         ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, el.width, el.height); ctx.drawImage(still, 0, 0);
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        // Bluff & Fold out in the village: the scene draws its rings in full nearest where this camera looks.
+        handle.setViewCentre(focus);
+        const toScreen = (p: { x: number; y: number }) => {
+          const q = project(view, p, 0);
+          return { x: width / 2 + (q.x - camera!.x) * camera!.scale, y: height / 2 + (q.y - camera!.y) * camera!.scale };
+        };
+        {
+          // Each match's ring, flat on the ground under its players, as Top draws it.
+          const o = toScreen({ x: 0, y: 0 }), ex = toScreen({ x: 1, y: 0 }), ey = toScreen({ x: 0, y: 1 });
+          for (const r of handle.matchRings()) {
+            ctx.save(); ctx.transform(ex.x - o.x, ex.y - o.y, ey.x - o.x, ey.y - o.y, o.x, o.y);
+            ctx.globalAlpha = r.alpha;
+            ctx.beginPath(); ctx.ellipse(r.x, r.y, r.rx, r.ry, 0, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(12,16,24,0.3)"; ctx.fill();
+            ctx.lineWidth = 3; ctx.strokeStyle = "rgba(232,184,75,0.9)"; ctx.stroke();
+            ctx.beginPath(); ctx.ellipse(r.x, r.y, r.rx - 5, r.ry - 3, 0, 0, Math.PI * 2);
+            ctx.lineWidth = 1; ctx.strokeStyle = "rgba(92,74,34,0.9)"; ctx.stroke();
+            ctx.restore();
+          }
+        }
         // Live agents as their own Top characters, standing on their projected feet, back to front.
         const k = agentScale(camera.scale), nextRetained = new Set<string>();
         const diagnostics: Record<string, unknown>[] = [];
@@ -252,8 +272,20 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
           ctx.save(); ctx.translate(width / 2, height / 2); ctx.scale(camera!.scale, camera!.scale); ctx.translate(-camera!.x, -camera!.y);
           part.draw(); ctx.restore();
         };
-        let at = 0, fallbacks = 0;
+        // Card tables stand between their players, drawn just after the nearer of the two.
+        const tables = handle.matchTables().map((t) => ({ ...t, sa: toScreen(t.a), sb: toScreen(t.b),
+          depth: Math.max(project(view, t.a).depth, project(view, t.b).depth) + 0.5 }));
+        let at = 0, fallbacks = 0, ti = 0;
+        tables.sort((a, b) => a.depth - b.depth);
+        const drawTablesTo = (depth: number) => {
+          while (ti < tables.length && tables[ti]!.depth <= depth) {
+            const t = tables[ti++]!;
+            while (at < scenery.length && scenery[at]!.depth <= t.depth) drawScenery(scenery[at++]!);
+            t.paint(ctx, t.sa, t.sb, k);
+          }
+        };
         for (const { agent, x, y, depth } of shown) {
+          drawTablesTo(depth);
           while (at < scenery.length && scenery[at]!.depth <= depth) drawScenery(scenery[at++]!);
           if (agent.metadata?.mine) {
             ctx.strokeStyle = "#f3cf70"; ctx.lineWidth = 1.5;
@@ -265,6 +297,7 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
             ctx.beginPath(); ctx.arc(x, y - 6, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
           }
         }
+        drawTablesTo(Infinity);
         while (at < scenery.length) drawScenery(scenery[at++]!);
         if (debug) {
           Object.assign(window, { __agentRenderDebug: { at: now, agents: diagnostics, painted: shown.length, total: snapshot.agents.length, fallbacks,
@@ -323,7 +356,7 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
     };
     raf = requestAnimationFrame(frame);
     return () => {
-      cancelAnimationFrame(raf); observer.disconnect(); artwork?.dispose(); handle.setVisibleAgents(null); handle.setWorldCamera(null);
+      cancelAnimationFrame(raf); observer.disconnect(); handle.setViewCentre(null); artwork?.dispose(); handle.setVisibleAgents(null); handle.setWorldCamera(null);
       if (debug) Reflect.deleteProperty(window, "__agentRenderDebug");
       blur();
       el.removeEventListener("pointerdown", down);

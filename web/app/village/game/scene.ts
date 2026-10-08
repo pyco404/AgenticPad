@@ -390,6 +390,41 @@ export class VillageScene extends Phaser.Scene {
     });
   }
 
+  /** Where another view's camera is looking, so the matches nearest it are the ones drawn in full. */
+  private viewCentre: Point | null = null;
+  setViewCentre(p: Point | null): void { this.viewCentre = p; }
+
+  /** Each Bluff & Fold ring out in the village, as it lies on the ground, for another view. */
+  matchRings(): { x: number; y: number; rx: number; ry: number; alpha: number }[] {
+    return [...this.duels.values()].filter((d) => d.ring && d.full && d.ring.visible)
+      .map((d) => ({ x: d.spot.x, y: d.spot.y + 12, rx: RING.width / 2, ry: RING.height / 2, alpha: d.ring!.alpha }));
+  }
+
+  /**
+   * Each match being played, for another view: its two players' ground points, and a painter
+   * that draws its card table between them and its score over them, given where each player's
+   * feet are on that view's screen.
+   */
+  matchTables(): { a: Point; b: Point; paint: (ctx: CanvasRenderingContext2D, a: Point, b: Point, k: number) => void }[] {
+    const out: ReturnType<VillageScene["matchTables"]> = [];
+    for (const brawl of this.brawls.values()) {
+      const ha = this.heroes.get(brawl.a), hb = this.heroes.get(brawl.b);
+      if (!ha || !hb) continue;
+      out.push({ a: { x: ha.x, y: ha.y }, b: { x: hb.x, y: hb.y }, paint: (ctx, a, b, k) => {
+        brawl.table.paintTo(ctx, a, b, k);
+        const score = brawl.score;
+        if (!score.active || !score.visible || !score.text) return;
+        ctx.save();
+        ctx.font = `bold 13px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+        const x = (a.x + b.x) / 2, y = Math.min(a.y, b.y) - 76 * Math.max(k, 0.6);
+        ctx.lineWidth = 4; ctx.strokeStyle = "#000"; ctx.strokeText(score.text, x, y);
+        ctx.fillStyle = String(score.style.color); ctx.fillText(score.text, x, y);
+        ctx.restore();
+      } });
+    }
+    return out;
+  }
+
   /** Draws a live agent's own Top character onto another view's canvas; false if it has none. */
   paintAgent(id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter): boolean {
     const hero = this.heroes.get(id.replace(/^agent:/, ""));
@@ -1518,7 +1553,7 @@ export class VillageScene extends Phaser.Scene {
     if (this.duels.size === 0) return;
     const full = ringsInFull(
       [...this.duels].filter(([, d]) => d.arena === null).map(([id, d]) => ({ id, ...d.spot })),
-      this.cameras.main.midPoint,
+      this.viewCentre ?? this.cameras.main.midPoint,
     );
     const scale = this.heroLabelScale();
     for (const [id, d] of this.duels) {

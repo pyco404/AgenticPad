@@ -47,6 +47,10 @@ export class CardTable {
   private edges: Phaser.GameObjects.Text[] = [];
   private pot: Phaser.GameObjects.Arc[] = [];
   private said: Phaser.GameObjects.Text[] = [];
+  /** Which side each word was said over; null for both, over the table. */
+  private saidBy = new Map<Phaser.GameObjects.Text, Seat | null>();
+  /** On the map: placed and not put away. */
+  private onMap = false;
   /** The round and phase last drawn, and how many of that round's choices are already said. */
   private at = "";
   private spoken = 0;
@@ -64,6 +68,7 @@ export class CardTable {
   /** Where the two sides stand now, seat A usually on the left. Moves the table with them. */
   place(a: Side, b: Side, labelScale: number): void {
     this.sides = { A: a, B: b };
+    this.onMap = true;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + TABLE_DROP };
     const moved = mid.x !== this.mid.x || mid.y !== this.mid.y;
     this.mid = mid;
@@ -124,6 +129,7 @@ export class CardTable {
 
   /** Off the map for now - a ring drawn only as a marker. Shown again, it deals the round afresh. */
   hide(): void {
+    this.onMap = false;
     this.clear();
     this.top.clear();
     this.at = "";
@@ -229,6 +235,7 @@ export class CardTable {
       .setOrigin(0.5, 1)
       .setDepth(18_600);
     this.said.push(word);
+    this.saidBy.set(word, seat);
     if (this.still) return;
     this.scene.tweens.add({ targets: word, y: y - 8, alpha: 0, delay: 500, duration: 700, ease: "Quad.easeIn", onComplete: () => word.destroy() });
   }
@@ -260,7 +267,71 @@ export class CardTable {
     }
     this.pot = [];
     this.said = [];
+    this.saidBy.clear();
     this.edges = [];
     this.spoken = 0;
+  }
+
+  /**
+   * Draws this table, as it stands now, onto another view's canvas: upright on the ground midway
+   * between the two players, like the characters, with its cards, the pot's chips, the cards'
+   * edges at a showdown and the words said over each side. `a`/`b` are where seat A's and seat
+   * B's feet are on screen; `k` is screen pixels per world unit. Reads state only.
+   */
+  paintTo(ctx: CanvasRenderingContext2D, a: Side, b: Side, k: number): void {
+    if (!this.onMap || Number.isNaN(this.mid.x)) return;
+    const side = { A: a, B: b };
+    // Left and right as the player sees them: Top's x offsets keep their sense along A to B.
+    const dir = Math.sign((b.x - a.x) * (this.sides.B.x - this.sides.A.x)) || 1;
+    const base = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    // The top stands at hip height; Top draws it TABLE_DROP below the pair's middle.
+    const top = { x: base.x, y: base.y - 18 * k };
+    const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
+    const rect = (x: number, y: number, w: number, h: number, fill: number) => {
+      ctx.fillStyle = hex(fill); ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+    };
+    const at = (o: { x: number; y: number }) => ({ x: top.x + (o.x - this.mid.x) * k * dir, y: top.y + (o.y - this.mid.y) * k });
+    ctx.save();
+    ctx.globalAlpha = 0.28; ctx.fillStyle = "#000";
+    ctx.beginPath(); ctx.ellipse(base.x, base.y, TABLE_W * 0.55 * k, 4 * k, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    // Two legs and a top, the same pixels Top's table draws.
+    rect(top.x - (TABLE_W / 2 - 3) * k, top.y, 3 * k, base.y - top.y, WOOD_DARK);
+    rect(top.x + (TABLE_W / 2 - 6) * k, top.y, 3 * k, base.y - top.y, WOOD_DARK);
+    rect(top.x - (TABLE_W / 2 + 1) * k, top.y - (TABLE_H / 2 + 1) * k, (TABLE_W + 2) * k, (TABLE_H + 2) * k, WOOD_DARK);
+    rect(top.x - (TABLE_W / 2) * k, top.y - (TABLE_H / 2) * k, TABLE_W * k, TABLE_H * k, WOOD);
+    rect(top.x - (TABLE_W / 2 - 3) * k, top.y - (TABLE_H / 2 - 2) * k, (TABLE_W - 6) * k, (TABLE_H - 4) * k, 0x3f6b3a);
+    for (const card of Object.values(this.cards)) {
+      if (!card?.active || !card.visible) continue;
+      const p = at(card);
+      ctx.globalAlpha = card.alpha;
+      rect(p.x - (CARD_W / 2) * k, p.y - (CARD_H / 2) * k, CARD_W * k, CARD_H * k, card.fillColor);
+      ctx.strokeStyle = hex(card.strokeColor); ctx.lineWidth = Math.max(1, card.lineWidth * k);
+      ctx.strokeRect(Math.round(p.x - (CARD_W / 2) * k), Math.round(p.y - (CARD_H / 2) * k), Math.round(CARD_W * k), Math.round(CARD_H * k));
+    }
+    for (const chip of this.pot) {
+      if (!chip.active || !chip.visible) continue;
+      const p = at(chip);
+      ctx.globalAlpha = chip.alpha; ctx.fillStyle = hex(CHIP); ctx.strokeStyle = "#7a5a1c"; ctx.lineWidth = Math.max(1, k);
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.5, 3 * k), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    // Words: the edges over the cards, and what each side says over its head, rising as Top's do.
+    const word = (t: Phaser.GameObjects.Text, x: number, y: number, size: number) => {
+      if (!t.active || !t.visible || t.alpha <= 0) return;
+      ctx.globalAlpha = t.alpha;
+      ctx.font = `bold ${Math.round(size)}px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.lineWidth = 3; ctx.strokeStyle = "#000"; ctx.strokeText(t.text, x, y);
+      ctx.fillStyle = String(t.style.color); ctx.fillText(t.text, x, y);
+    };
+    for (const t of this.edges) { const p = at(t); word(t, p.x, p.y, 12); }
+    for (const t of this.said) {
+      const seat = this.saidBy.get(t) ?? null;
+      const anchor = seat ? this.sides[seat] : { x: this.mid.x, y: this.mid.y - TABLE_DROP };
+      const foot = seat ? side[seat] : base;
+      // Top's word sits 40 above the side's point, and that point about 18 above its feet.
+      word(t, foot.x, foot.y + (t.y - anchor.y - 18) * Math.max(k, 0.6), 13);
+    }
+    ctx.restore();
   }
 }

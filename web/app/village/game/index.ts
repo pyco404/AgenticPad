@@ -24,6 +24,11 @@ export type VillageHandle = {
   snapshot: () => WorldSnapshot | null;
   agents: () => WorldSnapshot["agents"];
   setVisibleAgents: (ids: ReadonlySet<string> | null) => void;
+  /** Live Bluff & Fold matches, for the world camera to draw: rings on the ground, tables and scores. */
+  matchRings: () => ReturnType<VillageScene["matchRings"]>;
+  matchTables: () => ReturnType<VillageScene["matchTables"]>;
+  /** Where the world camera is looking, so the nearest matches are drawn in full. */
+  setViewCentre: (p: Point | null) => void;
   inspectAgent: (id: string) => ReturnType<VillageScene["inspectAgent"]>;
   /** Draws a live agent's own Top character onto another view's canvas; false if it has none. */
   paintAgent: (id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter) => boolean;
@@ -122,6 +127,9 @@ export async function startVillage(
     snapshot: () => scene.worldSnapshot(),
     agents: () => scene.agentSnapshot(),
     setVisibleAgents: (ids) => scene.setVisibleAgents(ids),
+    matchRings: () => scene.matchRings(),
+    matchTables: () => scene.matchTables(),
+    setViewCentre: (p) => scene.setViewCentre(p),
     inspectAgent: (id) => scene.inspectAgent(id),
     paintAgent: (id, ctx, x, y, k, paint) => scene.paintAgent(id, ctx, x, y, k, paint),
     setWorldCamera: (camera) => {

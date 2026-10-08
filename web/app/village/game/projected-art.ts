@@ -377,7 +377,7 @@ function arena(b: Brush, view: Projection, o: WorldObject, floor?: () => void, c
     } });
   }
   // The entrances (ARENA_ENTRANCES): the main gate south, a side gate east, each a door in the wall.
-  for (const gate of [{ angle: Math.PI / 2, width: ARENA_GATE_WIDTH, height: 104, banner: true }, { angle: 0, width: ARENA_SIDE_WIDTH, height: 76, banner: false }]) {
+  for (const gate of [{ angle: Math.PI / 2, width: ARENA_GATE_WIDTH, height: 64, banner: true }, { angle: 0, width: ARENA_SIDE_WIDTH, height: 54, banner: false }]) {
     architecture.push({ depth: project(view, { x: o.x + Math.cos(gate.angle) * rx, y: o.y + Math.sin(gate.angle) * ry }).depth,
       draw: () => arenaDoor(b, view, o, gate.angle, gate.width, gate.height, gate.banner) });
   }
