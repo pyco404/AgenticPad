@@ -95,11 +95,11 @@ const closeEnough = (before, after, keys = Object.keys(before)) => {
 try {
   const { page, canvas, maps } = await setup({ viewport: { width: 1440, height: 950 } });
   const initial = await state(canvas);
-  // The world opens looking straight down at the town; dragging down lowers the view.
-  assert.ok(Math.abs(initial.tilt - Math.PI / 2) < 0.002 && Math.abs(initial.yaw) < 0.002, 'World did not open looking straight down');
-  await drag(page, 1290, 670, 90, 130);
+  // The world opens on its home view (world-camera.tsx HOME): yaw 18°, tilt 30°. Dragging up looks down more.
+  assert.ok(Math.abs(initial.tilt - Math.PI / 6) < 0.002 && Math.abs(initial.yaw - Math.PI / 10) < 0.002, 'World did not open on its home view');
+  await drag(page, 1290, 670, 90, -130);
   assert.notEqual((await state(canvas)).yaw, initial.yaw, 'Empty-ground rotation failed');
-  assert.ok((await state(canvas)).tilt < initial.tilt, 'Tilt failed');
+  assert.ok((await state(canvas)).tilt > initial.tilt, 'Tilt failed');
   await page.mouse.move(1290, 670); await page.mouse.wheel(0, -100); await page.waitForTimeout(800);
   assert.ok((await state(canvas)).zoom > initial.zoom, 'Wheel zoom failed');
   await drag(page, 1290, 670, 50, 20, true);
