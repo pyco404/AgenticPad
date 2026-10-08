@@ -167,3 +167,7 @@ docs/       the holder-agents design, the earlier models, how LLM agents plug in
 ```
 
 More: [docs/holder-agents.md](docs/holder-agents.md) · [docs/economy.md](docs/economy.md) · [docs/ai-agents.md](docs/ai-agents.md)
+
+## Contributors
+
+- **OpenAI Codex** — AI coding assistance for the arena entrances, continuous projected agent rendering, and render regression validation.
