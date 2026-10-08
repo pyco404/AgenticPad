@@ -320,7 +320,7 @@ function WorldShell({ children, chip }: ShellProps) {
           reload of the site, village and all.
         */}
         <div
-          className={`${open || path === "/agent" ? "hidden" : "flex"} fixed bottom-[46px] right-2 z-20 flex-col items-stretch gap-2 md:bottom-auto md:right-4 md:top-[4.5rem]`}
+          className={`${open || path === "/agent" ? "hidden" : "flex"} fixed bottom-12 right-2 z-20 flex-col items-stretch gap-2 md:bottom-auto md:right-4 md:top-[4.5rem]`}
         >
           <button type="button" onClick={() => setOpen(true)} className={`${cameraPage(path) ? "hidden" : "flex"} ${QUICK}`}>
             Show the page
@@ -338,7 +338,7 @@ function WorldShell({ children, chip }: ShellProps) {
         {/* controls, so they are put away while a page is open and the page has that space. */}
         <div className={`fixed bottom-2 right-2 z-20 ${open ? "hidden" : "flex"} max-w-[calc(100vw-1rem)] flex-col items-end gap-2 md:bottom-4 md:right-4 md:max-w-[min(760px,calc(100vw-2rem))]`}>
           {villageStatus === "ready" && path !== "/agent" ? (
-            <div className="hidden flex-col items-end gap-1 md:flex">
+            <div className="hidden flex-col items-end gap-2 md:flex">
               <VillageControls village={villageHandle} mine={mine} findLast />
             </div>
           ) : null}
@@ -594,7 +594,8 @@ function PersistentWorld({
         {status === "ready" && !scrolls && !observing ? (
           // On a phone the footer chip runs along the bottom edge and "Show the page" sits over it, so these
           // stack above both. From md the shell puts them in the chip's own row instead. Put away with an open page.
-          <div className="pointer-events-auto mb-[76px] ml-auto flex flex-col items-end gap-1 md:hidden">
+          // 8px apart, and 8px above "Show the page" (or, on the world with no page, above the footer chip).
+          <div className={`pointer-events-auto ${path === "/" ? "mb-10" : "mb-20"} ml-auto flex flex-col items-end gap-2 md:hidden`}>
             <VillageControls village={village} mine={mine} findLast />
           </div>
         ) : null}
