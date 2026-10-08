@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { sound } from "@/lib/sound";
 import { prefersReducedMotion } from "@/lib/motion";
 import { TERRAIN } from "./village/game/palette";
 
@@ -24,7 +25,8 @@ export function Welcome({ ready, drawn, failed, onEnter }: {
     return () => clearTimeout(timer);
   }, [leaving]);
   if (gone) return null;
-  const enter = (href?: string) => { setLeaving(true); onEnter(href); };
+  // Entering is the click that lets the browser play sound, so it switches the world's sound on.
+  const enter = (href?: string) => { sound.turnOn(); setLeaving(true); onEnter(href); };
   const phases = drawn ? ["SYNCING HOLDERS", "SPAWNING AGENTS", "PREPARING YOUR AGENT"] : ["BUILDING FIELD", "LOADING DISTRICTS"];
   const phase = ready ? failed ? "WORLD CONNECTION UNAVAILABLE" : "WORLD OPEN" : phases[Math.floor(elapsed / 1800) % phases.length];
   const progress = ready ? 100 : Math.round(Math.max(8, (drawn ? 45 : 0) + (1 - Math.exp(-elapsed / 2500)) * 45));

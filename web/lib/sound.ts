@@ -168,6 +168,16 @@ export const sound = {
     changed();
   },
 
+  /**
+   * Switch sound on from a click (the welcome screen's Enter World): play it now, remember it,
+   * and tell the speaker in the bar so it shows on.
+   */
+  turnOn(): void {
+    sound.setEnabled(true);
+    try { localStorage.setItem("agenticpad.sound", "1"); } catch { /* not remembered, but on */ }
+    window.dispatchEvent(new Event("agenticpad:sound-on"));
+  },
+
   /** A blow landing in the arena; `clash` when both charged at once. Thinned out when several fights hit together. */
   bump(clash: boolean): void {
     if (!enabled) return;

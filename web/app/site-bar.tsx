@@ -192,6 +192,10 @@ export function useSoundSetting(villageUp: boolean): [on: boolean, toggle: () =>
       // No storage: nothing was turned off, so it is on.
     }
     if (!off) setOn(true);
+    // Entering the world from the welcome screen switches sound on.
+    const turnedOn = () => setOn(true);
+    window.addEventListener("agenticpad:sound-on", turnedOn);
+    return () => window.removeEventListener("agenticpad:sound-on", turnedOn);
   }, []);
   useEffect(() => {
     if (!on || !villageUp || sound.playing) return;
