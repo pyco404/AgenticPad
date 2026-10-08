@@ -272,14 +272,15 @@ function WorldShell({ children, chip }: ShellProps) {
         */}
         <div
           ref={setPanel}
-          className={`hud-page hud-sheet pointer-events-auto fixed inset-x-0 bottom-0 z-20 ${open ? "flex" : "hidden"} flex-col rounded-t-[14px] border-t border-hud-line bg-ink/95 shadow-[0_-6px_24px_rgb(0_0_0/0.5)] md:pointer-events-none md:inset-x-auto md:bottom-auto md:right-4 md:top-[4.5rem] md:max-h-[calc(100dvh-15.5rem)] md:rounded-none md:border-0 md:bg-transparent md:shadow-none ${WIDE_PAGES.some((p) => path.startsWith(p)) ? "md:w-[min(1120px,calc(100vw-2rem))]" : "md:w-[clamp(400px,48vw,680px)]"}`}
+          className={`hud-page hud-sheet pointer-events-auto fixed inset-x-0 bottom-0 z-20 ${open ? "flex" : "hidden"} flex-col rounded-t-[14px] border-t border-hud-line bg-ink/95 shadow-[0_-6px_24px_rgb(0_0_0/0.5)] md:inset-x-auto md:bottom-auto md:right-4 md:top-[4.5rem] md:max-h-[calc(100dvh-5.5rem)] md:rounded-panel md:border md:border-hud-line md:bg-ink/90 md:p-3 md:pt-2 md:shadow-[0_6px_24px_rgb(0_0_0/0.5)] ${WIDE_PAGES.some((p) => path.startsWith(p)) ? "md:w-[min(1120px,calc(100vw-2rem))]" : "md:w-[clamp(400px,48vw,680px)]"}`}
         >
           {/*
-            The close X on its own above the cards, so it never sits on a page's content. On a phone it heads
-            the sheet with a handle: dragging the head down far enough puts the page away.
+            The close X inside the page's own frame, at its top-right, above the cards so it never sits on
+            a page's content. On a phone it heads the sheet with a handle: dragging the head down far enough
+            puts the page away.
           */}
           <div
-            className="relative flex shrink-0 touch-none justify-end px-2 pb-1 pt-2 md:touch-auto md:px-0 md:pb-2 md:pr-1 md:pt-0"
+            className="relative flex shrink-0 touch-none justify-end px-2 pb-1 pt-2 md:touch-auto md:px-0 md:pb-2 md:pt-0"
             onPointerDown={(e) => {
               if (window.matchMedia(WIDE).matches || (e.target as Element).closest("button")) return;
               drag.current = { from: e.clientY, by: 0 };
@@ -333,10 +334,9 @@ function WorldShell({ children, chip }: ShellProps) {
           </Link>
         </div>
 
-        {/* The footer as a chip in the bottom-right corner, on every page and with the page closed. */}
-        {/* From md the village's own controls stack just above it, at the screen's right edge. */}
-        {/* On a phone the open page's sheet covers the bottom edge, so the chip is put away with the village's controls. */}
-        <div className={`fixed bottom-2 right-2 z-20 ${open ? "hidden md:flex" : "flex"} max-w-[calc(100vw-1rem)] flex-col items-end gap-2 md:bottom-4 md:right-4 md:max-w-[min(760px,calc(100vw-2rem))]`}>
+        {/* The footer as a chip in the bottom-right corner, with the village's zoom just above it: world */}
+        {/* controls, so they are put away while a page is open and the page has that space. */}
+        <div className={`fixed bottom-2 right-2 z-20 ${open ? "hidden" : "flex"} max-w-[calc(100vw-1rem)] flex-col items-end gap-2 md:bottom-4 md:right-4 md:max-w-[min(760px,calc(100vw-2rem))]`}>
           {villageStatus === "ready" && path !== "/agent" ? (
             <div className="hidden flex-col items-end gap-1 md:flex">
               <VillageControls village={villageHandle} mine={mine} findLast />
@@ -411,6 +411,13 @@ function PersistentWorld({
   const village = useRef<VillageHandle | null>(null);
   const [view, setView] = useState<WorldView | null>(null);
   const observing = path === "/agent";
+  // The camera help can be put away to a small button in the bottom strip; remembered per browser.
+  const [help, setHelp] = useState(true);
+  useEffect(() => { try { if (localStorage.getItem("agenticpad.cameraHelp") === "closed") setHelp(false); } catch { /* storage unavailable */ } }, []);
+  const showHelp = (open: boolean) => {
+    setHelp(open);
+    try { if (open) localStorage.removeItem("agenticpad.cameraHelp"); else localStorage.setItem("agenticpad.cameraHelp", "closed"); } catch { /* storage unavailable */ }
+  };
   const observation = useRef<{ owner: string | null; id: string | null }>({ owner: null, id: null });
 
   const notes = useMemo(() => Object.fromEntries(PLACES.map((p) => [p.id, placeLine(world, p)])), [world]);
@@ -546,7 +553,7 @@ function PersistentWorld({
 
       {/* The source engine owns simulation/art, never a second public map. */}
       <div ref={box} aria-hidden className="pointer-events-none invisible absolute inset-0" />
-      {status === "ready" ? <WorldCamera village={village} observing={observing} scrolls={scrolls} inset={inset} /> : null}
+      {status === "ready" ? <WorldCamera village={village} observing={observing} scrolls={scrolls} inset={inset} help={help} onHelp={showHelp} /> : null}
       {/* The veil: enough to settle the world behind the HUD, never enough to hide it. */}
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-ink/10" />
       {/* On a phone the bar has no room for the world's numbers: they sit on the village, top left. */}
@@ -558,6 +565,14 @@ function PersistentWorld({
         className="pointer-events-none absolute left-0 top-14 z-10 flex items-end justify-between gap-2 p-2 md:p-3"
         style={{ right: inset.right, bottom: inset.bottom }}
       >
+        <div className="block">
+        {/* The camera help, put away: the way back to it, first in the world's own bottom strip. */}
+        {status === "ready" && !scrolls && !observing && !help ? (
+          <button type="button" onClick={() => showHelp(true)}
+            className="rounded-panel pointer-events-auto flex h-8 w-fit items-center border border-hud-line bg-hud px-2.5 text-[12px] text-accent hover:border-accent md:mb-1.5">
+            Camera
+          </button>
+        ) : null}
         <p
           className={`rounded-panel border border-hud-line bg-hud px-2.5 py-1 text-[11px] uppercase tracking-wide text-muted ${
             observing || status === "ready" && !stranded ? "hidden md:block" : "mb-10 max-w-[55%] md:mb-0 md:max-w-none"
@@ -575,6 +590,7 @@ function PersistentWorld({
                   ? "Drag empty ground to rotate · ctrl + scroll or pinch to zoom"
                   : "Drag empty ground to rotate · drag up to look down · scroll or pinch to zoom"}
         </p>
+        </div>
         {status === "ready" && !scrolls && !observing ? (
           // On a phone the footer chip runs along the bottom edge and "Show the page" sits over it, so these
           // stack above both. From md the shell puts them in the chip's own row instead. Put away with an open page.
