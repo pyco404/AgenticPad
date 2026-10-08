@@ -156,8 +156,7 @@ function floorMarking(f: ArtFrame): HTMLCanvasElement {
   g.drawImage(f.image as CanvasImageSource, f.x, f.y, f.width, f.height, 0, 0, f.width, f.height);
   const d = g.getImageData(0, 0, f.width, f.height), px = d.data;
   const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
-  // Chosen so that at 60% on the arena sand they come out as the reference marking: brackets
-  // #959f6a, square #8c815e, eyes #9bac67.
+  // At 45% on the arena sand: soft green brackets, an olive-brown square, brighter green eyes.
   const outer = rgb("#6e8e52"), centre = rgb("#5f5c3e"), eyes = rgb("#78a44d");
   // The dark square spans the middle two-thirds; green inside it is the eyes, outside it the brackets.
   const lo = 0.17, hi = 0.83;
@@ -169,8 +168,12 @@ function floorMarking(f: ArtFrame): HTMLCanvasElement {
     px[i] = r; px[i + 1] = gg; px[i + 2] = b;
   }
   g.putImageData(d, 0, 0);
-  markings.set(key, c);
-  return c;
+  // Softened, as paint worn into sand: blurred in the image's own pixels, so equally at every zoom.
+  const soft = document.createElement("canvas"); soft.width = f.width; soft.height = f.height;
+  const sg = soft.getContext("2d")!;
+  sg.filter = `blur(${Math.round(f.width / 60)}px)`; sg.drawImage(c, 0, 0);
+  markings.set(key, soft);
+  return soft;
 }
 
 /** Sand grain across the floor, seeded, so the floor and the marking on it read as one worn surface. */
@@ -194,7 +197,7 @@ function arenaFloor(ctx: CanvasRenderingContext2D, view: Projection, top?: TopAr
     for (const k of [0.78, 0.6]) { ctx.beginPath(); ctx.ellipse(x, y, rx * k, ry * k, 0, 0, Math.PI * 2); ctx.stroke(); }
     // The marking, faded into the sand, at the arena emblem's own 144 by 100.
     const f = top?.art?.({ key: "ac-arena-emblem", frame: "__BASE" });
-    if (f) { ctx.globalAlpha = 0.6; ctx.imageSmoothingEnabled = false; ctx.drawImage(floorMarking(f), x - 72, y - 50, 144, 100); }
+    if (f) { ctx.globalAlpha = 0.45; ctx.imageSmoothingEnabled = true; ctx.drawImage(floorMarking(f), x - 72, y - 50, 144, 100); }
     // Grain over everything on the floor, the marking included: worn in, not laid on top.
     for (const g of GRAIN) {
       ctx.globalAlpha = 0.35; ctx.fillStyle = g.light ? A.sandLight : A.sandShade;
