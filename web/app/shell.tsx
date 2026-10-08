@@ -19,8 +19,7 @@ import { townActivityTally } from "@/app/village/activity-tally";
 import { placeLine, worldTally, WorldProvider, type World } from "@/app/village/world";
 import type { VillageHandle } from "@/app/village/game";
 import { arenaLine } from "@/app/village/arena";
-import { WorldLens } from "@/app/village/world-lens";
-import { FieldViews } from "@/app/village/field-views";
+import { WorldCamera } from "@/app/village/world-camera";
 import { AgentStatus, type AgentAccount } from "@/app/village/agent-status";
 import type { WorldView } from "@/app/village/game/presentation";
 import { useArena } from "@/app/village/use-arena";
@@ -63,7 +62,7 @@ export function Shell({ children, chip }: ShellProps) {
   const path = usePathname() ?? "/";
   return path === "/admin" || path.startsWith("/admin/")
     ? <AdminShell>{children}</AdminShell>
-    : <VillageShell chip={chip}>{children}</VillageShell>;
+    : <WorldShell chip={chip}>{children}</WorldShell>;
 }
 
 function AdminShell({ children }: { children: ReactNode }) {
@@ -78,11 +77,11 @@ function AdminShell({ children }: { children: ReactNode }) {
   );
 }
 
-function VillageShell({ children, chip }: ShellProps) {
+function WorldShell({ children, chip }: ShellProps) {
   const path = usePathname() ?? "/";
   const router = useRouter();
-  // Closed on arrival: the village first, and a page only once someone asks for one.
-  const [open, setOpen] = useState(false);
+  // Field/Agent expose the world; functional routes open their overlay on arrival.
+  const [open, setOpen] = useState(() => !cameraPage(path));
   const [building, setBuilding] = useState<string | null>(null);
   const [night, toggleNight] = useNight();
   // A state rather than a ref, so measuring starts again whenever the panel comes and goes.
@@ -182,7 +181,6 @@ function VillageShell({ children, chip }: ShellProps) {
       if (a && !a.closest("footer")) {
         const href = a.getAttribute("href") ?? "";
         setOpen(!cameraPage(href));
-        if (href === "/field") villageHandle.current?.view("world");
       }
     };
     document.addEventListener("click", onClick, true);
@@ -245,7 +243,7 @@ function VillageShell({ children, chip }: ShellProps) {
   return (
     <WorldProvider value={world}>
       <OpenBuildingProvider value={setBuilding}>
-        <Village
+        <PersistentWorld
           world={world}
           path={path}
           inset={inset}
@@ -363,7 +361,7 @@ function VillageShell({ children, chip }: ShellProps) {
 }
 
 /** The village layer: fixed behind everything, with a light veil so what is on top of it reads. */
-function Village({
+function PersistentWorld({
   world,
   path,
   inset,
@@ -412,25 +410,9 @@ function Village({
   const box = useRef<HTMLDivElement>(null);
   const village = useRef<VillageHandle | null>(null);
   const [view, setView] = useState<WorldView | null>(null);
-  const isField = path === "/field";
   const observing = path === "/agent";
   const observation = useRef<{ owner: string | null; id: string | null }>({ owner: null, id: null });
 
-  // With a page open, a wheel anywhere is someone reading: over the village - the margins round the panel,
-  // or the strip beside it - it scrolls the page. Only ctrl or ⌘, as a trackpad pinch sends, still zooms the
-  // village. Caught before it reaches the canvas, where the scene would take it as a zoom.
-  useEffect(() => {
-    const el = box.current;
-    if (!el || !scrolls) return;
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) return;
-      e.preventDefault();
-      e.stopPropagation();
-      scrolls.current?.scrollBy({ top: e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY });
-    };
-    el.addEventListener("wheel", onWheel, { capture: true, passive: false });
-    return () => el.removeEventListener("wheel", onWheel, { capture: true });
-  }, [scrolls]);
   const notes = useMemo(() => Object.fromEntries(PLACES.map((p) => [p.id, placeLine(world, p)])), [world]);
   /** The latest of everything the village is told, for when it finishes loading. */
   const latest = useRef({ world, inset, notes, night, go, openBuilding, onArenaDone, agent: agentOf(path), mine });
@@ -445,13 +427,13 @@ function Village({
     // Phaser is loaded here and only here, after the page itself: never in the server render.
     Promise.all([import("./village/game"), loaded])
       .then(([{ startVillage }]) =>
-        startVillage(el, {
+        gone ? null : startVillage(el, {
           base: "/village",
           buildings: PLACES.map(({ id, label, note }) => ({ id, label, note })),
           still: prefersReducedMotion(),
           nameFont: face,
           events: {
-            ready: () => setStatus("ready"),
+            ready: () => { if (!gone) setStatus("ready"); },
             view: (next) => { if (!gone) setView(next); },
             selectAgent: (id) => {
               if (id) latest.current.go(`/a/${id}`);
@@ -463,6 +445,7 @@ function Village({
       )
       .then(
         (handle) => {
+          if (!handle) return;
           if (gone) return handle.destroy();
           village.current = handle;
           handleRef.current = handle;
@@ -525,14 +508,13 @@ function Village({
     village.current?.select(agent, true);
   }, [agent]);
 
-  // Field and Agent share this scene. Only their camera and HUD differ.
+  // Agent follows an owner in the same renderer. Other routes leave the camera alone.
   useEffect(() => {
     const handle = village.current;
     if (!handle) return;
     handle.setObservation(observing);
     observation.current = { owner: null, id: null };
-    if (path === "/field") handle.view("world");
-  }, [path, status, observing]);
+  }, [status, observing]);
 
   useEffect(() => {
     const handle = village.current;
@@ -545,7 +527,7 @@ function Village({
     const here = (id: string) => mine.has(id) && !!residents?.some((r) => r.id === id && r.place !== "gate");
     // Keep the chosen owned agent through feed refreshes and match transitions.
     if (view?.selected && here(view.selected.id)) {
-      if (!view.following) handle.select(view.selected.id, true);
+      if (observation.current.id !== view.selected.id || !view.following) handle.select(view.selected.id, true);
       observation.current.id = view.selected.id;
       return;
     }
@@ -562,14 +544,14 @@ function Village({
   return (
     <div className="fixed inset-0 z-0 bg-ink">
 
-      <div ref={box} className="absolute inset-0" style={{ touchAction: "none", visibility: isField && status === "ready" ? "hidden" : "visible", pointerEvents: isField ? "none" : "auto" }} />
-      {status === "ready" && isField ? <FieldViews village={village} inset={inset} /> : null}
+      {/* The source engine owns simulation/art, never a second public map. */}
+      <div ref={box} aria-hidden className="pointer-events-none invisible absolute inset-0" />
+      {status === "ready" ? <WorldCamera village={village} observing={observing} scrolls={scrolls} inset={inset} /> : null}
       {/* The veil: enough to settle the world behind the HUD, never enough to hide it. */}
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-ink/10" />
       {/* On a phone the bar has no room for the world's numbers: they sit on the village, top left. */}
       {/* Not on a phone with a page open: the sheet takes the screen, and the strip above it is for the village. */}
       {status === "ready" && !observing ? <PhoneStats world={world} hidden={scrolls !== null} /> : null}
-      {status === "ready" && !isField ? <WorldLens view={view} village={village} inset={inset} observing={observing} hidden={scrolls !== null && inset.bottom > 0} /> : null}
       {observing ? <AgentStatus account={account} accountError={accountError} view={view} village={village} /> : null}
       {/* The village's own controls, kept in the part the panel leaves uncovered. */}
       <div
@@ -589,11 +571,9 @@ function Village({
                 ? "Can't reach the game server, so no agents yet. Retrying…"
                 : observing
                   ? "Following your autonomous agent"
-                  : path === "/field"
-                  ? "Drag empty ground to rotate · drag up to look down · scroll or pinch to zoom"
                   : scrolls
-                  ? "Drag to look around · ctrl + scroll or pinch to zoom"
-                  : "Drag to look around · scroll or pinch to zoom"}
+                  ? "Drag empty ground to rotate · ctrl + scroll or pinch to zoom"
+                  : "Drag empty ground to rotate · drag up to look down · scroll or pinch to zoom"}
         </p>
         {status === "ready" && !scrolls && !observing ? (
           // On a phone the footer chip runs along the bottom edge and "Show the page" sits over it, so these

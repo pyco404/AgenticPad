@@ -11,14 +11,21 @@ import { agentBox, inside, worldPicker, type ScreenBox, type WorldTarget } from 
 import type { WorldSnapshot } from "../../lib/world/model";
 import { directionalVisibility } from "../../lib/world/visibility";
 
-type Props = { village: RefObject<VillageHandle | null>; inset: { right: number; bottom: number } };
+type Props = {
+  village: RefObject<VillageHandle | null>;
+  observing: boolean;
+  scrolls: RefObject<HTMLDivElement | null> | null;
+  /** What an open page covers: right on a desktop, bottom on a phone. The world frames itself in the rest. */
+  inset: { right: number; bottom: number };
+};
 type Pointer = { x: number; y: number; startX: number; startY: number; allowed: boolean; dragging: boolean; pan: boolean; target: WorldTarget | null };
 type Hit = { target: WorldTarget; box: ScreenBox };
 const DRAG = 8;
 
-/** One Isometric camera observes the live shared scene at every angle. */
-export function FieldViews({ village, inset }: Props) {
+/** The application's persistent visual world, independent of the active route. */
+export function WorldCamera({ village, observing, scrolls, inset }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const options = useRef({ observing, scrolls, inset }); options.current = { observing, scrolls, inset };
   const fit = useRef<(whole?: boolean) => void>(() => {});
   const reset = useRef<() => void>(() => {});
 
@@ -30,7 +37,10 @@ export function FieldViews({ village, inset }: Props) {
     const still = document.createElement("canvas"), layer = still.getContext("2d")!;
     let snapshot: WorldSnapshot | null = null, camera: ProjectionCamera | null = null;
     let angle = { ...CAMERA_ANGLES.isometric }, target = { ...angle };
-    let focus: { x: number; y: number } | null = null, zoomFactor = 1, whole = false, following: string | null = null;
+    let focus: { x: number; y: number } | null = null, scaleTarget: number | null = null, following: string | null = null;
+    // Screen pixels the focus sits left/up of the canvas centre, so it stays in the part a page leaves
+    // uncovered. Presentation only: focus, zoom and angle are the same camera on every route.
+    const shift = { x: 0, y: 0 };
     let lastRead = -Infinity, lastDraw = -Infinity, lastFrame = 0, revision = -1, dirty = true, raf = 0, width = 0, height = 0, ratio = 1;
     let artwork: ReturnType<typeof loadProjectedMaterials> | null = null;
     let agentVisible: ReturnType<typeof directionalVisibility> | null = null;
@@ -44,7 +54,7 @@ export function FieldViews({ village, inset }: Props) {
       const b = snapshot!.world.bounds;
       return { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 };
     };
-    const baseCamera = () => frameProjection(angle, snapshot!.world.bounds, width, height, snapshot!.world.slabDepth, whole ? "overview" : "immersive");
+    const framedScale = (overview = false, at = angle) => frameProjection(at, snapshot!.world.bounds, width, height, snapshot!.world.slabDepth, overview ? "overview" : "immersive").scale;
     const resize = () => {
       const rect = el.getBoundingClientRect();
       width = rect.width; height = rect.height; ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -55,22 +65,26 @@ export function FieldViews({ village, inset }: Props) {
     const changeZoom = (factor: number, x = width / 2, y = height / 2) => {
       if (!camera || !focus) return;
       const before = camera.scale, next = Math.max(0.035, Math.min(3.5, before * factor));
-      zoomFactor *= next / before;
-      const delta = unprojectGround(angle, { x: (x - width / 2) * (1 / before - 1 / next), y: (y - height / 2) * (1 / before - 1 / next) });
+      scaleTarget = next;
+      const delta = unprojectGround(angle, { x: (x - width / 2 + shift.x) * (1 / before - 1 / next), y: (y - height / 2 + shift.y) * (1 / before - 1 / next) });
       focus.x += delta.x; focus.y += delta.y; camera.scale = next; dirty = true;
     };
     const pan = (dx: number, dy: number) => {
       if (!camera || !focus) return;
+      if (options.current.observing) return;
       following = null;
       const delta = unprojectGround(angle, { x: -dx / camera.scale, y: -dy / camera.scale });
       focus.x += delta.x; focus.y += delta.y; dirty = true;
     };
     fit.current = (overview = false) => {
       if (!snapshot) return;
-      following = null; focus = worldCentre(); zoomFactor = 1; whole = overview; dirty = true;
+      following = null; focus = worldCentre(); scaleTarget = framedScale(overview); dirty = true;
     };
-    reset.current = () => { target = { ...CAMERA_ANGLES.isometric }; fit.current(); };
-    handle.setFieldCamera({
+    reset.current = () => {
+      target = { ...CAMERA_ANGLES.isometric }; fit.current();
+      if (snapshot) scaleTarget = framedScale(false, target);
+    };
+    handle.setWorldCamera({
       zoom: (step) => changeZoom(step > 0 ? 1.25 : 0.8),
       lookAt: (point) => { following = null; focus = { ...point }; dirty = true; },
       view: (mode) => {
@@ -79,7 +93,8 @@ export function FieldViews({ village, inset }: Props) {
       },
       follow: (id) => {
         following = id;
-        if (id && camera) changeZoom(Math.max(camera.scale, 0.8) / camera.scale);
+        if (id) scaleTarget = Math.max(scaleTarget ?? 0, 0.8);
+        dirty = true;
       },
     });
     const pointers = new Map<number, Pointer>();
@@ -103,8 +118,8 @@ export function FieldViews({ village, inset }: Props) {
       const [a, b] = [...pointers.values()];
       if (a && b) {
         const distance = Math.hypot(a.x - b.x, a.y - b.y);
-        following = null;
-        if (pinch > 0) changeZoom(distance / pinch, (a.x + b.x) / 2, (a.y + b.y) / 2);
+        if (!options.current.observing) following = null;
+        if (pinch > 0) changeZoom(distance / pinch, options.current.observing ? width / 2 : (a.x + b.x) / 2, options.current.observing ? height / 2 : (a.y + b.y) / 2);
         pan(dx / 2, dy / 2); pinch = distance;
         for (const pointer of pointers.values()) pointer.dragging = true;
         e.preventDefault(); return;
@@ -112,7 +127,8 @@ export function FieldViews({ village, inset }: Props) {
       if (!p.dragging && Math.hypot(p.x - p.startX, p.y - p.startY) < DRAG) return;
       p.dragging = true;
       if (!p.allowed || !camera || !focus) return;
-      e.preventDefault(); following = null;
+      e.preventDefault();
+      if (!options.current.observing) following = null;
       if (p.pan) pan(dx, dy);
       else target = dragCamera(target, dx, dy);
       dirty = true;
@@ -129,9 +145,14 @@ export function FieldViews({ village, inset }: Props) {
     const cancel = (e: PointerEvent) => release(e, true);
     const blur = () => { for (const id of [...pointers.keys()]) release({ pointerId: id } as PointerEvent, true); };
     const wheel = (e: WheelEvent) => {
-      e.preventDefault(); following = null; const rect = el.getBoundingClientRect();
+      e.preventDefault();
       const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? height : 1);
-      changeZoom(Math.exp(-Math.max(-120, Math.min(120, delta)) * 0.002), e.clientX - rect.left, e.clientY - rect.top);
+      const { observing, scrolls } = options.current;
+      // Over a page's exposed margins, wheel reads that page. Ctrl/pinch still zooms.
+      if (scrolls && !e.ctrlKey && !e.metaKey) { scrolls.current?.scrollBy({ top: delta }); return; }
+      if (!observing) following = null;
+      const rect = el.getBoundingClientRect();
+      changeZoom(Math.exp(-Math.max(-120, Math.min(120, delta)) * 0.002), observing ? width / 2 : e.clientX - rect.left, observing ? height / 2 : e.clientY - rect.top);
     };
     const key = (e: KeyboardEvent) => {
       if (!camera || !focus) return;
@@ -169,9 +190,19 @@ export function FieldViews({ village, inset }: Props) {
             dirty = true;
           } else following = null;
         }
-        const base = baseCamera(), centre = project(angle, focus);
-        const scale = Math.max(0.035, Math.min(3.5, base.scale * zoomFactor));
-        camera = { x: centre.x, y: centre.y, scale: camera ? camera.scale + (scale - camera.scale) * (1 - Math.exp(-seconds * 14)) : scale };
+        const centre = project(angle, focus);
+        // Keep absolute zoom across route overlays, viewport changes and rotations.
+        // Only initial framing and explicit Reset/Whole world choose a new fit. A phone's first
+        // framing shows the town rather than shrinking the whole world into its width.
+        scaleTarget ??= framedScale() * Math.max(1, Math.min(2.5, 1000 / width));
+        const scale = Math.max(0.035, Math.min(3.5, scaleTarget));
+        const covered = options.current.inset, ease = 1 - Math.exp(-seconds * 10);
+        const toward = { x: Math.min(covered.right, width * 0.6) / 2, y: Math.min(covered.bottom, height * 0.7) / 2 };
+        if (Math.abs(toward.x - shift.x) + Math.abs(toward.y - shift.y) > 0.5) {
+          shift.x += (toward.x - shift.x) * ease; shift.y += (toward.y - shift.y) * ease; dirty = true;
+        } else { shift.x = toward.x; shift.y = toward.y; }
+        const zoomed = camera ? camera.scale + (scale - camera.scale) * (1 - Math.exp(-seconds * 14)) : scale;
+        camera = { x: centre.x + shift.x / zoomed, y: centre.y + shift.y / zoomed, scale: zoomed };
         const view = angle;
         if (dirty || revision !== snapshot.revision) {
           layer.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -239,7 +270,7 @@ export function FieldViews({ village, inset }: Props) {
     };
     raf = requestAnimationFrame(frame);
     return () => {
-      cancelAnimationFrame(raf); observer.disconnect(); artwork?.dispose(); handle.setFieldCamera(null);
+      cancelAnimationFrame(raf); observer.disconnect(); artwork?.dispose(); handle.setWorldCamera(null);
       blur();
       el.removeEventListener("pointerdown", down);
       window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel);
@@ -251,8 +282,8 @@ export function FieldViews({ village, inset }: Props) {
   return <>
     <canvas ref={canvas} tabIndex={0} aria-label="Explore the AgenticPad world. Drag empty ground to rotate, Shift-drag or arrow keys to pan, scroll or pinch to zoom. Tap agents or buildings to open them."
       className="absolute left-0 top-14 cursor-grab touch-none active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-accent"
-      style={{ backgroundColor: VOID, width: `calc(100% - ${inset.right}px)`, height: `calc(100% - ${56 + inset.bottom}px)` }} />
-    <aside className="absolute left-3 z-10 max-w-[min(310px,calc(100%-6rem))] rounded-panel border border-hud-line bg-hud p-3 text-[11px] text-text" style={{ bottom: inset.bottom + 100 }} aria-label="World camera controls">
+      style={{ backgroundColor: VOID, width: "100%", height: "calc(100% - 56px)" }} />
+    {!scrolls && !observing ? <aside className="absolute left-3 z-10 max-w-[min(310px,calc(100%-6rem))] rounded-panel border border-hud-line bg-hud p-3 text-[11px] text-text" style={{ bottom: 100 }} aria-label="World camera controls">
       <p className="text-accent">Isometric</p>
       <p className="mt-1 text-muted">Drag empty ground to rotate · drag up to look down</p>
       <p className="mt-1 text-muted">Scroll or pinch to zoom · Shift-drag or two-finger drag to pan</p>
@@ -260,6 +291,6 @@ export function FieldViews({ village, inset }: Props) {
         <button type="button" onClick={() => reset.current()} className="rounded border border-hud-line px-2 py-1 hover:border-accent">Reset camera</button>
         <button type="button" onClick={() => fit.current(true)} className="rounded border border-hud-line px-2 py-1 hover:border-accent">Whole world</button>
       </div>
-    </aside>
+    </aside> : null}
   </>;
 }

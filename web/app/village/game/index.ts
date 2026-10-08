@@ -13,7 +13,7 @@ import type { WorldTarget } from "./projected-picking";
 
 export type { BuildingLabel } from "./building";
 
-export type FieldCamera = {
+export type WorldCameraControls = {
   zoom: (step: 1 | -1) => void;
   lookAt: (point: Point) => void;
   view: (mode: ViewMode) => void;
@@ -24,10 +24,7 @@ export type VillageHandle = {
   snapshot: () => WorldSnapshot | null;
   /** Draws a live agent's own Top character onto another view's canvas; false if it has none. */
   paintAgent: (id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter) => boolean;
-  setRotationEnabled: (on: boolean) => void;
-  canRotateAt: (point: Point) => boolean;
-  rotationCamera: (point: Point) => { x: number; y: number; scale: number; tilt: number };
-  setFieldCamera: (camera: FieldCamera | null) => void;
+  setWorldCamera: (camera: WorldCameraControls | null) => void;
   activateWorldTarget: (target: WorldTarget) => void;
   setResidents: (residents: Resident[]) => void;
   /** `pan` brings the camera to them: for a selection made outside the canvas. */
@@ -38,7 +35,7 @@ export type VillageHandle = {
   setNight: (on: boolean) => void;
   /** The signed-in owner's agents, marked in gold. */
   setMine: (ids: ReadonlySet<string>) => void;
-  /** Dedicated Agent view observes its owner; camera gestures cannot detach it. */
+  /** Agent route observes its owner through the same world camera. */
   setObservation: (on: boolean) => void;
   /** Pans to the owner's next agent; false when none of theirs is in the village. */
   findMine: () => boolean;
@@ -117,25 +114,24 @@ export async function startVillage(
   };
   watchDensity();
 
-  let fieldCamera: FieldCamera | null = null;
+  let worldCamera: WorldCameraControls | null = null;
   return {
     snapshot: () => scene.worldSnapshot(),
     paintAgent: (id, ctx, x, y, k, paint) => scene.paintAgent(id, ctx, x, y, k, paint),
-    setRotationEnabled: (on) => scene.setRotationEnabled(on),
-    canRotateAt: (point) => scene.canRotateAt(point),
-    rotationCamera: (point) => scene.rotationCamera(point),
-    setFieldCamera: (camera) => {
-      if (Boolean(camera) !== Boolean(fieldCamera)) scene.input?.resetPointers();
-      fieldCamera = camera;
+    setWorldCamera: (camera) => {
+      if (Boolean(camera) !== Boolean(worldCamera)) scene.input?.resetPointers();
+      worldCamera = camera;
+      if (camera && scene.selectedAgentId()) camera.follow(scene.selectedAgentId());
       scene.setRotationEnabled(camera !== null);
-      // Skip the hidden WebGL render while keeping the same scene's simulation ticking.
-      scene.sys.settings.visible = camera === null;
+      scene.input.enabled = false;
+      // Phaser supplies simulation and captured art; only WorldCamera presents the world.
+      scene.sys.settings.visible = false;
     },
     activateWorldTarget: (target) => scene.activateWorldTarget(target),
     setResidents: (r) => scene.setResidents(r),
     select: (id, pan = false) => {
       scene.select(id, pan);
-      if (pan || !id) fieldCamera?.follow(scene.selectedAgentId());
+      if (pan || !id) worldCamera?.follow(scene.selectedAgentId());
     },
     setInsets: (inset) => scene.setInsets(inset),
     setNotes: (notes) => scene.setNotes(notes),
@@ -144,12 +140,12 @@ export async function startVillage(
     setObservation: (on) => scene.setObservation(on),
     findMine: () => {
       const found = scene.findMine();
-      if (found) fieldCamera?.follow(scene.selectedAgentId());
+      if (found) worldCamera?.follow(scene.selectedAgentId());
       return found;
     },
-    zoom: (step) => fieldCamera ? fieldCamera.zoom(step) : scene.zoomBy(step),
-    view: (mode) => fieldCamera ? fieldCamera.view(mode) : scene.showView(mode),
-    lookAt: (point) => fieldCamera ? fieldCamera.lookAt(point) : scene.lookAt(point),
+    zoom: (step) => worldCamera ? worldCamera.zoom(step) : scene.zoomBy(step),
+    view: (mode) => worldCamera ? worldCamera.view(mode) : scene.showView(mode),
+    lookAt: (point) => worldCamera ? worldCamera.lookAt(point) : scene.lookAt(point),
     destroy: () => {
       observer.disconnect();
       window.removeEventListener("resize", resize);

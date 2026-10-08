@@ -204,7 +204,6 @@ export class VillageScene extends Phaser.Scene {
 
   /** Both renderers use the original scene's selection and navigation callbacks. */
   activateWorldTarget(target: WorldTarget): void {
-    if (this.observing) return;
     if (target.kind === "building") {
       if (this.buildings.has(target.id)) this.opts.events.selectBuilding(target.id);
     } else {
@@ -213,19 +212,6 @@ export class VillageScene extends Phaser.Scene {
       this.select(id, true);
       this.opts.events.selectAgent(resident.standIn ?? id);
     }
-  }
-
-  /** Use Phaser's actual interactive masks, including pixel-perfect heroes/arena. */
-  canRotateAt(point: Point): boolean {
-    const r = renderScale(this);
-    const pointer = { x: point.x * r, y: point.y * r } as Phaser.Input.Pointer;
-    return this.input.manager.hitTest(pointer, this.children.list.filter((o) => o.input?.enabled), this.cameras.main).length === 0;
-  }
-
-  rotationCamera(point: Point): { x: number; y: number; scale: number; tilt: number } {
-    const cam = this.cameras.main, r = renderScale(this);
-    const at = cam.getWorldPoint(point.x * r, point.y * r);
-    return { x: at.x, y: at.y, scale: cam.zoomX / r, tilt: Math.asin(cam.zoomY / cam.zoomX) };
   }
 
   preload(): void {
