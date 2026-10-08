@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { CloseIcon } from "@/app/icons";
 import type { VillageHandle } from "./game";
 import { renderProjectedWorld, type ProjectionCamera } from "./game/projected-art";
 import { CAMERA_ANGLES, dragCamera, easeCamera, frameProjection, project, unprojectGround, yawDelta } from "../../lib/world/projection";
@@ -35,6 +36,13 @@ export function WorldCamera({ village, observing, scrolls, inset }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const options = useRef({ observing, scrolls, inset }); options.current = { observing, scrolls, inset };
   const fit = useRef<(whole?: boolean) => void>(() => {});
+  // The camera help can be put away to a small button; remembered per browser.
+  const [helpOpen, setHelpOpen] = useState(true);
+  useEffect(() => { try { if (localStorage.getItem("agenticpad.cameraHelp") === "closed") setHelpOpen(false); } catch { /* storage unavailable */ } }, []);
+  const showHelp = (open: boolean) => {
+    setHelpOpen(open);
+    try { if (open) localStorage.removeItem("agenticpad.cameraHelp"); else localStorage.setItem("agenticpad.cameraHelp", "closed"); } catch { /* storage unavailable */ }
+  };
   const reset = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -301,7 +309,12 @@ export function WorldCamera({ village, observing, scrolls, inset }: Props) {
     <canvas ref={canvas} tabIndex={0} aria-label="Explore the AgenticPad world. Drag empty ground to rotate, Shift-drag or arrow keys to pan, scroll or pinch to zoom. Tap agents or buildings to open them."
       className="absolute left-0 top-14 cursor-grab touch-none active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-accent"
       style={{ backgroundColor: VOID, width: "100%", height: "calc(100% - 56px)" }} />
-    {!scrolls && !observing ? <aside className="absolute left-3 z-10 max-w-[min(310px,calc(100%-6rem))] rounded-panel border border-hud-line bg-hud p-3 text-[11px] text-text" style={{ bottom: 100 }} aria-label="World camera controls">
+    {!scrolls && !observing && !helpOpen ? <button type="button" onClick={() => showHelp(true)} style={{ bottom: 100 }}
+      className="absolute left-3 z-10 rounded-panel border border-hud-line bg-hud px-3 py-1.5 text-[11px] text-accent hover:border-accent">Camera</button> : null}
+    {!scrolls && !observing && helpOpen ? <aside className="absolute left-3 z-10 max-w-[min(310px,calc(100%-6rem))] rounded-panel border border-hud-line bg-hud p-3 pr-8 text-[11px] text-text" style={{ bottom: 100 }} aria-label="World camera controls">
+      <button type="button" onClick={() => showHelp(false)} aria-label="Close camera help" className="absolute right-1.5 top-1.5 rounded p-1 text-muted hover:text-accent">
+        <CloseIcon className="h-3.5 w-3.5" />
+      </button>
       <p className="text-accent">World</p>
       <p className="mt-1 text-muted">Drag empty ground to rotate · drag up to look down</p>
       <p className="mt-1 text-muted">Scroll or pinch to zoom · Shift-drag or two-finger drag to pan</p>
