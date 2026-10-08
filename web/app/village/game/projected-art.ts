@@ -1,4 +1,4 @@
-import { COLOSSEUM_FLOOR } from "../../../lib/world/arena-geometry";
+import { ARENA_GATE_WIDTH, ARENA_SIDE_WIDTH, COLOSSEUM_FLOOR } from "../../../lib/world/arena-geometry";
 import type { ArtFrame, ArtRef, TopGround, WorldModel, WorldObject } from "../../../lib/world/model";
 import { cameraAngle, depthOrder, footprint, project, type Projection } from "../../../lib/world/projection";
 import { TERRAIN, darker } from "./palette";
@@ -207,6 +207,63 @@ function arenaFloor(ctx: CanvasRenderingContext2D, view: Projection, top?: TopAr
   });
 }
 
+/**
+ * An open gate in the arena's outer wall, as wide as the passage agents walk through
+ * (ARENA_GATE_WIDTH south, ARENA_SIDE_WIDTH east): a stone arch over a dark passage with the
+ * sand floor running out through it, and two timber doors swung open against the wall either
+ * side, like the cottages' doors. Drawn only where its wall faces the camera.
+ */
+function arenaDoor(b: Brush, view: Projection, o: WorldObject, angle: number, width: number, height: number, banner: boolean): void {
+  const rx = o.width / 2, ry = o.depth / 2;
+  const at = { x: o.x + Math.cos(angle) * rx, y: o.y + Math.sin(angle) * ry };
+  const normal = { x: Math.cos(angle) / rx, y: Math.sin(angle) / ry }, nl = Math.hypot(normal.x, normal.y);
+  const n = { x: normal.x / nl, y: normal.y / nl }, t = { x: -n.y, y: n.x };
+  if (project(view, { x: at.x + n.x * 10, y: at.y + n.y * 10 }).depth <= project(view, at).depth) return;
+  const p = (u: number, z: number, out = 1.5) => ({ x: at.x + t.x * u + n.x * out, y: at.y + t.y * u + n.y * out, z });
+  const arch = (w: number, top: number, out: number, rise: number) => [
+    p(-w / 2, 0, out), p(w / 2, 0, out), p(w / 2, top, out),
+    ...Array.from({ length: 9 }, (_, i) => { const a = Math.PI * (i + 1) / 10; return p(Math.cos(a) * w / 2, top + Math.sin(a) * rise, out); }),
+    p(-w / 2, top, out),
+  ];
+  const spring = height - 12, rise = Math.min(12, width / 10);
+  // Stone frame with pillars, the open passage in shadow, and the sand floor running out through it.
+  b.polygon(arch(width + 16, spring + 2, 1.5, rise + 3), A.stoneShade, A.joint);
+  b.polygon(arch(width, spring, 2, rise), A.dark);
+  // Through the passage: the arena's sand and the far stands, lit, under the arch's shadow.
+  const view_ = spring * 0.62;
+  b.polygon([p(-width / 2 + 3, 0, 2.1), p(width / 2 - 3, 0, 2.1), p(width / 2 - 3, view_, 2.1), p(-width / 2 + 3, view_, 2.1)], A.sandShade);
+  b.polygon([p(-width / 2 + 3, view_ * 0.55, 2.15), p(width / 2 - 3, view_ * 0.55, 2.15), p(width / 2 - 3, view_, 2.15), p(-width / 2 + 3, view_, 2.15)], A.wood[1]);
+  if (b.detail) for (let u = -width / 2 + 10; u < width / 2 - 6; u += 14) b.line([p(u, view_ * 0.6, 2.2), p(u + 6, view_ * 0.6, 2.2)], A.wood[3], 2);
+  b.polygon([p(-width / 2, 0.3, 2), p(width / 2, 0.3, 2), p(width / 2 - 6, 0.3, -18), p(-width / 2 + 6, 0.3, -18)], A.sandShade);
+  b.polygon([p(-width / 2 + 4, 0.4, 14), p(width / 2 - 4, 0.4, 14), p(width / 2, 0.4, 2), p(-width / 2, 0.4, 2)], A.sand, A.sandEdge);
+  if (b.detail) for (const u of [-width / 2 - 4, width / 2 + 4]) b.line([p(u, 0, 2.2), p(u, spring + 2, 2.2)], A.stoneLight, 3);
+  // The two doors, swung open outward and back toward the wall, hinged at the opening's edges.
+  const leaf = Math.min(width / 2, 34), open = 0.35;
+  for (const side of [-1, 1] as const) {
+    const hinge = side * width / 2;
+    const end = (z: number) => ({ x: at.x + t.x * (hinge + side * leaf * Math.cos(open)) + n.x * (2 + leaf * Math.sin(open)),
+      y: at.y + t.y * (hinge + side * leaf * Math.cos(open)) + n.y * (2 + leaf * Math.sin(open)), z });
+    const top = spring - 2;
+    b.polygon([p(hinge, 0, 2), end(0), end(top), p(hinge, top, 2)], side < 0 ? A.wood[2] : A.wood[1], A.woodDark);
+    if (b.detail) {
+      for (const k of [1 / 3, 2 / 3]) {
+        const q = (z: number) => { const e = end(z), h = p(hinge, z, 2); return { x: h.x + (e.x - h.x) * k, y: h.y + (e.y - h.y) * k, z }; };
+        b.line([q(1), q(top - 1)], A.woodDark, 1);
+      }
+      for (const z of [6, top - 6]) b.line([p(hinge, z, 2.2), end(z)], A.joint, 2);
+    }
+    const e = end(top * 0.45);
+    b.line([e, { ...e, z: e.z! + 3 }], A.goldLight, 3);
+  }
+  if (banner) {
+    // AgenticPad's green banner over the main gate, hung from a brass rod.
+    const z = spring + rise + 6;
+    b.line([p(-14, z, 2.5), p(14, z, 2.5)], A.gold, 2);
+    b.polygon([p(-10, z - 1, 3), p(10, z - 1, 3), p(10, z - 13, 3), p(0, z - 17, 3), p(-10, z - 13, 3)], A.emerald, A.dark);
+    b.line([p(-3, z - 7, 3.2), p(3, z - 7, 3.2)], A.goldLight, 2);
+  }
+}
+
 function arena(b: Brush, view: Projection, o: WorldObject, floor?: () => void): void {
   const outer = footprint(o), inner = outer.map((p) => ({ x: COLOSSEUM_FLOOR.x + (p.x - o.x) * COLOSSEUM_FLOOR.rx / (o.width / 2), y: COLOSSEUM_FLOOR.y + (p.y - o.y) * COLOSSEUM_FLOOR.ry / (o.depth / 2) }));
   b.polygon(outer, A.stoneShade);
@@ -249,6 +306,10 @@ function arena(b: Brush, view: Projection, o: WorldObject, floor?: () => void): 
     cottage(b, view, tower, { wall: A.stoneLight, roof: A.roof, roofLight: A.roofLight });
     b.line([{ x: tower.x, y: tower.y, z: tower.height }, { x: tower.x, y: tower.y, z: tower.height + 26 }], A.gold, 3);
     b.polygon([{ x: tower.x, y: tower.y, z: tower.height + 26 }, { x: tower.x + 20, y: tower.y, z: tower.height + 22 }, { x: tower.x, y: tower.y, z: tower.height + 13 }], A.green);
+  }
+  // The entrances (ARENA_ENTRANCES): the main gate south, a side gate east, each a door in the wall.
+  for (const gate of [{ angle: Math.PI / 2, width: ARENA_GATE_WIDTH, height: o.height + 6, banner: true }, { angle: 0, width: ARENA_SIDE_WIDTH, height: o.height + 2, banner: false }]) {
+    arenaDoor(b, view, o, gate.angle, gate.width, gate.height, gate.banner);
   }
 }
 
