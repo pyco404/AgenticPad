@@ -1,10 +1,15 @@
-# Rotate one shared field
+# One world, one camera, many angles
 
-The `/field` world supports mouse/touch orbiting and retains Top, Isometric,
-Front, Back, Left and Right as fallback buttons. Top remains the default with
-its original Phaser art, camera and object interactions. Dragging empty ground
-starts the orbit renderer without navigating or restarting the simulation.
-The dedicated `/agent` camera keeps its existing follow behavior.
+The `/field` world opens directly in Isometric with one continuous orbit camera.
+There are no public Top, Front, Back, Left, Right or projection-switching buttons.
+Horizontal drag rotates; vertical drag changes elevation from 15° to 90°;
+wheel and pinch zoom. Reset camera returns smoothly to the starting Isometric
+angle, and Whole world reframes without changing the angle.
+
+The shared world model, authored coordinates and live simulation are unchanged.
+The six named projections remain internal math/render entry points for tests
+and debugging. The original Phaser renderer supplies the same artwork and
+continues to serve other routes, including the dedicated `/agent` camera.
 
 ## Shared spatial model
 
@@ -75,7 +80,7 @@ canopies. `visibility.ts` uses rising sight rays and cross-axis buckets to hide
 live agent markers behind scenery, including the hollow Arena. These volumes
 are approximations of the procedural shapes, not pixel-perfect 3D meshes.
 
-`projected-art.ts` retains explicit named entry points and draws the terrain slab,
+`projected-art.ts` retains internal named entry points and draws the terrain slab,
 road ribbons, inset water, bridges, structures, Arena tiers, forests, mountain
 and props at every angle. Directional framing fills more vertical space;
 framing blends continuously toward the high-angle overview. Whole world fits
@@ -124,41 +129,39 @@ Arena always uses its 3D form with `ARENA_PALETTE`.
 
 ## Live scene and interaction
 
-`field-views.tsx` owns one orbit controller and observational Canvas 2D renderer.
-`VillageHandle.snapshot()` reads the same live heroes as Top; there is no second
-simulation or roster. Each agent is drawn as its own Top character: the
-`Hero` paints itself onto the projected canvas (`Hero.paintTo`, through
-`VillageHandle.paintAgent`) from the same portrait views, drawn body, weapon and
-sprite-sheet frames Top uses, with Top's walking gait and activity props (crate,
-hoe, basket, map, sparring ring, rest mat). The body and prop routines draw
-through a small `Painter` interface that Phaser's Graphics and a 2D canvas
-adapter (`projected-agents.ts`) both satisfy, so the two views cannot drift apart.
-Figures stand upright, without Top's floor compression; owned agents stand on a
-gold ring. An agent without a character yet falls back to a dot.
+`field-views.tsx` owns the single Field camera and Canvas 2D renderer.
+`VillageHandle.snapshot()` reads the same live heroes as the original renderer;
+there is no second simulation or roster. Agents retain their own character art,
+walking gait, weapons and activity props through `Hero.paintTo` and the shared
+`Painter` interface. Owned agents stand on a gold ring.
 
-- Primary mouse drag or one-finger drag turns the camera horizontally and tilts
-  it vertically. Drag up to look down toward Top. Tilt is limited to 15–90°.
-- Eight CSS pixels of movement distinguish dragging from a tap. In Top, Phaser's
-  actual interactive hit masks reserve agents and buildings. Shift/middle drag
-  explicitly requests camera movement even over an interactive object.
-- Wheel, pinch and the existing zoom buttons zoom. Shift/middle drag and focused
-  arrow keys pan; plus/minus zoom and `0` reframes. Pointer capture keeps an orbit
-  gesture alive outside the canvas, with release/cancel cleanup.
-- Gestures begin only on world canvases. Buttons, panels and normal UI controls
-  do not start camera gestures. The dedicated Agent route is unaffected.
-- Exponential easing smooths yaw/tilt and framing. The chosen angle is retained
-  on release; there is no automatic snap. The six buttons provide canonical
-  angles, with smooth turns between the projected views.
-- Returning to Top restores its saved original camera and interactive art.
-  Dragging from Top begins at its current center, scale and floor compression.
-  Both renderers use the original building sprites; a short opacity transition
-  softens the change in ground projection and restored camera framing.
+- Primary mouse drag or one-finger drag on empty ground rotates and tilts.
+  Eight CSS pixels distinguish a drag from a tap. Angles ease smoothly and stay
+  where the user releases them, with no canonical-angle snapping or renderer
+  handoff, even at the highest or lowest elevation.
+- Wheel, pinch and the existing zoom buttons zoom. Shift/middle drag, two-finger
+  drag and focused arrow keys pan; plus/minus zoom and `0` reframes.
+- Picking uses the same projected anchors, sprite dimensions and draw ordering
+  as the renderer. Alpha masks let transparent margins pass through, while nearer
+  opaque scenery blocks farther buildings. Buildings and their labels open the
+  original building cards. Visible live agents use padded character-sized hit
+  boxes and the original selection/navigation callback.
+- A drag starting on an agent or building reserves that object and never opens
+  it on release. Shift/middle drag explicitly requests camera movement there.
+  UI controls never enter the canvas gesture controller. Pointer capture, cancel,
+  blur and unmount cleanup prevent held gestures from leaking into other routes.
+- `VillageHandle.setFieldCamera` routes zoom, world-point targeting and owned-agent
+  cycling to the visible camera. `findMine()` follows the selected live resident;
+  a manual camera gesture releases that follow. The existing Find my agent link
+  still opens `/agent`, whose dedicated observation behavior is unchanged.
 
-Top's WebGL drawing is skipped while orbiting, but simulation, movement and
-match playback continue. Geometry redraws only for camera/model changes, capped
-at 30 Hz during movement; live positions are read at 10 Hz and the figures animate at 20 Hz. Forest preparation is
-bounded to three chunks per snapshot and is reused across rotations. Opened
-plots invalidate the same cache. Canvas density is capped at 2.
+The original WebGL drawing is skipped while the Field camera is mounted, but
+simulation, movement and match playback continue. Geometry redraws only for
+camera/model changes, capped at 30 Hz during movement; live positions are read
+at 10 Hz and figures animate at 20 Hz. Forest preparation is bounded to three
+chunks per snapshot and reused across rotations. Opened plots invalidate the
+same cache. Canvas density is capped at 2. Route cleanup restores the original
+renderer and its controls.
 
 ## Projection limitations
 
@@ -166,15 +169,18 @@ plots invalidate the same cache. Canvas density is capped at 2.
   Building depth/height remain the shared approximations derived from existing
   sprite dimensions. No objects or authored coordinates are moved.
 - Orbit views show Top's own pictures as upright cut-outs, not 3D models: a
-  building seen from behind shows its front art. Open agents and buildings in
-  Top as before.
+  building seen from behind shows its front art. Agents and buildings are
+  interactive directly in the Field camera.
 - The captured ground is half Top's resolution, so very close zoom shows it
   coarser than Top. Animated ground (sea waves, river ripples) is frozen at the
   moment of capture; masked sea waves are left out.
 - Painter ordering is approximate for overlapping large footprints, and marker
   sight volumes approximate tree foliage and Arena walls. Labels are overlays.
-- Fine sprite detail, ambient animals/ships, glow and match-table effects remain
-  in Top. The terrain's existing 64-unit shoreline resolution remains visible.
+- Ambient animals/ships, glow and match-table effects remain in the original
+  renderer. The terrain's existing 64-unit shoreline resolution remains visible.
+- Agent hit areas are padded rectangles rather than pixel masks. At crowded
+  intersections, the foremost overlapping character receives the tap; zoom in
+  or rotate to separate the characters. Landmark labels are also clickable.
 - Framing low angles on a narrow phone crops distant outer edges to show more
   detail; Whole world or zoom out exposes them. Large populations and woodland
   can reduce frame rate on slower devices; 30 Hz is a cap, not a guarantee.
@@ -182,22 +188,22 @@ plots invalidate the same cache. Canvas density is capped at 2.
 ## Validation
 
 Run root `npm run check`, web `npm run typecheck` and
-`npm run build -- --webpack` (the supported alternative when sandbox worker-port
-restrictions prevent Turbopack). Field suites also run with
-`NEXT_PUBLIC_LAUNCHPAD=1`.
+`npm run build -- --webpack`. Field suites also run with
+`NEXT_PUBLIC_LAUNCHPAD=1`. This repository has no lint script, linter dependency
+or lint configuration; `npm run lint` currently reports a missing script.
 
-`test/world-projections.test.ts` covers unchanged map recipes, coordinates,
-anchors and identities, tilted inverse transforms, opposite orientations,
-framing, occlusion, arbitrary angle canonical agreement, a complete orbit,
-tilt clamps, frame-rate independent easing and the yaw seam, and that grown
-plots and forest trees carry Top's own textures, frames and anchors.
+`test/world-projections.test.ts` covers the unchanged recipes, world coordinates,
+internal canonical projections, complete orbit, tilt clamps, inverse transforms,
+easing, framing, occlusion and original sprite anchors.
+`test/field-camera.test.ts` covers picking across arbitrary angles, transparent
+and flipped sprite pixels, foreground occlusion, the procedural Arena and small
+agent hit areas. Picking geometry stays DOM-free; the browser adapter caches
+alpha masks from the existing loaded frames.
 
-Browser verification covers six fallback views, Top tap versus drag, continuous
-full rotation, tilt, wheel/pinch, Shift pan, keyboard controls, mobile sizing,
-agent/building clicks, live simulation and gesture cleanup outside `/field`.
+Browser verification exercises direct Isometric startup, absence of projection
+buttons, rotation, high/low elevation, wheel/pinch zoom, pan, building and agent
+taps versus drags, owned-agent targeting, mobile cancellation and route cleanup.
 
-The completed pass ran root `npm run check` (534 main tests plus 11 real
-Postgres tests), web typecheck and the production webpack build. All 45 focused
-world suites also passed with `NEXT_PUBLIC_LAUNCHPAD=1`. Browser checks used
-80 residents, desktop density 2, and a 390×844 touch viewport. Touch capture
-handoff, pinch zoom and starting a new gesture after touch cancellation passed.
+The completed verification runs root `npm run check` (539 main tests and 11
+real Postgres tests), web typecheck and the production webpack build. The
+production build retains the existing optional Privy dependency warning.

@@ -21,7 +21,6 @@ import type { VillageHandle } from "@/app/village/game";
 import { arenaLine } from "@/app/village/arena";
 import { WorldLens } from "@/app/village/world-lens";
 import { FieldViews } from "@/app/village/field-views";
-import type { FieldView } from "@/lib/world/projection";
 import { AgentStatus, type AgentAccount } from "@/app/village/agent-status";
 import type { WorldView } from "@/app/village/game/presentation";
 import { useArena } from "@/app/village/use-arena";
@@ -413,8 +412,7 @@ function Village({
   const box = useRef<HTMLDivElement>(null);
   const village = useRef<VillageHandle | null>(null);
   const [view, setView] = useState<WorldView | null>(null);
-  const [projection, setProjection] = useState<FieldView>("top");
-  const activeProjection = path === "/field" ? projection : "top";
+  const isField = path === "/field";
   const observing = path === "/agent";
   const observation = useRef<{ owner: string | null; id: string | null }>({ owner: null, id: null });
 
@@ -564,14 +562,14 @@ function Village({
   return (
     <div className="fixed inset-0 z-0 bg-ink">
 
-      <div ref={box} className="absolute inset-0" style={{ touchAction: "none", pointerEvents: activeProjection === "top" ? "auto" : "none" }} />
-      {status === "ready" && path === "/field" ? <FieldViews view={activeProjection} onView={setProjection} village={village} topSurface={box} inset={inset} /> : null}
+      <div ref={box} className="absolute inset-0" style={{ touchAction: "none", visibility: isField && status === "ready" ? "hidden" : "visible", pointerEvents: isField ? "none" : "auto" }} />
+      {status === "ready" && isField ? <FieldViews village={village} inset={inset} /> : null}
       {/* The veil: enough to settle the world behind the HUD, never enough to hide it. */}
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-ink/10" />
       {/* On a phone the bar has no room for the world's numbers: they sit on the village, top left. */}
       {/* Not on a phone with a page open: the sheet takes the screen, and the strip above it is for the village. */}
       {status === "ready" && !observing ? <PhoneStats world={world} hidden={scrolls !== null} /> : null}
-      {status === "ready" && activeProjection === "top" ? <WorldLens view={view} village={village} inset={inset} observing={observing} hidden={scrolls !== null && inset.bottom > 0} /> : null}
+      {status === "ready" && !isField ? <WorldLens view={view} village={village} inset={inset} observing={observing} hidden={scrolls !== null && inset.bottom > 0} /> : null}
       {observing ? <AgentStatus account={account} accountError={accountError} view={view} village={village} /> : null}
       {/* The village's own controls, kept in the part the panel leaves uncovered. */}
       <div

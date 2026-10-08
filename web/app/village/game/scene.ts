@@ -21,6 +21,7 @@ import { buildArenaArt, drawArena, loadArena, type ArenaHandle } from "./arena";
 import { ARENA_FIELD, inTown, NEW_TOWN_SITES, RESERVED, ROADS, SITES, SQUARE, townBounds } from "./town";
 import { CROSSROADS, inNewTown, onOldGround, PIER, WORLD } from "./world";
 import { ARENA_TORCHES } from "../../../lib/world/arena-geometry";
+import type { WorldTarget } from "./projected-picking";
 import { nightOf, num, VOID, warm } from "./palette";
 import { chunkKey, chunksIn, chunkTrees, CHUNK, type ForestRules, type Tree } from "./forest";
 import { loadWeapons, weaponOf } from "./weapons";
@@ -198,6 +199,21 @@ export class VillageScene extends Phaser.Scene {
   }
 
   setRotationEnabled(on: boolean): void { this.rotationEnabled = on; }
+
+  selectedAgentId(): string | null { return this.selected; }
+
+  /** Both renderers use the original scene's selection and navigation callbacks. */
+  activateWorldTarget(target: WorldTarget): void {
+    if (this.observing) return;
+    if (target.kind === "building") {
+      if (this.buildings.has(target.id)) this.opts.events.selectBuilding(target.id);
+    } else {
+      const id = target.id.replace(/^agent:/, ""), resident = this.residents.get(id);
+      if (!resident || !this.heroes.has(id)) return;
+      this.select(id, true);
+      this.opts.events.selectAgent(resident.standIn ?? id);
+    }
+  }
 
   /** Use Phaser's actual interactive masks, including pixel-perfect heroes/arena. */
   canRotateAt(point: Point): boolean {

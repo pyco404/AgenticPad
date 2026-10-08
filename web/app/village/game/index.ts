@@ -9,8 +9,16 @@ import type { VillageMap } from "./map";
 import { VOID } from "./palette";
 import { VillageScene, type VillageEvents } from "./scene";
 import { prepareWorldMap, type WorldSnapshot } from "../../../lib/world/model";
+import type { WorldTarget } from "./projected-picking";
 
 export type { BuildingLabel } from "./building";
+
+export type FieldCamera = {
+  zoom: (step: 1 | -1) => void;
+  lookAt: (point: Point) => void;
+  view: (mode: ViewMode) => void;
+  follow: (id: string | null) => void;
+};
 
 export type VillageHandle = {
   snapshot: () => WorldSnapshot | null;
@@ -19,7 +27,8 @@ export type VillageHandle = {
   setRotationEnabled: (on: boolean) => void;
   canRotateAt: (point: Point) => boolean;
   rotationCamera: (point: Point) => { x: number; y: number; scale: number; tilt: number };
-  setProjectedZoom: (zoom: ((step: 1 | -1) => void) | null) => void;
+  setFieldCamera: (camera: FieldCamera | null) => void;
+  activateWorldTarget: (target: WorldTarget) => void;
   setResidents: (residents: Resident[]) => void;
   /** `pan` brings the camera to them: for a selection made outside the canvas. */
   select: (id: string | null, pan?: boolean) => void;
@@ -108,32 +117,39 @@ export async function startVillage(
   };
   watchDensity();
 
-  let projectedZoom: ((step: 1 | -1) => void) | null = null;
+  let fieldCamera: FieldCamera | null = null;
   return {
     snapshot: () => scene.worldSnapshot(),
     paintAgent: (id, ctx, x, y, k, paint) => scene.paintAgent(id, ctx, x, y, k, paint),
     setRotationEnabled: (on) => scene.setRotationEnabled(on),
     canRotateAt: (point) => scene.canRotateAt(point),
     rotationCamera: (point) => scene.rotationCamera(point),
-    setProjectedZoom: (zoom) => {
-      // Pointer capture transfers a Top drag to the orbit surface before Phaser sees pointerup.
-      // Release its held mouse/touch state so returning to Top or /agent cannot leave a phantom drag.
-      if (Boolean(zoom) !== Boolean(projectedZoom)) scene.input?.resetPointers();
-      projectedZoom = zoom;
+    setFieldCamera: (camera) => {
+      if (Boolean(camera) !== Boolean(fieldCamera)) scene.input?.resetPointers();
+      fieldCamera = camera;
+      scene.setRotationEnabled(camera !== null);
       // Skip the hidden WebGL render while keeping the same scene's simulation ticking.
-      scene.sys.settings.visible = zoom === null;
+      scene.sys.settings.visible = camera === null;
     },
+    activateWorldTarget: (target) => scene.activateWorldTarget(target),
     setResidents: (r) => scene.setResidents(r),
-    select: (id, pan = false) => scene.select(id, pan),
+    select: (id, pan = false) => {
+      scene.select(id, pan);
+      if (pan || !id) fieldCamera?.follow(scene.selectedAgentId());
+    },
     setInsets: (inset) => scene.setInsets(inset),
     setNotes: (notes) => scene.setNotes(notes),
     setNight: (on) => scene.setNight(on),
     setMine: (ids) => scene.setMine(ids),
     setObservation: (on) => scene.setObservation(on),
-    findMine: () => scene.findMine(),
-    zoom: (step) => projectedZoom ? projectedZoom(step) : scene.zoomBy(step),
-    view: (mode) => scene.showView(mode),
-    lookAt: (point) => scene.lookAt(point),
+    findMine: () => {
+      const found = scene.findMine();
+      if (found) fieldCamera?.follow(scene.selectedAgentId());
+      return found;
+    },
+    zoom: (step) => fieldCamera ? fieldCamera.zoom(step) : scene.zoomBy(step),
+    view: (mode) => fieldCamera ? fieldCamera.view(mode) : scene.showView(mode),
+    lookAt: (point) => fieldCamera ? fieldCamera.lookAt(point) : scene.lookAt(point),
     destroy: () => {
       observer.disconnect();
       window.removeEventListener("resize", resize);
