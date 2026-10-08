@@ -13,7 +13,7 @@ const agent = { ...resident, retired: false, funding: 'holder', balance: 3600, m
 const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN ?? '/usr/bin/google-chrome', args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 const errors = [];
 
-async function setup(options, path = '/field') {
+async function setup(options, path = '/') {
   const page = await browser.newPage(options);
   page.on('pageerror', (e) => errors.push(e.message));
   let maps = 0;
@@ -24,7 +24,7 @@ async function setup(options, path = '/field') {
   }, session);
   await page.route('**/*', async (route) => {
     const u = new URL(route.request().url());
-    // Never mistake Next's /field and /live route payloads for backend reads.
+    // Never mistake Next's own route payloads for backend reads.
     if (u.origin === new URL(base).origin) return route.continue();
     const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
@@ -75,7 +75,7 @@ async function identity(page) {
   }, selector), { canvas: true, handle: true, source: true, sourceHidden: true, worlds: 1, session: session.token });
 }
 async function nav(page, path) {
-  const link = path === '/field' ? page.getByRole('link', { name: 'AgenticPad home' }) : page.locator(`nav[aria-label="Sections"] a[href="${path}"]`);
+  const link = path === '/' ? page.getByRole('link', { name: 'AgenticPad home' }) : page.locator(`nav[aria-label="Sections"] a[href="${path}"]`);
   await link.click();
   await page.waitForURL((url) => url.pathname === path);
   await page.waitForTimeout(400);
@@ -95,9 +95,11 @@ const closeEnough = (before, after, keys = Object.keys(before)) => {
 try {
   const { page, canvas, maps } = await setup({ viewport: { width: 1440, height: 950 } });
   const initial = await state(canvas);
-  await drag(page, 1290, 670, 90, -130);
+  // The world opens looking straight down at the town; dragging down lowers the view.
+  assert.ok(Math.abs(initial.tilt - Math.PI / 2) < 0.002 && Math.abs(initial.yaw) < 0.002, 'World did not open looking straight down');
+  await drag(page, 1290, 670, 90, 130);
   assert.notEqual((await state(canvas)).yaw, initial.yaw, 'Empty-ground rotation failed');
-  assert.ok((await state(canvas)).tilt > initial.tilt, 'Tilt failed');
+  assert.ok((await state(canvas)).tilt < initial.tilt, 'Tilt failed');
   await page.mouse.move(1290, 670); await page.mouse.wheel(0, -100); await page.waitForTimeout(800);
   assert.ok((await state(canvas)).zoom > initial.zoom, 'Wheel zoom failed');
   await drag(page, 1290, 670, 50, 20, true);
@@ -115,7 +117,7 @@ try {
   await page.evaluate(() => window.__worldTest.handle.select(null, false));
   await page.waitForTimeout(300);
   const afterAgent = await state(canvas);
-  for (const path of ['/live', '/ladder', '/rewards', '/about', '/field', '/launch', '/games']) {
+  for (const path of ['/live', '/ladder', '/rewards', '/about', '/', '/launch', '/games']) {
     await nav(page, path); closeEnough(afterAgent, await state(canvas));
   }
   await page.goBack(); await page.waitForURL('**/launch'); await identity(page); closeEnough(afterAgent, await state(canvas));
@@ -132,7 +134,7 @@ try {
   assert.ok(await page.getByRole('menu').isVisible());
   closeEnough(afterAgent, await state(canvas), ['yaw', 'tilt']);
   await page.keyboard.press('Escape');
-  await nav(page, '/field');
+  await nav(page, '/');
   await page.getByRole('link', { name: 'Find my agent', exact: true }).filter({ visible: true }).click();
   await page.waitForURL('**/agent'); await identity(page);
   await page.waitForFunction((s) => document.querySelector(s)?.dataset.following === 'world-shell-agent', selector);
@@ -178,7 +180,7 @@ try {
   assert.equal(mobile.maps(), 1);
   await mobile.page.screenshot({ path: '/tmp/oxude-global-world-mobile.png' });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, routes: ['Field', 'Launch', 'Explore', 'Agent', 'Games', 'Live', 'Ladder', 'Rewards', 'About'], mapLoads: maps(), continuity, errors }));
+  console.log(JSON.stringify({ passed: true, routes: ['World (/)', 'Launch', 'Explore', 'Agent', 'Games', 'Live', 'Ladder', 'Rewards', 'About'], mapLoads: maps(), continuity, errors }));
 } finally {
   await browser.close();
 }

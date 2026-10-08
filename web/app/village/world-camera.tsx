@@ -10,6 +10,7 @@ import { canvasPainter } from "./game/projected-agents";
 import { agentBox, inside, worldPicker, type ScreenBox, type WorldTarget } from "./game/projected-picking";
 import type { WorldSnapshot } from "../../lib/world/model";
 import { directionalVisibility } from "../../lib/world/visibility";
+import { COLOSSEUM } from "../../lib/world/arena-geometry";
 
 type Props = {
   village: RefObject<VillageHandle | null>;
@@ -21,6 +22,13 @@ type Props = {
 type Pointer = { x: number; y: number; startX: number; startY: number; allowed: boolean; dragging: boolean; pan: boolean; target: WorldTarget | null };
 type Hit = { target: WorldTarget; box: ScreenBox };
 const DRAG = 8;
+/**
+ * Where the world opens, and where Reset camera returns: looking straight down at the town centre,
+ * the Arena with the market square below it, about 3,000 world units across the window (the town
+ * from the Bazaar to past the river). A phone keeps enough zoom to read the Arena and its neighbours.
+ */
+const HOME = { angle: CAMERA_ANGLES.top, focus: { x: COLOSSEUM.x, y: COLOSSEUM.y + 90 }, span: 3000 };
+const homeScale = (width: number) => Math.max(0.3, Math.min(1.2, width / HOME.span));
 
 /** The application's persistent visual world, independent of the active route. */
 export function WorldCamera({ village, observing, scrolls, inset }: Props) {
@@ -36,7 +44,7 @@ export function WorldCamera({ village, observing, scrolls, inset }: Props) {
     if (!ctx) return;
     const still = document.createElement("canvas"), layer = still.getContext("2d")!;
     let snapshot: WorldSnapshot | null = null, camera: ProjectionCamera | null = null;
-    let angle = { ...CAMERA_ANGLES.isometric }, target = { ...angle };
+    let angle = { ...HOME.angle }, target = { ...angle };
     let focus: { x: number; y: number } | null = null, scaleTarget: number | null = null, following: string | null = null;
     // Screen pixels the focus sits left/up of the canvas centre, so it stays in the part a page leaves
     // uncovered. Presentation only: focus, zoom and angle are the same camera on every route.
@@ -81,8 +89,7 @@ export function WorldCamera({ village, observing, scrolls, inset }: Props) {
       following = null; focus = worldCentre(); scaleTarget = framedScale(overview); dirty = true;
     };
     reset.current = () => {
-      target = { ...CAMERA_ANGLES.isometric }; fit.current();
-      if (snapshot) scaleTarget = framedScale(false, target);
+      following = null; target = { ...HOME.angle }; focus = { ...HOME.focus }; scaleTarget = homeScale(width); dirty = true;
     };
     handle.setWorldCamera({
       zoom: (step) => changeZoom(step > 0 ? 1.25 : 0.8),
@@ -181,7 +188,7 @@ export function WorldCamera({ village, observing, scrolls, inset }: Props) {
       const read = now - lastRead >= 100;
       if (read) { snapshot = handle.snapshot(); lastRead = now; }
       if (snapshot && width > 0 && height > 0 && (read || dirty || now - lastDraw >= 50) && now - lastDraw >= 32) {
-        focus ??= worldCentre();
+        focus ??= { ...HOME.focus };
         if (following) {
           const agent = snapshot.agents.find((a) => a.id === `agent:${following}`);
           if (agent) {
@@ -192,9 +199,8 @@ export function WorldCamera({ village, observing, scrolls, inset }: Props) {
         }
         const centre = project(angle, focus);
         // Keep absolute zoom across route overlays, viewport changes and rotations.
-        // Only initial framing and explicit Reset/Whole world choose a new fit. A phone's first
-        // framing shows the town rather than shrinking the whole world into its width.
-        scaleTarget ??= framedScale() * Math.max(1, Math.min(2.5, 1000 / width));
+        // Only the first framing and explicit Reset/Whole world choose a new one.
+        scaleTarget ??= homeScale(width);
         const scale = Math.max(0.035, Math.min(3.5, scaleTarget));
         const covered = options.current.inset, ease = 1 - Math.exp(-seconds * 10);
         const toward = { x: Math.min(covered.right, width * 0.6) / 2, y: Math.min(covered.bottom, height * 0.7) / 2 };
@@ -284,7 +290,7 @@ export function WorldCamera({ village, observing, scrolls, inset }: Props) {
       className="absolute left-0 top-14 cursor-grab touch-none active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-accent"
       style={{ backgroundColor: VOID, width: "100%", height: "calc(100% - 56px)" }} />
     {!scrolls && !observing ? <aside className="absolute left-3 z-10 max-w-[min(310px,calc(100%-6rem))] rounded-panel border border-hud-line bg-hud p-3 text-[11px] text-text" style={{ bottom: 100 }} aria-label="World camera controls">
-      <p className="text-accent">Isometric</p>
+      <p className="text-accent">World</p>
       <p className="mt-1 text-muted">Drag empty ground to rotate · drag up to look down</p>
       <p className="mt-1 text-muted">Scroll or pinch to zoom · Shift-drag or two-finger drag to pan</p>
       <div className="mt-2 flex gap-2">
