@@ -141,18 +141,20 @@ function cottage(b: Brush, view: Projection, o: WorldObject, material = building
   }
 }
 
-/**
- * AgenticPad's official logo, painted on the middle of the Arena floor inside a green ring: the
- * same texture Top's arena.ts lays there (ac-arena-emblem, /agenticpad-tb.png), flat on the sand.
- */
-function arenaEmblem(ctx: CanvasRenderingContext2D, view: Projection, top?: TopArt): void {
-  const f = top?.art?.({ key: "ac-arena-emblem", frame: "__BASE" });
-  const { x, y } = COLOSSEUM_FLOOR, size = 150;
+/** AgenticPad's official logo (agenticpad-tb.png, unaltered) in the middle of the sand, inside a ring. */
+function arenaFloor(ctx: CanvasRenderingContext2D, view: Projection, top?: TopArt): void {
+  const { x, y, rx, ry } = COLOSSEUM_FLOOR;
   onGround(ctx, view, () => {
     ctx.save();
-    ctx.strokeStyle = A.green; ctx.globalAlpha = 0.7; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.ellipse(x, y, size * 0.85, size * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
-    if (f) { ctx.globalAlpha = 0.85; ctx.drawImage(f.image as CanvasImageSource, f.x, f.y, f.width, f.height, x - size / 2, y - size / 2, size, size); }
+    // A worn, darker band round the wall's foot and raking rings across the sand.
+    ctx.strokeStyle = A.sandShade; ctx.globalAlpha = 0.55; ctx.lineWidth = 16;
+    ctx.beginPath(); ctx.ellipse(x, y, rx - 8, ry - 8, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 0.35; ctx.lineWidth = 2;
+    for (const k of [0.78, 0.6]) { ctx.beginPath(); ctx.ellipse(x, y, rx * k, ry * k, 0, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.globalAlpha = 0.6; ctx.strokeStyle = A.green; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(x, y, 100, 80, 0, 0, Math.PI * 2); ctx.stroke();
+    const f = top?.art?.({ key: "ac-arena-emblem", frame: "__BASE" });
+    if (f) { ctx.globalAlpha = 1; ctx.imageSmoothingEnabled = false; ctx.drawImage(f.image as CanvasImageSource, f.x, f.y, f.width, f.height, x - 68, y - 68, 136, 136); }
     ctx.restore();
   });
 }
@@ -160,33 +162,36 @@ function arenaEmblem(ctx: CanvasRenderingContext2D, view: Projection, top?: TopA
 function arena(b: Brush, view: Projection, o: WorldObject, floor?: () => void): void {
   const outer = footprint(o), inner = outer.map((p) => ({ x: COLOSSEUM_FLOOR.x + (p.x - o.x) * COLOSSEUM_FLOOR.rx / (o.width / 2), y: COLOSSEUM_FLOOR.y + (p.y - o.y) * COLOSSEUM_FLOOR.ry / (o.depth / 2) }));
   b.polygon(outer, A.stoneShade);
-  b.polygon(inner, A.sand, A.sandLight);
+  b.polygon(inner, A.sand, A.sandEdge);
   floor?.();
   const segments = outer.map((a, i) => ({ a, c: outer[(i + 1) % outer.length]!, ia: inner[i]!, ic: inner[(i + 1) % inner.length]! }))
     .sort((a, c) => project(view, a.a).depth + project(view, a.c).depth - project(view, c.a).depth - project(view, c.c).depth);
   for (const { a, c, ia, ic } of segments) {
-    b.polygon([a, c, { ...c, z: o.height }, { ...a, z: o.height }], A.stoneLight, A.joint);
+    // Light from the south-west, as the village's art is shaded: walls turned away fall into shadow.
+    const nx = (c.y - a.y), ny = -(c.x - a.x), lit = (-nx * 0.6 + ny * 0.8) / Math.hypot(nx, ny);
+    const wall = lit > 0.2 ? A.stoneLight : lit > -0.3 ? A.stone : A.stoneShade;
+    b.polygon([a, c, { ...c, z: o.height }, { ...a, z: o.height }], wall, A.joint);
+    // Coursed stone: joint lines every course, plinth and cornice in shadow.
+    if (b.detail) for (const z of [10, 20, 30]) b.line([{ ...a, z }, { ...c, z }], darker(wall, 0.18), 1);
+    b.line([{ ...a, z: 2 }, { ...c, z: 2 }], A.stoneShade, 4);
     const midpoint = { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 };
-    b.line([{ ...midpoint, z: 8 }, { ...midpoint, z: o.height - 12 }], A.dark, 11);
-    // Timber seating, like the village's framing; alternate rows a lighter board for variation.
+    // Arched openings in deep shadow with a stone keystone.
+    b.line([{ ...midpoint, z: 6 }, { ...midpoint, z: o.height - 14 }], A.dark, 10);
+    if (b.detail) b.line([{ ...midpoint, z: o.height - 15 }, { ...midpoint, z: o.height - 11 }], A.stoneLight, 8);
+    // Timber seating: boards and risers alternating, the lowest row in AgenticPad green.
     b.polygon([{ ...a, z: o.height }, { ...c, z: o.height }, { ...ic, z: 8 }, { ...ia, z: 8 }], A.wood[1], A.woodDark);
     for (const [i, t] of [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6].entries()) b.line([{ x: a.x + (ia.x - a.x) * t, y: a.y + (ia.y - a.y) * t, z: o.height * (1 - t) },
-      { x: c.x + (ic.x - c.x) * t, y: c.y + (ic.y - c.y) * t, z: o.height * (1 - t) }], i % 2 ? A.wood[3] : A.woodDark, 3);
-    // AgenticPad green as a trim band under a thin brass rail, not a structural colour.
-    b.line([{ ...a, z: o.height - 7 }, { ...c, z: o.height - 7 }], A.green, 4);
-    b.line([{ ...a, z: o.height - 3 }, { ...c, z: o.height - 3 }], A.goldLight, 2);
-    if (b.detail) {
-      const mid = { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 };
-      b.line([{ ...mid, z: 2 }, { ...mid, z: o.height - 11 }], A.stoneShade, 4);
-      b.line([{ ...mid, z: o.height - 13 }, { ...mid, z: o.height - 10 }], A.gold, 7);
-    }
-    b.line([{ ...a, z: o.height + 2 }, { ...c, z: o.height + 2 }], A.gold, 3);
+      { x: c.x + (ic.x - c.x) * t, y: c.y + (ic.y - c.y) * t, z: o.height * (1 - t) }], i === 4 ? A.green : i % 2 ? A.wood[3] : A.woodDark, i === 4 ? 4 : 3);
+    // Trim: a green band under a thin brass rail.
+    b.line([{ ...a, z: o.height - 6 }, { ...c, z: o.height - 6 }], A.emerald, 4);
+    b.line([{ ...a, z: o.height - 2 }, { ...c, z: o.height - 2 }], A.goldLight, 2);
+    b.line([{ ...a, z: o.height + 1 }, { ...c, z: o.height + 1 }], A.stoneShade, 3);
     if (midpoint.y < o.y - o.depth * 0.08) {
       const point = (outer: Pt, inner: Pt, t: number, z: number) => ({ x: inner.x + (outer.x - inner.x) * t, y: inner.y + (outer.y - inner.y) * t, z });
       const ridgeA = point(a, ia, 0.82, o.height), ridgeC = point(c, ic, 0.82, o.height);
       b.polygon([point(a, ia, 0.55, o.height * 0.65), point(c, ic, 0.55, o.height * 0.65), ridgeC, ridgeA], A.roofLight, A.roofShade);
       b.polygon([ridgeA, ridgeC, point(c, ic, 1, o.height * 0.75), point(a, ia, 1, o.height * 0.75)], A.roof, A.roofShade);
-      b.line([ridgeA, ridgeC], A.goldLight, 3);
+      b.line([ridgeA, ridgeC], A.gold, 2);
       if (b.detail) for (const t of [0.64, 0.73, 0.91]) b.line([point(a, ia, t, o.height * (t < 0.82 ? 0.65 + (t - 0.55) / 0.27 * 0.35 : 1 - (t - 0.82) / 0.18 * 0.25)),
         point(c, ic, t, o.height * (t < 0.82 ? 0.65 + (t - 0.55) / 0.27 * 0.35 : 1 - (t - 0.82) / 0.18 * 0.25))], A.roofTile, 2);
     }
@@ -323,9 +328,7 @@ export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: World
     if (Math.abs(centre.x - camera.x) > width / camera.scale / 2 + reach || Math.abs(centre.y - camera.y) > height / camera.scale / 2 + reach) continue;
     if (o.type !== "arena" && picture(ctx, view, o, top)) continue;
     if (o.type === "tree") tree(b, view, o);
-    // With Top's capture, the Arena is Top's own pixel art (ground layer and flat front/crowd);
-    // the 3D form remains for the moment before it, and as the shared label/picking/occlusion volume.
-    else if (o.type === "arena") { if (!ground) arena(b, view, o, () => arenaEmblem(ctx, view, top)); }
+    else if (o.type === "arena") arena(b, view, o, () => arenaFloor(ctx, view, top));
     else if (o.type === "mountain") {
       const ring = footprint({ ...o, shape: "ellipse" });
       for (let i = 0; i < ring.length; i++) b.polygon([ring[i]!, ring[(i + 1) % ring.length]!, { x: o.x, y: o.y, z: o.height }], i % 3 === 0 ? "#b6b7a6" : i % 3 === 1 ? "#7b8977" : "#98a18c", "#7c8876");

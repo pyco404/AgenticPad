@@ -25,8 +25,8 @@ export function drawArena(scene: Phaser.Scene, still: boolean): ArenaHandle {
   const layer = (key: string, depth: number) => scene.add.image(LEFT, TOP, key).setOrigin(0).setScale(SCALE).setDepth(depth);
   layer("ac-oval-front", O.y + O.ry);
   const crowd = layer("ac-oval-crowd", O.y + O.ry + 1), cheer = layer("ac-oval-cheer", O.y + O.ry + 1).setVisible(false);
-  // AgenticPad's official logo, square, painted on the middle of the floor.
-  scene.add.image(F.x, F.y, "ac-arena-emblem").setDisplaySize(130, 130).setAlpha(0.85).setDepth(groundDepth(-340));
+  // AgenticPad's mark, square, in the middle of the floor.
+  scene.add.image(F.x, F.y, "ac-arena-emblem").setDisplaySize(136, 136).setAlpha(1).setDepth(groundDepth(-340));
   const plaza = scene.add.graphics().setDepth(groundDepth(-395));
   for (const [x, y, w, h] of [[1400, 1030, 300, 100], [1800, 775, 74, 90]] as const) {
     plaza.fillStyle(ROAD_COLOURS.paved.edge).fillEllipse(x, y, w, h);
