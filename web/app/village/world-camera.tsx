@@ -252,7 +252,8 @@ export function WorldCamera({ village, observing, scrolls, inset }: Props) {
         const placed: { x: number; y: number; w: number }[] = [];
         labelHits = [];
         for (const o of labels) {
-          const p = project(view, o, o.height + 12);
+          // The Arena's label sits on its north rim, as in Top, leaving the logo on its floor clear.
+          const p = project(view, o.type === "arena" ? { x: o.x, y: o.y - o.depth / 2 } : o, o.height + 12);
           const x = width / 2 + (p.x - camera.x) * camera.scale;
           let y = height / 2 + (p.y - camera.y) * camera.scale;
           if (x < 20 || x > width - 20 || y < 16 || y > height - 30) continue;

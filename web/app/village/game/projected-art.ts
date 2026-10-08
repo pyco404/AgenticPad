@@ -141,10 +141,27 @@ function cottage(b: Brush, view: Projection, o: WorldObject, material = building
   }
 }
 
-function arena(b: Brush, view: Projection, o: WorldObject): void {
+/**
+ * AgenticPad's official logo, painted on the middle of the Arena floor inside a green ring: the
+ * same texture Top's arena.ts lays there (ac-arena-emblem, /agenticpad-tb.png), flat on the sand.
+ */
+function arenaEmblem(ctx: CanvasRenderingContext2D, view: Projection, top?: TopArt): void {
+  const f = top?.art?.({ key: "ac-arena-emblem", frame: "__BASE" });
+  const { x, y } = COLOSSEUM_FLOOR, size = 150;
+  onGround(ctx, view, () => {
+    ctx.save();
+    ctx.strokeStyle = A.green; ctx.globalAlpha = 0.7; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.ellipse(x, y, size * 0.85, size * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
+    if (f) { ctx.globalAlpha = 0.85; ctx.drawImage(f.image as CanvasImageSource, f.x, f.y, f.width, f.height, x - size / 2, y - size / 2, size, size); }
+    ctx.restore();
+  });
+}
+
+function arena(b: Brush, view: Projection, o: WorldObject, floor?: () => void): void {
   const outer = footprint(o), inner = outer.map((p) => ({ x: COLOSSEUM_FLOOR.x + (p.x - o.x) * COLOSSEUM_FLOOR.rx / (o.width / 2), y: COLOSSEUM_FLOOR.y + (p.y - o.y) * COLOSSEUM_FLOOR.ry / (o.depth / 2) }));
   b.polygon(outer, A.stoneShade);
   b.polygon(inner, A.sand, A.sandLight);
+  floor?.();
   const segments = outer.map((a, i) => ({ a, c: outer[(i + 1) % outer.length]!, ia: inner[i]!, ic: inner[(i + 1) % inner.length]! }))
     .sort((a, c) => project(view, a.a).depth + project(view, a.c).depth - project(view, c.a).depth - project(view, c.c).depth);
   for (const { a, c, ia, ic } of segments) {
@@ -306,7 +323,9 @@ export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: World
     if (Math.abs(centre.x - camera.x) > width / camera.scale / 2 + reach || Math.abs(centre.y - camera.y) > height / camera.scale / 2 + reach) continue;
     if (o.type !== "arena" && picture(ctx, view, o, top)) continue;
     if (o.type === "tree") tree(b, view, o);
-    else if (o.type === "arena") arena(b, view, o);
+    // With Top's capture, the Arena is Top's own pixel art (ground layer and flat front/crowd);
+    // the 3D form remains for the moment before it, and as the shared label/picking/occlusion volume.
+    else if (o.type === "arena") { if (!ground) arena(b, view, o, () => arenaEmblem(ctx, view, top)); }
     else if (o.type === "mountain") {
       const ring = footprint({ ...o, shape: "ellipse" });
       for (let i = 0; i < ring.length; i++) b.polygon([ring[i]!, ring[(i + 1) % ring.length]!, { x: o.x, y: o.y, z: o.height }], i % 3 === 0 ? "#b6b7a6" : i % 3 === 1 ? "#7b8977" : "#98a18c", "#7c8876");

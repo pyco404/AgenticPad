@@ -351,10 +351,12 @@ export class VillageScene extends Phaser.Scene {
    * Other views then show the same world by construction rather than by a parallel layout.
    */
   private captureTop(): void {
-    // The arena keeps its own 3D form on the shared footprint; boats sail; glows and shadows are effects.
-    const skip = new Set(["building-arena", "ac-oval-front", "ac-oval-crowd", "ac-oval-cheer", "dress-ship", "dress-solar-glow", "world-pixel-shadow"]);
+    // Boats sail; glows and shadows are effects; the cheering crowd is a hidden alternate frame.
+    const skip = new Set(["ac-oval-cheer", "dress-ship", "dress-solar-glow", "world-pixel-shadow"]);
     const labels = new Map(this.sharedWorld!.objects.filter((o) => o.id.startsWith("site:")).map((o) => [o.id, o.metadata?.label]));
-    const flatKey = /farm-bed|plot|yard|planter/i;
+    // Top paints the Arena's front wall and crowd in world coordinates over its ground-level bowl
+    // (arena.ts), so they lie on the ground plane with it, aligned with the roads around it.
+    const flatKey = /farm-bed|plot|yard|planter|^ac-oval-/i;
     this.topPictures = [];
     for (const [i, obj] of this.children.list.entries()) {
       if (!(obj instanceof Phaser.GameObjects.Image || obj instanceof Phaser.GameObjects.Sprite)) continue;
@@ -362,7 +364,7 @@ export class VillageScene extends Phaser.Scene {
       const key = obj.texture.key;
       const width = obj.displayWidth, height = obj.displayHeight * (obj.getData("standee") ? FLOOR_RATIO : 1);
       const foot = { x: obj.x + obj.displayWidth * (0.5 - obj.originX), y: obj.y + obj.displayHeight * (1 - obj.originY) };
-      const site = /^building-(.+)$/.exec(key)?.[1];
+      const site = key === "building-arena" ? null : /^building-(.+)$/.exec(key)?.[1];
       const o = pictureObject(site ? `site:${site}` : `top:${i}:${key}`, { key, frame: obj.frame.name, flipX: obj.flipX }, foot, width, height, flatKey.test(key));
       if (site) { o.type = "building"; o.metadata!.label = labels.get(`site:${site}`) ?? site; }
       if (key === "wild-mountain") { o.metadata!.label = "Mountain"; o.metadata!.landmark = true; }
