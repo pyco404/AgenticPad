@@ -1,6 +1,14 @@
 # One world, one camera, many angles
 
-The `/field` world opens directly in Isometric with one continuous orbit camera.
+The Isometric world is AgenticPad's base layer on every route, not a page.
+`WorldShell` (`web/app/shell.tsx`) keeps one `PersistentWorld` mounted for the
+whole app; Launch, Explore, Agent, Live, Ladder, Games, Rewards and About are
+overlays on it, and `/field` is simply the route with no overlay. The original
+Phaser scene stays mounted but hidden: it runs the simulation and supplies the
+captured art (see "Top is the source of truth"); `WorldCamera`
+(`web/app/village/world-camera.tsx`) is the only thing that presents the world.
+
+It opens directly in Isometric with one continuous orbit camera.
 There are no public Top, Front, Back, Left, Right or projection-switching buttons.
 Horizontal drag rotates; vertical drag changes elevation from 15° to 90°;
 wheel and pinch zoom. Reset camera returns smoothly to the starting Isometric
@@ -129,7 +137,8 @@ Arena always uses its 3D form with `ARENA_PALETTE`.
 
 ## Live scene and interaction
 
-`field-views.tsx` owns the single Field camera and Canvas 2D renderer.
+`world-camera.tsx` owns the single world camera and Canvas 2D renderer, on
+every route.
 `VillageHandle.snapshot()` reads the same live heroes as the original renderer;
 there is no second simulation or roster. Agents retain their own character art,
 walking gait, weapons and activity props through `Hero.paintTo` and the shared
@@ -150,18 +159,31 @@ walking gait, weapons and activity props through `Hero.paintTo` and the shared
   it on release. Shift/middle drag explicitly requests camera movement there.
   UI controls never enter the canvas gesture controller. Pointer capture, cancel,
   blur and unmount cleanup prevent held gestures from leaking into other routes.
-- `VillageHandle.setFieldCamera` routes zoom, world-point targeting and owned-agent
-  cycling to the visible camera. `findMine()` follows the selected live resident;
-  a manual camera gesture releases that follow. The existing Find my agent link
-  still opens `/agent`, whose dedicated observation behavior is unchanged.
+- `VillageHandle.setWorldCamera` routes zoom, world-point targeting and owned-agent
+  cycling to the camera. `findMine()` follows the selected live resident;
+  a manual camera gesture releases that follow. `/agent` follows the owner's
+  agent in the same camera, and gestures there cannot detach it.
 
-The original WebGL drawing is skipped while the Field camera is mounted, but
-simulation, movement and match playback continue. Geometry redraws only for
+### Across routes
+
+The camera lives in `WorldCamera`, which stays mounted while routes change, so
+yaw, tilt, zoom, focus and follow carry over from page to page and on back/forward;
+nothing resets them except Reset camera, Whole world and the first framing. When a
+page is open, the camera eases its centre into the part the page leaves
+uncovered (right of a desktop panel, above a phone sheet). That is an on-screen
+shift only: focus, zoom and angle are unchanged. Over an open page's exposed
+margins, the wheel scrolls the page; Ctrl/pinch still zooms the world. A phone's
+first framing shows the town rather than the whole world shrunk to its width.
+
+Routes do not move the camera, except `/agent` following its owner; route-specific
+focus (Launch Pad, Treasury and so on) is not implemented.
+
+The original WebGL drawing and input are always off, but simulation, movement and
+match playback continue. Geometry redraws only for
 camera/model changes, capped at 30 Hz during movement; live positions are read
 at 10 Hz and figures animate at 20 Hz. Forest preparation is bounded to three
 chunks per snapshot and reused across rotations. Opened plots invalidate the
-same cache. Canvas density is capped at 2. Route cleanup restores the original
-renderer and its controls.
+same cache. Canvas density is capped at 2.
 
 ## Projection limitations
 
@@ -170,7 +192,7 @@ renderer and its controls.
   sprite dimensions. No objects or authored coordinates are moved.
 - Orbit views show Top's own pictures as upright cut-outs, not 3D models: a
   building seen from behind shows its front art. Agents and buildings are
-  interactive directly in the Field camera.
+  interactive directly in the world camera.
 - The captured ground is half Top's resolution, so very close zoom shows it
   coarser than Top. Animated ground (sea waves, river ripples) is frozen at the
   moment of capture; masked sea waves are left out.
@@ -202,7 +224,14 @@ alpha masks from the existing loaded frames.
 
 Browser verification exercises direct Isometric startup, absence of projection
 buttons, rotation, high/low elevation, wheel/pinch zoom, pan, building and agent
-taps versus drags, owned-agent targeting, mobile cancellation and route cleanup.
+taps versus drags, owned-agent targeting and mobile cancellation.
+`scripts/check-world-shell.mjs` walks Field, Launch, Explore, Agent, Games, Live,
+Ladder, Rewards and About (and back/forward) against a production build and asserts
+one world canvas, one engine (one map load), an unchanged camera across
+navigation, an intact wallet session, owner follow on `/agent`, a continuing
+simulation, touch rotate/pinch on a phone and no page errors:
+
+    BASE_URL=http://localhost:3001 node scripts/check-world-shell.mjs
 
 The completed verification runs root `npm run check` (539 main tests and 11
 real Postgres tests), web typecheck and the production webpack build. The
