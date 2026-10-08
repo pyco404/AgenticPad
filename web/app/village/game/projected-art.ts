@@ -142,6 +142,47 @@ function cottage(b: Brush, view: Projection, o: WorldObject, material = building
 }
 
 /** AgenticPad's official logo (agenticpad-tb.png, unaltered) in the middle of the sand, inside a ring. */
+/**
+ * AgenticPad's logo as a faded floor marking: its brackets a soft green, its square a muted
+ * olive-brown, its eyes a brighter green. Recoloured once per loaded image.
+ */
+const markings = new WeakMap<object, HTMLCanvasElement>();
+function floorMarking(f: ArtFrame): HTMLCanvasElement {
+  const key = f.image as object;
+  let c = markings.get(key);
+  if (c) return c;
+  c = document.createElement("canvas"); c.width = f.width; c.height = f.height;
+  const g = c.getContext("2d")!;
+  g.drawImage(f.image as CanvasImageSource, f.x, f.y, f.width, f.height, 0, 0, f.width, f.height);
+  const d = g.getImageData(0, 0, f.width, f.height), px = d.data;
+  const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+  // Chosen so that at 60% on the arena sand they come out as the reference marking: brackets
+  // #959f6a, square #8c815e, eyes #9bac67.
+  const outer = rgb("#6e8e52"), centre = rgb("#5f5c3e"), eyes = rgb("#78a44d");
+  // The dark square spans the middle two-thirds; green inside it is the eyes, outside it the brackets.
+  const lo = 0.17, hi = 0.83;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3]! < 20) continue;
+    const u = (i / 4 % f.width) / f.width, v = Math.floor(i / 4 / f.width) / f.height;
+    const green = px[i + 1]! > 90;
+    const [r, gg, b] = !green ? centre : u > lo && u < hi && v > lo && v < hi ? eyes : outer;
+    px[i] = r; px[i + 1] = gg; px[i + 2] = b;
+  }
+  g.putImageData(d, 0, 0);
+  markings.set(key, c);
+  return c;
+}
+
+/** Sand grain across the floor, seeded, so the floor and the marking on it read as one worn surface. */
+const GRAIN = (() => {
+  let seed = 20261008;
+  const rand = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+  return Array.from({ length: 900 }, () => {
+    const a = rand() * Math.PI * 2, r = Math.sqrt(rand());
+    return { x: Math.cos(a) * r, y: Math.sin(a) * r, light: rand() < 0.5, size: 2 + Math.floor(rand() * 3) };
+  });
+})();
+
 function arenaFloor(ctx: CanvasRenderingContext2D, view: Projection, top?: TopArt): void {
   const { x, y, rx, ry } = COLOSSEUM_FLOOR;
   onGround(ctx, view, () => {
@@ -151,10 +192,14 @@ function arenaFloor(ctx: CanvasRenderingContext2D, view: Projection, top?: TopAr
     ctx.beginPath(); ctx.ellipse(x, y, rx - 8, ry - 8, 0, 0, Math.PI * 2); ctx.stroke();
     ctx.globalAlpha = 0.35; ctx.lineWidth = 2;
     for (const k of [0.78, 0.6]) { ctx.beginPath(); ctx.ellipse(x, y, rx * k, ry * k, 0, 0, Math.PI * 2); ctx.stroke(); }
-    ctx.globalAlpha = 0.6; ctx.strokeStyle = A.green; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.ellipse(x, y, 100, 80, 0, 0, Math.PI * 2); ctx.stroke();
+    // The marking, faded into the sand, at the arena emblem's own 144 by 100.
     const f = top?.art?.({ key: "ac-arena-emblem", frame: "__BASE" });
-    if (f) { ctx.globalAlpha = 1; ctx.imageSmoothingEnabled = false; ctx.drawImage(f.image as CanvasImageSource, f.x, f.y, f.width, f.height, x - 68, y - 68, 136, 136); }
+    if (f) { ctx.globalAlpha = 0.6; ctx.imageSmoothingEnabled = false; ctx.drawImage(floorMarking(f), x - 72, y - 50, 144, 100); }
+    // Grain over everything on the floor, the marking included: worn in, not laid on top.
+    for (const g of GRAIN) {
+      ctx.globalAlpha = 0.35; ctx.fillStyle = g.light ? A.sandLight : A.sandShade;
+      ctx.fillRect(x + g.x * (rx - 14), y + g.y * (ry - 12), g.size, g.size);
+    }
     ctx.restore();
   });
 }
