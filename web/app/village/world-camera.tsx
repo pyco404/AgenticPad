@@ -252,10 +252,21 @@ export function WorldCamera({ village, observing, scrolls, inset }: Props) {
         const placed: { x: number; y: number; w: number }[] = [];
         labelHits = [];
         for (const o of labels) {
-          // The Arena's label sits on its north rim, as in Top, leaving the logo on its floor clear.
-          const p = project(view, o.type === "arena" ? { x: o.x, y: o.y - o.depth / 2 } : o, o.height + 12);
-          const x = width / 2 + (p.x - camera.x) * camera.scale;
-          let y = height / 2 + (p.y - camera.y) * camera.scale;
+          // A building drawn as Top's picture stands upright on its foot at its natural height, so its
+          // name sits at Top's own height for it (town.ts labelY: a natural height above its foot), or
+          // just above the picture. Anything else, the Arena included, above its own volume.
+          let x: number, y: number;
+          if (o.metadata?.art && !o.metadata.flat) {
+            const foot = project(view, o.metadata.topAnchor ?? o, o.elevation), labelY = snapshot.world.sites[o.id.slice(5)]?.labelY;
+            const at = foot.y - (labelY === undefined ? o.height + 12 : (o.metadata.topAnchor?.y ?? o.y) - labelY);
+            x = width / 2 + (foot.x - camera.x) * camera.scale;
+            y = height / 2 + (at - camera.y) * camera.scale;
+          } else {
+            // The Arena's name sits on its north rim, leaving the logo on its floor clear.
+            const p = project(view, o.type === "arena" ? { x: o.x, y: o.y - o.depth / 2 } : o, o.height + 12);
+            x = width / 2 + (p.x - camera.x) * camera.scale;
+            y = height / 2 + (p.y - camera.y) * camera.scale;
+          }
           if (x < 20 || x > width - 20 || y < 16 || y > height - 30) continue;
           const text = o.metadata?.label ?? o.id, w = ctx.measureText(text).width;
           const anchor = y;
