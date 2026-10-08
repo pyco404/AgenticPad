@@ -562,14 +562,14 @@ function PersistentWorld({
       {observing ? <AgentStatus account={account} accountError={accountError} view={view} village={village} /> : null}
       {/* The village's own controls, kept in the part the panel leaves uncovered. */}
       <div
-        className="pointer-events-none absolute left-0 top-14 z-10 flex items-end justify-between gap-2 p-2 md:p-3"
+        className="pointer-events-none absolute left-0 top-14 z-10 flex items-end justify-between gap-2 p-2 md:p-4"
         style={{ right: inset.right, bottom: inset.bottom }}
       >
         <div className="block">
         {/* The camera help, put away: the way back to it, first in the world's own bottom strip. */}
         {status === "ready" && !scrolls && !observing && !help ? (
           <button type="button" onClick={() => showHelp(true)}
-            className="rounded-panel pointer-events-auto flex h-8 w-fit items-center border border-hud-line bg-hud px-2.5 text-[12px] text-accent hover:border-accent md:mb-1.5">
+            className="rounded-panel pointer-events-auto flex h-8 w-fit items-center border border-hud-line bg-hud px-2.5 text-[12px] text-accent hover:border-accent md:mb-2">
             Camera
           </button>
         ) : null}
