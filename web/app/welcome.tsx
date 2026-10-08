@@ -55,9 +55,6 @@ export function Welcome({ ready, drawn, failed, onEnter }: {
       <div aria-hidden className="mb-4 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.2em] text-[#88a58b]">
         <span>AGENTICPAD // WORLD ENTRY</span><span className="flex items-center gap-2"><i className="h-1.5 w-1.5 bg-[#54ef83] shadow-[0_0_8px_#54ef83]" />SOLANA</span>
       </div>
-      <div className="relative mx-auto mb-3 flex h-24 w-24 items-center justify-center border border-[#41624c] bg-[#0b1914] shadow-[inset_0_0_28px_#163f29] sm:h-28 sm:w-28">
-        <img src="/agenticpad-tb.png" alt="AgenticPad emblem" width={372} height={370} className="h-16 w-16 object-contain [image-rendering:pixelated] sm:h-20 sm:w-20" />
-      </div>
       <h1 className="font-pixel text-[clamp(28px,7vw,42px)] leading-tight text-[#f5ecd8]">AgenticPad</h1>
       <p className="mt-3 text-sm leading-6 text-[#bac7b7]">A living world. An agent of your own.</p>
       <p className="mt-1 text-xs text-[#88a58b]">Launch. Hold. Let your agent compete.</p>
