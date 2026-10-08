@@ -4,7 +4,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import { CloseIcon } from "@/app/icons";
 import type { VillageHandle } from "./game";
 import { renderProjectedWorld, type ProjectedLayer, type ProjectionCamera } from "./game/projected-art";
-import { CAMERA_ANGLES, dragCamera, easeCamera, frameProjection, project, unprojectGround, yawDelta } from "../../lib/world/projection";
+import { dragCamera, easeCamera, frameProjection, project, unprojectGround, yawDelta } from "../../lib/world/projection";
 import { VOID, nightOf } from "./game/palette";
 import { loadProjectedMaterials } from "./game/projected-materials";
 import { canvasPainter } from "./game/projected-agents";
@@ -27,11 +27,11 @@ type Pointer = { x: number; y: number; startX: number; startY: number; allowed: 
 type Hit = { target: WorldTarget; box: ScreenBox };
 const DRAG = 8;
 /**
- * Where the world opens, and where Reset camera returns: looking straight down at the town centre,
- * the Arena with the market square below it, about 3,000 world units across the window (the town
- * from the Bazaar to past the river). A phone keeps enough zoom to read the Arena and its neighbours.
+ * First load and Reset look into town from just east of south: the Arena entrance faces the viewer,
+ * with a 30-degree elevation retaining seating and street depth. Keep the existing town scale,
+ * about 3,000 world units across desktop; phones retain their existing minimum zoom.
  */
-const HOME = { angle: CAMERA_ANGLES.top, focus: { x: COLOSSEUM.x, y: COLOSSEUM.y + 90 }, span: 3000 };
+const HOME = { angle: { yaw: Math.PI / 10, tilt: Math.PI / 6 }, focus: { x: COLOSSEUM.x, y: COLOSSEUM.y + 90 }, span: 3000 };
 const homeScale = (width: number) => Math.max(0.3, Math.min(1.2, width / HOME.span));
 
 /** The application's persistent visual world, independent of the active route. */
