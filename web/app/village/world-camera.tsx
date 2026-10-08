@@ -3,14 +3,14 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { CloseIcon } from "@/app/icons";
 import type { VillageHandle } from "./game";
-import { renderProjectedWorld, type ProjectionCamera } from "./game/projected-art";
+import { renderProjectedWorld, type ProjectedLayer, type ProjectionCamera } from "./game/projected-art";
 import { CAMERA_ANGLES, dragCamera, easeCamera, frameProjection, project, unprojectGround, yawDelta } from "../../lib/world/projection";
 import { VOID, nightOf } from "./game/palette";
 import { loadProjectedMaterials } from "./game/projected-materials";
 import { canvasPainter } from "./game/projected-agents";
 import { agentBox, inside, worldPicker, type ScreenBox, type WorldTarget } from "./game/projected-picking";
 import type { WorldSnapshot } from "../../lib/world/model";
-import { directionalVisibility } from "../../lib/world/visibility";
+import { agentInViewport, agentScale } from "../../lib/world/agent-render";
 import { COLOSSEUM } from "../../lib/world/arena-geometry";
 
 type Props = {
@@ -55,7 +55,8 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
     const shift = { x: 0, y: 0 };
     let lastRead = -Infinity, lastDraw = -Infinity, lastFrame = 0, revision = -1, dirty = true, raf = 0, width = 0, height = 0, ratio = 1;
     let artwork: ReturnType<typeof loadProjectedMaterials> | null = null;
-    let agentVisible: ReturnType<typeof directionalVisibility> | null = null;
+    let scenery: ProjectedLayer[] = [], retained = new Set<string>();
+    const debug = new URLSearchParams(window.location.search).has("debugAgents");
     let pickWorld: (p: { x: number; y: number }) => WorldTarget | null = () => null;
     let agentHits: Hit[] = [], labelHits: Hit[] = [];
     const pick = (point: { x: number; y: number }) => {
@@ -191,7 +192,9 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
       }
       const read = now - lastRead >= 100;
       if (read) { snapshot = handle.snapshot(); lastRead = now; }
-      if (snapshot && width > 0 && height > 0 && (read || dirty || now - lastDraw >= 50) && now - lastDraw >= 32) {
+      if (snapshot && width > 0 && height > 0 && now - lastDraw >= 32) {
+        // Positions follow the simulation at the paint rate; scenery snapshots can stay throttled.
+        snapshot.agents = handle.agents();
         focus ??= { ...HOME.focus };
         if (following) {
           const agent = snapshot.agents.find((a) => a.id === `agent:${following}`);
@@ -215,10 +218,13 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         camera = { x: centre.x + shift.x / zoomed, y: centre.y + shift.y / zoomed, scale: zoomed };
         const view = angle;
         if (dirty || revision !== snapshot.revision) {
-          layer.setTransform(ratio, 0, 0, ratio, 0, 0);
+          ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
           artwork ??= loadProjectedMaterials(snapshot.world, () => { dirty = true; });
-          renderProjectedWorld(layer, snapshot.world, view, camera, width, height, artwork.materials, { ground: snapshot.ground, art: snapshot.art });
-          agentVisible = directionalVisibility(view, snapshot.world.objects);
+          scenery = [];
+          // Cache the ground separately. Upright scenery joins live actors in one painter order.
+          renderProjectedWorld(ctx, snapshot.world, view, camera, width, height, artwork.materials, { ground: snapshot.ground, art: snapshot.art }, (part) => scenery.push(part));
+          scenery.sort((a, b) => a.depth - b.depth);
+          layer.setTransform(1, 0, 0, 1, 0, 0); layer.clearRect(0, 0, still.width, still.height); layer.drawImage(el, 0, 0);
           pickWorld = worldPicker(view, snapshot.world.objects, camera, width, height, snapshot.art);
           revision = snapshot.revision; dirty = Math.abs(scale - camera.scale) > 0.00001;
         }
@@ -226,26 +232,43 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, el.width, el.height); ctx.drawImage(still, 0, 0);
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         // Live agents as their own Top characters, standing on their projected feet, back to front.
-        const k = Math.max(0.32, Math.min(1.2, camera.scale));
+        const k = agentScale(camera.scale), nextRetained = new Set<string>();
+        const diagnostics: Record<string, unknown>[] = [];
         const shown = [];
         for (const agent of snapshot.agents) {
-          if (agentVisible && !agentVisible(agent, agent.height / 2)) continue;
-          const p = project(view, agent, 0);
+          const p = project(view, agent, agent.elevation);
           const x = width / 2 + (p.x - camera.x) * camera.scale, y = height / 2 + (p.y - camera.y) * camera.scale;
-          if (x < -40 || y < 0 || x > width + 40 || y > height + 60) continue;
-          shown.push({ agent, x, y });
+          const visible = agentInViewport(x, y, camera.scale, width, height, retained.has(agent.id));
+          if (debug) diagnostics.push({ id: agent.id, worldX: agent.x, worldY: agent.y, screenX: x, screenY: y, depth: p.depth,
+            state: visible ? "composited" : "offscreen", reason: visible ? "pixel occlusion by scenery in front" : "outside padded screen bounds", source: handle.inspectAgent(agent.id) });
+          if (!visible) continue;
+          nextRetained.add(agent.id);
+          shown.push({ agent, x, y, depth: p.depth });
         }
-        shown.sort((a, b) => a.y - b.y);
+        retained = nextRetained; handle.setVisibleAgents(retained);
+        shown.sort((a, b) => a.depth - b.depth || a.agent.id.localeCompare(b.agent.id));
         agentHits = shown.map(({ agent, x, y }) => ({ target: { kind: "agent" as const, id: agent.id }, box: agentBox({ x, y }, camera!.scale) }));
-        for (const { agent, x, y } of shown) {
+        const drawScenery = (part: ProjectedLayer) => {
+          ctx.save(); ctx.translate(width / 2, height / 2); ctx.scale(camera!.scale, camera!.scale); ctx.translate(-camera!.x, -camera!.y);
+          part.draw(); ctx.restore();
+        };
+        let at = 0, fallbacks = 0;
+        for (const { agent, x, y, depth } of shown) {
+          while (at < scenery.length && scenery[at]!.depth <= depth) drawScenery(scenery[at++]!);
           if (agent.metadata?.mine) {
             ctx.strokeStyle = "#f3cf70"; ctx.lineWidth = 1.5;
             ctx.beginPath(); ctx.ellipse(x, y, 18 * k, 6 * k, 0, 0, Math.PI * 2); ctx.stroke();
           }
           if (!handle.paintAgent(agent.id, ctx, x, y, k, canvasPainter)) {
+            fallbacks++;
             ctx.fillStyle = agent.metadata?.mine ? "#f3cf70" : "#c9e7d5"; ctx.strokeStyle = "#243e35"; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.arc(x, y - 6, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
           }
+        }
+        while (at < scenery.length) drawScenery(scenery[at++]!);
+        if (debug) {
+          Object.assign(window, { __agentRenderDebug: { at: now, agents: diagnostics, painted: shown.length, total: snapshot.agents.length, fallbacks,
+            camera: { ...camera, ...view }, order: "ground, scenery and agents by camera depth, labels" } });
         }
         if (snapshot.night) {
           ctx.save(); ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = nightOf("#ffffff"); ctx.fillRect(0, 0, width, height); ctx.restore();
@@ -285,6 +308,14 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
           ctx.fillStyle = "#e8d89d"; ctx.fillText(text, x, y);
         }
         if (snapshot.forestPending) { ctx.fillStyle = "#e8d89d"; ctx.fillText("Preparing woodland…", width / 2, height - 18); }
+        if (debug) {
+          ctx.save(); ctx.font = "10px monospace"; ctx.textAlign = "left";
+          ctx.fillStyle = "#102019ee"; ctx.fillRect(12, height - 175, Math.min(width - 24, 650), 145);
+          ctx.fillStyle = "#e8d89d";
+          ctx.fillText(`Agents ${shown.length}/${snapshot.agents.length}, fallback ${fallbacks}; depth compositing, padded viewport`, 20, height - 157);
+          diagnostics.filter((d) => d.state === "composited").slice(0, 6).forEach((d, i) => ctx.fillText(`${d.id} world ${Math.round(d.worldX as number)},${Math.round(d.worldY as number)} screen ${Math.round(d.screenX as number)},${Math.round(d.screenY as number)} depth ${Math.round(d.depth as number)} ${d.state}`, 20, height - 139 + i * 18));
+          ctx.restore();
+        }
         el.dataset.focusX = String(focus.x); el.dataset.focusY = String(focus.y); el.dataset.following = following ?? "";
         el.dataset.yaw = String(angle.yaw); el.dataset.tilt = String(angle.tilt); el.dataset.zoom = String(camera.scale);
       }
@@ -292,7 +323,8 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
     };
     raf = requestAnimationFrame(frame);
     return () => {
-      cancelAnimationFrame(raf); observer.disconnect(); artwork?.dispose(); handle.setWorldCamera(null);
+      cancelAnimationFrame(raf); observer.disconnect(); artwork?.dispose(); handle.setVisibleAgents(null); handle.setWorldCamera(null);
+      if (debug) Reflect.deleteProperty(window, "__agentRenderDebug");
       blur();
       el.removeEventListener("pointerdown", down);
       window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel);

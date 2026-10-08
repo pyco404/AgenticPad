@@ -141,6 +141,8 @@ const RISE_MS = 500;
  * stands in only for an agent that has no portrait.
  */
 export class Hero {
+  private static nextInstance = 0;
+  private readonly instance = ++Hero.nextInstance;
   private sprite: Phaser.GameObjects.Sprite;
   private label: Phaser.GameObjects.Text;
   private anims: { idle: string; run: string; strike: string };
@@ -750,13 +752,24 @@ export class Hero {
     }
   }
 
+  renderState() {
+    return { instance: this.instance, sourceVisible: this.rendered, active: this.sprite.active,
+      texture: (this.portrait ?? this.sprite).texture.key, frame: (this.portrait ?? this.sprite).frame.name };
+  }
+
   /**
    * Draws this character, exactly as Top composes it, onto another view's canvas: the portrait head
    * over its drawn body with its weapon and activity prop, or the sprite sheet's current frame.
    * `x, y` is where its feet stand on screen and `k` is screen pixels per world unit. Upright and
    * without Top's floor compression, like a standee. Reads state only; changes nothing in Top.
    */
-  paintTo(ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter): void {
+  paintTo(ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter): boolean {
+    const ready = (f: Phaser.Textures.Frame) => {
+      const image = f?.source?.image as HTMLImageElement | HTMLCanvasElement | undefined;
+      return !!image && image.width > 0 && image.height > 0 && (!(image instanceof HTMLImageElement) || image.complete && image.naturalWidth > 0);
+    };
+    const portrait = this.portrait && ready(this.portrait.frame) ? this.portrait : null;
+    if (!portrait && !ready(this.sprite.frame)) return false;
     const frame = (f: Phaser.Textures.Frame, dx: number, dy: number, w: number, h: number) =>
       ctx.drawImage(f.source.image as CanvasImageSource, f.cutX, f.cutY, f.cutWidth, f.cutHeight, dx, dy, w, h);
     const effort = this.effort();
@@ -770,10 +783,10 @@ export class Hero {
       ctx.beginPath(); ctx.ellipse(0, 0, HEAD * 0.42, HEAD * 0.12, 0, 0, Math.PI * 2); ctx.fill();
     }
     ctx.save(); ctx.translate(0, (this.resting ? 4 : 0) + Math.max(0, effort) * 2);
-    if (this.portrait) {
+    if (portrait) {
       const weapon = this.weapon && !this.swimming && (!this.activity || this.activity.phase === "returning" || this.activity.activity === "sparring") ? this.weapon : null;
       const drawWeapon = () => {
-        if (!weapon) return;
+        if (!weapon || !ready(weapon.frame)) return;
         const f = weapon.frame;
         ctx.save(); ctx.translate(this.hand.x, this.hand.y); ctx.rotate(this.hand.angle);
         if (this.view === "left") ctx.scale(-1, 1);
@@ -782,14 +795,15 @@ export class Hero {
       };
       if (!this.swimming) {
         this.drawBody(0, 0, phase + effort, hop, g);
-        if (this.view === "back") { ctx.globalCompositeOperation = "destination-over"; drawWeapon(); ctx.globalCompositeOperation = "source-over"; }
+        // Cover the rear weapon with this body's pixels, never composite it behind the whole world.
+        if (this.view === "back") { drawWeapon(); this.drawBody(0, 0, phase + effort, hop, g); }
         else drawWeapon();
       }
       // The head on the torso, lifted with each step; in water, the head alone above a ripple.
       const neck = this.swimming ? HEAD * (1 - ABOVE_WATER) : this.chest(0, hop) + NECK;
       ctx.save(); ctx.translate(0, neck); ctx.rotate(Math.sin(phase) * SWAY + effort * 0.1);
       if (this.view === "left") ctx.scale(-1, 1);
-      const f = this.portrait.frame;
+      const f = portrait.frame;
       if (this.swimming) { ctx.beginPath(); ctx.rect(-HEAD, -HEAD, HEAD * 2, HEAD * ABOVE_WATER + HEAD * (1 - ABOVE_WATER)); ctx.clip(); }
       frame(f, -HEAD / 2, -HEAD, HEAD, HEAD);
       ctx.restore();
@@ -806,6 +820,7 @@ export class Hero {
     if (this.swimming) { ctx.fillStyle = "rgba(216,244,242,0.5)"; ctx.fillRect(-HEAD * 0.7, -1, HEAD * 1.4, 2); }
     else this.propShapes(g, effort);
     ctx.restore();
+    return true;
   }
 
   /** Standing still, not on the way anywhere and not on the ground: free to fight. */

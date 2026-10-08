@@ -153,6 +153,15 @@ describe("camera projections", () => {
     expect(depthOrder("back", [building, tree]).map((o) => o.id)).toEqual(["tree", "hall"]);
   });
 
+  it("never hides agents behind thin props such as flags, lamps and stalls", () => {
+    for (const texture of ["ac-banner", "garden-lantern", "dress-market-stall"]) {
+      const prop = { ...worldObject("prop", "prop", 0, 80, 60, 40, 130), metadata: { texture } };
+      expect(directionalVisibility("front", [prop])({ x: 0, y: 0 }, 19)).toBe(true);
+    }
+    const thin = worldObject("post", "prop", 0, 80, 10, 10, 130);
+    expect(directionalVisibility("front", [thin])({ x: 0, y: 0 }, 19)).toBe(true);
+  });
+
   it("lets nearer scenery occlude agents along the tilted sight ray in all four directions", () => {
     for (const [view, x, y] of [["front", 0, 80], ["back", 0, -80], ["left", -80, 0], ["right", 80, 0]] as const) {
       for (const type of ["building", "tree"] as const) {
@@ -166,7 +175,8 @@ describe("camera projections", () => {
     }
     const arena = world.objects.find((o) => o.type === "arena")!;
     expect(directionalVisibility("front", [arena])({ x: 1400, y: 800 }, 19)).toBe(true);
-    expect(directionalVisibility("front", [arena])({ x: 1400, y: 910 }, 19)).toBe(false);
+    expect(directionalVisibility("front", [arena])({ x: 1400, y: 910 }, 19)).toBe(true);
+    expect(directionalVisibility("front", [arena])({ x: 1260, y: 910 }, 19)).toBe(false);
   });
 });
 

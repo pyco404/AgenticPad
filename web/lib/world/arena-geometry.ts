@@ -7,8 +7,12 @@ export const ARENA_ENTRANCES = { front: { x: 1400, y: 1010 }, east: { x: 1810, y
 export const ARENA_GATE_WIDTH = 192;
 export const ARENA_SIDE_WIDTH = 128;
 export const insideOval = (p: Point, oval: { x: number; y: number; rx: number; ry: number }) => ((p.x - oval.x) / oval.rx) ** 2 + ((p.y - oval.y) / oval.ry) ** 2 <= 1;
-const corridor = (p: Point) => Math.abs(p.x - COLOSSEUM.x) <= ARENA_GATE_WIDTH / 2 && p.y >= COLOSSEUM_FLOOR.y
-  || p.x >= COLOSSEUM_FLOOR.x + 170 && Math.abs(p.y - COLOSSEUM.y) <= ARENA_SIDE_WIDTH / 2;
+/** Open corridors shared by navigation and sight rays through the arena shell. */
+export const ARENA_PASSAGES = [
+  { x0: COLOSSEUM.x - ARENA_GATE_WIDTH / 2, x1: COLOSSEUM.x + ARENA_GATE_WIDTH / 2, y0: COLOSSEUM_FLOOR.y, y1: Infinity },
+  { x0: COLOSSEUM_FLOOR.x + 170, x1: Infinity, y0: COLOSSEUM.y - ARENA_SIDE_WIDTH / 2, y1: COLOSSEUM.y + ARENA_SIDE_WIDTH / 2 },
+] as const;
+const corridor = (p: Point) => ARENA_PASSAGES.some((b) => p.x >= b.x0 && p.x <= b.x1 && p.y >= b.y0 && p.y <= b.y1);
 export const arenaSolid = (p: Point) => insideOval(p, COLOSSEUM) && !insideOval(p, COLOSSEUM_FLOOR) && !corridor(p);
 
 /** Tile-aligned boxes never spill into adjacent gate cells on the existing 64px grid. */

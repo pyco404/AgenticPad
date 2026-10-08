@@ -101,8 +101,9 @@ export const PIECES: Piece[] = [
   flag(1875, 735, 1),
   flag(900, 1060, 1),
   flag(1760, 1340),
-  flag(1372, 1075, 1),
-  flag(1450, 1075),
+  // Frame the approach from outside the main passage rather than standing across it.
+  flag(1260, 1075, 1),
+  flag(1540, 1075),
 
   // The Hiring Hall: the agents for hire on a board, one picked out.
   ...atBuilding("tavern", { x: 850, y: 1125 }, [

@@ -1,4 +1,4 @@
-import { COLOSSEUM_FLOOR } from "./arena-geometry";
+import { ARENA_PASSAGES, COLOSSEUM_FLOOR } from "./arena-geometry";
 import type { WorldObject } from "./model";
 import { cameraAngle, project, type Projection } from "./projection";
 import type { Pt } from "./world";
@@ -11,7 +11,10 @@ export function directionalVisibility(view: Projection, objects: readonly WorldO
   if (tilt > Math.PI / 2 - 0.001) return () => true;
   const lanes = new Map<number, Block[]>(), cell = 128;
   for (const o of objects) {
+    // Only real cover hides an agent: buildings, the arena, mountains and trees. Posts, flags, lamps,
+    // benches, signs and stalls are too thin or low to, and counting them made walkers blink.
     if (o.category === "surface" || o.category === "movement" || o.type === "agent" || o.height < 5) continue;
+    if (o.type !== "tree" && o.type !== "arena" && o.type !== "mountain" && (o.height < 40 || Math.min(o.width, o.depth) < 24 || /flag|banner|lamp|lantern|sign|post|bench|stall|market|kiosk|tent|fence|statue|fountain/.test(o.metadata?.texture ?? ""))) continue;
     const halfAcross = (Math.abs(ny) * o.width + Math.abs(nx) * (o.type === "tree" ? o.width : o.depth)) / 2;
     const block = { object: o, across: project(view, o).x, halfAcross };
     for (let c = Math.floor((block.across - halfAcross) / cell); c <= Math.floor((block.across + halfAcross) / cell); c++) {
@@ -44,11 +47,21 @@ export function directionalVisibility(view: Projection, objects: readonly WorldO
       const span = o.shape === "ellipse" || o.type === "mountain" ? ellipse(p, o.x, o.y, o.width / 2, o.depth / 2) : box(p, o);
       if (o.type === "arena" && span) {
         const f = COLOSSEUM_FLOOR, inner = ellipse(p, f.x, f.y, f.rx, f.ry);
-        // The sand is hollow: only the outer shell interrupts the ray.
-        if (inner) {
-          if (hits([span[0], Math.min(span[1], inner[0])], o.elevation, o.elevation + o.height) ||
-            hits([Math.max(span[0], inner[1]), span[1]], o.elevation, o.elevation + o.height)) return false;
-        } else if (hits(span, o.elevation, o.elevation + o.height)) return false;
+        // Subtract the hollow floor and both entrance corridors before testing the remaining wall.
+        let walls: [number, number][] = inner ? [[span[0], Math.min(span[1], inner[0])], [Math.max(span[0], inner[1]), span[1]]] : [span];
+        for (const passage of ARENA_PASSAGES) {
+          let from = -Infinity, to = Infinity;
+          for (const [at, lo, hi, direction] of [[p.x, passage.x0, passage.x1, nx], [p.y, passage.y0, passage.y1, ny]]) {
+            if (Math.abs(direction!) < 1e-8) { if (at! < lo! || at! > hi!) { to = -Infinity; break; } }
+            else {
+              const a = (lo! - at!) / direction!, c = (hi! - at!) / direction!;
+              from = Math.max(from, Math.min(a, c)); to = Math.min(to, Math.max(a, c));
+            }
+          }
+          if (to > from) walls = walls.flatMap(([a, c]) => to <= a || from >= c ? [[a, c] as [number, number]] :
+            [[a, Math.min(c, from)], [Math.max(a, to), c]] as [number, number][]);
+        }
+        if (walls.some((wall) => hits(wall, o.elevation, o.elevation + o.height))) return false;
       } else if (o.type === "tree") {
         if (hits(box(p, o, o.width * 0.12, o.width * 0.12), o.elevation, o.elevation + o.height * 0.58)) return false;
         const canopyTop = o.elevation + o.height * (1 - delta / b.halfAcross * 0.65);

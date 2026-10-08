@@ -22,6 +22,9 @@ export type WorldCameraControls = {
 
 export type VillageHandle = {
   snapshot: () => WorldSnapshot | null;
+  agents: () => WorldSnapshot["agents"];
+  setVisibleAgents: (ids: ReadonlySet<string> | null) => void;
+  inspectAgent: (id: string) => ReturnType<VillageScene["inspectAgent"]>;
   /** Draws a live agent's own Top character onto another view's canvas; false if it has none. */
   paintAgent: (id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter) => boolean;
   setWorldCamera: (camera: WorldCameraControls | null) => void;
@@ -117,6 +120,9 @@ export async function startVillage(
   let worldCamera: WorldCameraControls | null = null;
   return {
     snapshot: () => scene.worldSnapshot(),
+    agents: () => scene.agentSnapshot(),
+    setVisibleAgents: (ids) => scene.setVisibleAgents(ids),
+    inspectAgent: (id) => scene.inspectAgent(id),
     paintAgent: (id, ctx, x, y, k, paint) => scene.paintAgent(id, ctx, x, y, k, paint),
     setWorldCamera: (camera) => {
       if (Boolean(camera) !== Boolean(worldCamera)) scene.input?.resetPointers();

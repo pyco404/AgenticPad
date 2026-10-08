@@ -394,8 +394,15 @@ export class VillageScene extends Phaser.Scene {
   paintAgent(id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter): boolean {
     const hero = this.heroes.get(id.replace(/^agent:/, ""));
     if (!hero) return false;
-    hero.paintTo(ctx, x, y, k, paint);
-    return true;
+    return hero.paintTo(ctx, x, y, k, paint);
+  }
+
+  private visibleAgents: ReadonlySet<string> | null = null;
+  setVisibleAgents(ids: ReadonlySet<string> | null): void { this.visibleAgents = ids; }
+  inspectAgent(id: string) { return this.heroes.get(id.replace(/^agent:/, ""))?.renderState() ?? null; }
+  agentSnapshot(): WorldSnapshot["agents"] {
+    return [...this.heroes].map(([id, h]) => ({ ...worldObject(`agent:${id}`, "agent", h.x, h.y, 20, 14, 38),
+      metadata: { label: this.residents.get(id)?.name, mine: this.mine.has(id) } }));
   }
 
   worldSnapshot(): WorldSnapshot | null {
@@ -428,8 +435,7 @@ export class VillageScene extends Phaser.Scene {
       this.projectionWorld = { ...this.sharedWorld, objects: [...base, ...plots.flatMap(plotObjects), ...this.projectedForest] };
       this.projectionRevision++;
     }
-    const agents = [...this.heroes].map(([id, h]) => ({ ...worldObject(`agent:${id}`, "agent", h.x, h.y, 20, 14, 38),
-      metadata: { label: this.residents.get(id)?.name, mine: this.mine.has(id) } }));
+    const agents = this.agentSnapshot();
     const art = (ref: ArtRef): ArtFrame | null => {
       if (!this.textures.exists(ref.key)) return null;
       const f = this.textures.getFrame(ref.key, ref.frame);
@@ -874,7 +880,8 @@ export class VillageScene extends Phaser.Scene {
       this.publishView(time);
       const view = this.cameras.main.worldView;
       for (const [id, hero] of this.heroes) {
-        const visible = hero.x >= view.x - 130 && hero.x <= view.right + 130 && hero.y >= view.y - 150 && hero.y <= view.bottom + 150;
+        const visible = this.visibleAgents ? this.visibleAgents.has(`agent:${id}`) :
+          hero.x >= view.x - 130 && hero.x <= view.right + 130 && hero.y >= view.y - 150 && hero.y <= view.bottom + 150;
         hero.setRenderVisible(visible);
         if (visible) hero.animateIdle(time);
         if (visible) this.giveFace(id, this.residents.get(id)?.standIn);
