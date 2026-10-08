@@ -129,9 +129,8 @@ no safe connection exists, instead of falling back to a line through water/walls
 The collision grid is still 64 world pixels: tight spaces are conservative and
 routines are deliberately simple, not a traffic/crowd simulation.
 
-`world-lens.tsx` adds a small canvas minimap showing districts, destinations,
-river, lake, viewport and the selected agent. `/field` enters the zoomed-out
-world, with district exploration and free camera gestures available. `/agent`
+The world is the site's home at `/` (see world-projections.md), with free camera
+gestures; the old `world-lens.tsx` minimap went with the Top view. `/agent`
 opens a close follow camera on the signed-in owner's first available agent,
 without a dashboard or sheet. The status panel can switch between that wallet's
 separate token agents; camera gestures, blank clicks and nearby character clicks

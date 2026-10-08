@@ -3,16 +3,20 @@
 The Isometric world is AgenticPad's base layer on every route, not a page.
 `WorldShell` (`web/app/shell.tsx`) keeps one `PersistentWorld` mounted for the
 whole app; Launch, Explore, Agent, Live, Ladder, Games, Rewards and About are
-overlays on it, and `/field` is simply the route with no overlay. The original
+overlays on it, and `/`, the site's home, is simply the route with no overlay
+(`/field` and `/village` redirect there). The Agent page that used to be `/`,
+for getting and managing agents, is `/agents`. The original
 Phaser scene stays mounted but hidden: it runs the simulation and supplies the
 captured art (see "Top is the source of truth"); `WorldCamera`
 (`web/app/village/world-camera.tsx`) is the only thing that presents the world.
 
-It opens directly in Isometric with one continuous orbit camera.
-There are no public Top, Front, Back, Left, Right or projection-switching buttons.
+It opens on its home view: looking straight down (yaw 0°, tilt 90°) at the town
+centre, the Arena with the market square below it, at a zoom that fits about
+3,000 world units across the window (at least 0.3 on a phone). One continuous
+orbit camera takes it from there; there are no projection-switching buttons.
 Horizontal drag rotates; vertical drag changes elevation from 15° to 90°;
-wheel and pinch zoom. Reset camera returns smoothly to the starting Isometric
-angle, and Whole world reframes without changing the angle.
+wheel and pinch zoom. Reset camera returns smoothly to the home view, and Whole
+world reframes the whole world without changing the angle.
 
 The shared world model, authored coordinates and live simulation are unchanged.
 The six named projections remain internal math/render entry points for tests
@@ -113,8 +117,16 @@ world is drawn, before any agent, forest chunk or boat exists:
   natural size and foot. Views draw that exact frame upright on that foot, like
   Top's standees. `standee()` tags the pictures it stretches, so their natural
   proportions are recovered.
+- **The Arena** is Top's own pixel art (`paintArenaArt`, in `ARENA_PALETTE`): its
+  bowl and floor, with AgenticPad's logo on the sand, come with the ground layer,
+  and its front wall and crowd lie on the ground plane in the same world rectangle
+  Top paints them in, so the oval lines up with the forecourt and roads. Top paints
+  it as one oblique picture, so at low angles it reads as painted on the ground
+  rather than standing up like the cut-out buildings. The 3D form on `COLOSSEUM`
+  stays in the model as the Arena's label anchor (its north rim), tap target and
+  occlusion volume.
 - **Drawn as shapes in Top**, and so taken from the same shared definitions:
-  the arena (3D, on `COLOSSEUM`), its four gate torches (`ARENA_TORCHES`, which
+  the arena's four gate torches (`ARENA_TORCHES`, which
   Top's `arena.ts` now draws from too) and the garden fences (`GARDEN_RAILS`,
   drawn as rails and posts).
 - **Grown plots and the forest** come from the shared generators
@@ -122,8 +134,8 @@ world is drawn, before any agent, forest chunk or boat exists:
   Top's `build()` and forest streaming use; flat pieces (plots, yards, planters)
   lie on the ground plane.
 
-Left out on purpose: the arena's own sprite layers (the 3D arena replaces them),
-sailing boats, glows and night effects.
+Left out on purpose: the cheering crowd's alternate frame, sailing boats, glows
+and night effects.
 
 Until the ground image is ready (a moment after the scene starts), views fall
 back to the model's procedural surfaces and buildings described below.
@@ -132,8 +144,9 @@ back to the model's procedural surfaces and buildings described below.
 
 `projected-materials.ts` loads Top's recoloured ground sheet and water texture
 and the tree/prop sprite sheets, and `projected-art.ts` keeps procedural
-cottages, roads and water, for the moment before Top's capture is ready. The
-Arena always uses its 3D form with `ARENA_PALETTE`.
+cottages, roads and water, for the moment before Top's capture is ready. Until
+then the Arena is drawn in 3D with `ARENA_PALETTE`, with the official logo on its
+floor.
 
 ## Live scene and interaction
 
