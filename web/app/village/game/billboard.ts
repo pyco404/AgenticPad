@@ -32,6 +32,7 @@ export function standee<T extends Picture>(obj: T, shadow = true): T {
   }
   obj.y = foot + (obj.y - foot) / FLOOR_RATIO;
   obj.scaleY /= FLOOR_RATIO;
+  obj.setData("standee", true);
   return obj;
 }
 

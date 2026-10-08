@@ -13,13 +13,14 @@ import { ActivitySimulation, ACTIVITY_CONFIG, describeActivity } from "./activit
 import type { ActivityState } from "./activities";
 import { ACTIVITY_DESTINATIONS } from "./activity-destinations";
 import { drawDistrictProps, drawDistrictTerrain } from "./district-scenery";
-import { Hero } from "./hero";
+import { Hero, type Painter } from "./hero";
 import { CardTable } from "./table";
 import { drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
 import { loadShips, sailShips } from "./ships";
 import { buildArenaArt, drawArena, loadArena, type ArenaHandle } from "./arena";
 import { ARENA_FIELD, inTown, NEW_TOWN_SITES, RESERVED, ROADS, SITES, SQUARE, townBounds } from "./town";
 import { CROSSROADS, inNewTown, onOldGround, PIER, WORLD } from "./world";
+import { ARENA_TORCHES } from "../../../lib/world/arena-geometry";
 import { nightOf, num, VOID, warm } from "./palette";
 import { chunkKey, chunksIn, chunkTrees, CHUNK, type ForestRules, type Tree } from "./forest";
 import { loadWeapons, weaponOf } from "./weapons";
@@ -35,7 +36,7 @@ import { agentPopulation, allocateHomes, clearRoute, neighbourhoodSpots } from "
 import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
 import { bodyColours, GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
-import { createWorldModel, plotObjects, treeObject, worldObject, type WorldModel, type WorldObject, type WorldSnapshot } from "../../../lib/world/model";
+import { createWorldModel, plotObjects, treeObject, worldObject, type ArtFrame, type ArtRef, type TopGround, type WorldModel, type WorldObject, type WorldSnapshot, pictureObject } from "../../../lib/world/model";
 
 /** A match being played in the arena: its two sides, the table between them, the running score over it, and the timer that drives both. */
 type Brawl = { a: string; b: string; score: Phaser.GameObjects.Text; table: CardTable; ticker: Phaser.Time.TimerEvent };
@@ -127,6 +128,9 @@ export class VillageScene extends Phaser.Scene {
   private projectionRevision = 0;
   private projectionPopulation = -1;
   private projectionWorld: WorldModel | null = null;
+  /** Top's own fixed pictures and ground, captured once its world is drawn (captureTop). */
+  private topPictures: WorldObject[] = [];
+  private topGround: TopGround | null = null;
   private roads!: Roads;
   private doors = new Map<string, Point>();
   private buildings = new Map<string, Building>();
@@ -179,6 +183,7 @@ export class VillageScene extends Phaser.Scene {
   private placed = false;
   private selected: string | null = null;
   private dragged = false;
+  private rotationEnabled = false;
   private following: string | null = null;
   private cameraTravel: Phaser.Tweens.Tween | null = null;
   private lastView = 0;
@@ -190,6 +195,21 @@ export class VillageScene extends Phaser.Scene {
     private opts: SceneOptions,
   ) {
     super({ key: "village" });
+  }
+
+  setRotationEnabled(on: boolean): void { this.rotationEnabled = on; }
+
+  /** Use Phaser's actual interactive masks, including pixel-perfect heroes/arena. */
+  canRotateAt(point: Point): boolean {
+    const r = renderScale(this);
+    const pointer = { x: point.x * r, y: point.y * r } as Phaser.Input.Pointer;
+    return this.input.manager.hitTest(pointer, this.children.list.filter((o) => o.input?.enabled), this.cameras.main).length === 0;
+  }
+
+  rotationCamera(point: Point): { x: number; y: number; scale: number; tilt: number } {
+    const cam = this.cameras.main, r = renderScale(this);
+    const at = cam.getWorldPoint(point.x * r, point.y * r);
+    return { x: at.x, y: at.y, scale: cam.zoomX / r, tilt: Math.asin(cam.zoomY / cam.zoomX) };
   }
 
   preload(): void {
@@ -310,6 +330,7 @@ export class VillageScene extends Phaser.Scene {
     this.solarLights.setNight(this.isNight);
     this.arena = drawArena(this, this.opts.still);
     this.arena.setNight(this.isNight);
+    this.captureTop();
 
     this.setUpCamera();
     this.setNotes(this.notes);
@@ -320,6 +341,61 @@ export class VillageScene extends Phaser.Scene {
   // --- Growth -------------------------------------------------------------
 
   /** Read-only projections observe the live scene; they never create another simulation. */
+  /**
+   * Top is the source of truth for every other view. Once its fixed world is drawn - before any
+   * agent, forest chunk or boat - every standing picture it placed is recorded with its exact
+   * texture, frame, natural size and foot, and its whole ground layer (terrain, roads, plazas,
+   * water, banks, beds, flowers, shadows) is rendered once to an image laid on the ground plane.
+   * Other views then show the same world by construction rather than by a parallel layout.
+   */
+  private captureTop(): void {
+    // The arena keeps its own 3D form on the shared footprint; boats sail; glows and shadows are effects.
+    const skip = new Set(["building-arena", "ac-oval-front", "ac-oval-crowd", "ac-oval-cheer", "dress-ship", "dress-solar-glow", "world-pixel-shadow"]);
+    const labels = new Map(this.sharedWorld!.objects.filter((o) => o.id.startsWith("site:")).map((o) => [o.id, o.metadata?.label]));
+    const flatKey = /farm-bed|plot|yard|planter/i;
+    this.topPictures = [];
+    for (const [i, obj] of this.children.list.entries()) {
+      if (!(obj instanceof Phaser.GameObjects.Image || obj instanceof Phaser.GameObjects.Sprite)) continue;
+      if (!obj.visible || obj.alpha === 0 || obj.depth < WORLD.y0 || obj.depth >= 9_000 || skip.has(obj.texture.key)) continue;
+      const key = obj.texture.key;
+      const width = obj.displayWidth, height = obj.displayHeight * (obj.getData("standee") ? FLOOR_RATIO : 1);
+      const foot = { x: obj.x + obj.displayWidth * (0.5 - obj.originX), y: obj.y + obj.displayHeight * (1 - obj.originY) };
+      const site = /^building-(.+)$/.exec(key)?.[1];
+      const o = pictureObject(site ? `site:${site}` : `top:${i}:${key}`, { key, frame: obj.frame.name, flipX: obj.flipX }, foot, width, height, flatKey.test(key));
+      if (site) { o.type = "building"; o.metadata!.label = labels.get(`site:${site}`) ?? site; }
+      if (key === "wild-mountain") { o.metadata!.label = "Mountain"; o.metadata!.landmark = true; }
+      this.topPictures.push(o);
+    }
+    // Top draws these as shapes rather than pictures; they come from the same shared positions.
+    for (const [i, p] of ARENA_TORCHES.entries()) this.topPictures.push({ ...worldObject(`torch:${i}`, "prop", p.x, p.y, 10, 8, 46), metadata: { texture: "torch" } });
+    // Ground: every visible layer below the standing art, through a camera that sees the whole world from above.
+    const scale = 0.5, w = WORLD.x1 - WORLD.x0, h = WORLD.y1 - WORLD.y0;
+    type Layer = Phaser.GameObjects.GameObject & { depth: number; visible?: boolean; mask?: unknown; texture?: { key: string } };
+    const layers = (this.children.list as Layer[]).filter((o) => o.depth < WORLD.y0 && o.visible !== false && !o.mask && !skip.has(o.texture?.key ?? ""))
+      .sort((a, b) => a.depth - b.depth);
+    const texture = this.textures.addDynamicTexture("top-ground", Math.ceil(w * scale), Math.ceil(h * scale));
+    if (!texture) return;
+    texture.camera.setZoom(scale);
+    texture.camera.centerOn(WORLD.x0 + w / 2, WORLD.y0 + h / 2);
+    texture.draw(layers);
+    texture.render();
+    texture.snapshot((image) => {
+      if (image instanceof HTMLImageElement) {
+        this.topGround = { image, x0: WORLD.x0, y0: WORLD.y0, width: w, height: h };
+        this.projectionRevision++;
+      }
+      this.textures.remove("top-ground");
+    });
+  }
+
+  /** Draws a live agent's own Top character onto another view's canvas; false if it has none. */
+  paintAgent(id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter): boolean {
+    const hero = this.heroes.get(id.replace(/^agent:/, ""));
+    if (!hero) return false;
+    hero.paintTo(ctx, x, y, k, paint);
+    return true;
+  }
+
   worldSnapshot(): WorldSnapshot | null {
     if (!this.sharedWorld || !this.forestRules) return null;
     if (this.projectionPopulation !== this.grown.size) {
@@ -335,7 +411,14 @@ export class VillageScene extends Phaser.Scene {
     if (!this.projectionWorld || fresh.length) {
       const plots = NEW_TOWN.plots.filter((p) => this.grown.has(p.id));
       const clearings = plots.map((p) => plotClearing(p, 180));
-      const base = this.sharedWorld.objects.filter((o) => o.type !== "tree" || !clearings.some((b) => {
+      // Top's captured pictures replace the model's own sprite placements; the model keeps what Top
+      // draws as shapes rather than pictures (arena, bridges, fences, surfaces) and the activity spots.
+      // Bridge decks are part of Top's ground layer, so the model's raised deck would draw them twice.
+      const kept = new Set(["arena", "road", "water", "pond", "plaza", "movement"]);
+      const source = this.topPictures.length
+        ? [...this.sharedWorld.objects.filter((o) => kept.has(o.type) || o.metadata?.texture === "fence"), ...this.topPictures]
+        : this.sharedWorld.objects;
+      const base = source.filter((o) => o.type !== "tree" || !clearings.some((b) => {
         const p = o.metadata?.topAnchor ?? o;
         const s = o.width / 192;
         return overlaps(canopy({ ...p, s }), b);
@@ -345,7 +428,13 @@ export class VillageScene extends Phaser.Scene {
     }
     const agents = [...this.heroes].map(([id, h]) => ({ ...worldObject(`agent:${id}`, "agent", h.x, h.y, 20, 14, 38),
       metadata: { label: this.residents.get(id)?.name, mine: this.mine.has(id) } }));
-    return { world: this.projectionWorld, revision: this.projectionRevision, agents, night: this.isNight, forestPending: !!this.forestQueue?.length };
+    const art = (ref: ArtRef): ArtFrame | null => {
+      if (!this.textures.exists(ref.key)) return null;
+      const f = this.textures.getFrame(ref.key, ref.frame);
+      return f ? { image: f.source.image as CanvasImageSource, x: f.cutX, y: f.cutY, width: f.cutWidth, height: f.cutHeight } : null;
+    };
+    return { world: this.projectionWorld, revision: this.projectionRevision, agents, night: this.isNight, forestPending: !!this.forestQueue?.length,
+      ground: this.topGround, art };
   }
 
   /**
@@ -751,6 +840,7 @@ export class VillageScene extends Phaser.Scene {
       if (!p.isDown || (this.input.pointer1.isDown && this.input.pointer2.isDown)) return;
       if (!this.dragged && Math.abs(p.x - start.x) + Math.abs(p.y - start.y) > DRAG) this.dragged = this.moved = true;
       if (this.dragged) {
+        if (this.rotationEnabled) return;
         this.releaseCamera();
         cam.scrollX -= (p.x - p.prevPosition.x) / cam.zoomX;
         cam.scrollY -= (p.y - p.prevPosition.y) / cam.zoomY;

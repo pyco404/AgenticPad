@@ -564,8 +564,8 @@ function Village({
   return (
     <div className="fixed inset-0 z-0 bg-ink">
 
-      <div ref={box} className="absolute inset-0" style={{ touchAction: "none", visibility: activeProjection === "top" ? "visible" : "hidden" }} />
-      {status === "ready" && path === "/field" ? <FieldViews view={activeProjection} onView={setProjection} village={village} inset={inset} /> : null}
+      <div ref={box} className="absolute inset-0" style={{ touchAction: "none", pointerEvents: activeProjection === "top" ? "auto" : "none" }} />
+      {status === "ready" && path === "/field" ? <FieldViews view={activeProjection} onView={setProjection} village={village} topSurface={box} inset={inset} /> : null}
       {/* The veil: enough to settle the world behind the HUD, never enough to hide it. */}
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-ink/10" />
       {/* On a phone the bar has no room for the world's numbers: they sit on the village, top left. */}
@@ -591,6 +591,8 @@ function Village({
                 ? "Can't reach the game server, so no agents yet. Retrying…"
                 : observing
                   ? "Following your autonomous agent"
+                  : path === "/field"
+                  ? "Drag empty ground to rotate · drag up to look down · scroll or pinch to zoom"
                   : scrolls
                   ? "Drag to look around · ctrl + scroll or pinch to zoom"
                   : "Drag to look around · scroll or pinch to zoom"}

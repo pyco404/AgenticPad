@@ -11,6 +11,16 @@ import { WEAPONS, weaponTexture, type WeaponName } from "./weapons";
 import type { ActivityState } from "./activities";
 import { motionPosition, type WorldActivity } from "../../../lib/world/simulation";
 
+/** The few drawing calls the body and its props use: Phaser's Graphics, or a 2D canvas adapter (projected-agents.ts). */
+export type Painter = {
+  fillStyle(colour: number, alpha?: number): Painter;
+  fillRect(x: number, y: number, w: number, h: number): Painter;
+  lineStyle(width: number, colour: number, alpha?: number): Painter;
+  lineBetween(x1: number, y1: number, x2: number, y2: number): Painter;
+  strokeRect(x: number, y: number, w: number, h: number): Painter;
+  strokeEllipse(x: number, y: number, w: number, h: number): Painter;
+};
+
 /** The points to walk from one place to another, starting where the walker stands. */
 export type Router = (from: Point, to: Point) => Point[];
 
@@ -383,11 +393,10 @@ export class Hero {
    * a dark boot; the torso over them, lifted with each step; and the arms,
    * swinging against the legs, reaching out in a lunge.
    */
-  private drawBody(x: number, ground: number, phase: number, hop: number): void {
-    const g = this.limbs;
+  private drawBody(x: number, ground: number, phase: number, hop: number, g: Painter | null = this.limbs): void {
     const c = this.colours;
     if (!g || !c) return;
-    g.clear();
+    if (g === this.limbs) this.limbs.clear();
     const sideOn = this.view === "left" || this.view === "right";
     const toward = this.view === "left" ? -1 : 1;
     const top = Math.round(ground - LEG);
@@ -414,11 +423,11 @@ export class Hero {
       // Side on, the near arm: swinging fore and aft from the shoulder, thrown forward in a lunge.
       const reach = this.lungeX !== 0 ? toward * (ARM - 2) : toward * swing * SWING;
       const length = this.lungeX !== 0 ? ARM - 3 : ARM;
-      this.arm(x - toward, shoulder, reach, length);
+      this.arm(x - toward, shoulder, reach, length, g);
       this.hand = { x: Math.round(x - toward + reach), y: shoulder + length, angle: toward * (HOLD + swing * MARCH + blow * BLOW) };
     } else {
       // Facing us or away, both arms at the sides: each shortens as it swings forward, against its leg.
-      for (const side of [-1, 1] as const) this.arm(x + side * (w / 2 + ARM_W / 2), shoulder, 0, ARM - Math.round(Math.max(0, side * swing) * 2));
+      for (const side of [-1, 1] as const) this.arm(x + side * (w / 2 + ARM_W / 2), shoulder, 0, ARM - Math.round(Math.max(0, side * swing) * 2), g);
       // Carried in the hand on our right, leaning out.
       const length = ARM - Math.round(Math.max(0, swing) * 2);
       this.hand = { x: Math.round(x + w / 2 + ARM_W / 2), y: shoulder + length, angle: HOLD + swing * MARCH * 0.5 };
@@ -431,8 +440,7 @@ export class Hero {
   }
 
   /** One arm, from the shoulder at (x, y) down to a dark hand, `reach` pixels across and `length` down. */
-  private arm(x: number, y: number, reach: number, length: number): void {
-    const g = this.limbs;
+  private arm(x: number, y: number, reach: number, length: number, g: Painter): void {
     const c = this.colours;
     if (!g || !c) return;
     const hx = Math.round(x + reach);
@@ -613,7 +621,7 @@ export class Hero {
     const wet = this.opts.inWater?.(this) ?? false;
     if (wet !== this.swimming) this.setSwimming(wet);
     const working = this.activity?.phase === "working" && !this.walking && !this.opts.still;
-    const effort = working && ["farming", "gathering"].includes(this.activity!.activity) ? Math.sin(this.scene.time.now / 240) : 0;
+    const effort = this.effort();
     if (working && this.activity?.activity === "exploration") {
       this.turn((["front", "right", "back", "left"] as const)[Math.floor(this.scene.time.now / 2800) % 4]!);
     }
@@ -625,8 +633,7 @@ export class Hero {
     // in the water, sunk to the chest at the waterline.
     let nameAt = baseline + (this.labelOffset - this.footOffset) / FLOOR_RATIO;
     if (this.portrait) {
-      const phase = this.walking && !this.swimming && !this.opts.still ? ((this.scene.time.now - this.stepFrom) / 1000) * (SPEED / STRIDE) * Math.PI * 2 : 0;
-      const hop = Math.abs(Math.sin(phase)) * HOP + (!this.walking && !this.opts.still ? Math.sin(this.scene.time.now / 900) * 0.5 : 0);
+      const { phase, hop } = this.gait();
       const ground = y + this.footOffset;
       // Standing on its body: the head sits down over the top of the torso, lifted with it on each step.
       // Knocked down, the whole figure turns over about its feet, head and body together.
@@ -673,6 +680,19 @@ export class Hero {
     this.label.setDepth(10_000 + feet);
   }
 
+  /** Bending into farm or gathering work: -1..1, 0 when not working. */
+  private effort(): number {
+    const working = this.activity?.phase === "working" && !this.walking && !this.opts.still;
+    return working && ["farming", "gathering"].includes(this.activity!.activity) ? Math.sin(this.scene.time.now / 240) : 0;
+  }
+
+  /** Where in its stride it is, and how far each step lifts it. */
+  private gait(): { phase: number; hop: number } {
+    const phase = this.walking && !this.swimming && !this.opts.still ? ((this.scene.time.now - this.stepFrom) / 1000) * (SPEED / STRIDE) * Math.PI * 2 : 0;
+    const hop = Math.abs(Math.sin(phase)) * HOP + (!this.walking && !this.opts.still ? Math.sin(this.scene.time.now / 900) * 0.5 : 0);
+    return { phase, hop };
+  }
+
   /** Tiny native pixel props share the pose clock and are drawn only while visible. */
   private drawActivityProp(feet: number, effort: number): void {
     if (!this.activity || this.swimming) { this.activityProp?.clear(); return; }
@@ -690,6 +710,13 @@ export class Hero {
       g.fillStyle(colour).fillRect(12, -27, 4, 4);
       return;
     }
+    this.propShapes(g, effort);
+  }
+
+  /** The activity's prop, in the feet's own frame: a crate, hoe, basket, map, sparring ring or rest mat. */
+  private propShapes(g: Painter, effort: number): void {
+    const state = this.activity;
+    if (!state || this.swimming) return;
     if (state.carrying) {
       g.fillStyle(0x39291e).fillRect(9, -20, 15, 13);
       g.fillStyle(0xc99553).fillRect(10, -19, 13, 11);
@@ -721,6 +748,64 @@ export class Hero {
       const lift = this.opts.still ? 0 : Math.floor(this.scene.time.now / 500) % 6;
       g.fillStyle(0xa9cbbb, 0.8).fillRect(23, -43 - lift, 7, 1).fillRect(27, -42 - lift, 2, 2).fillRect(23, -40 - lift, 7, 1);
     }
+  }
+
+  /**
+   * Draws this character, exactly as Top composes it, onto another view's canvas: the portrait head
+   * over its drawn body with its weapon and activity prop, or the sprite sheet's current frame.
+   * `x, y` is where its feet stand on screen and `k` is screen pixels per world unit. Upright and
+   * without Top's floor compression, like a standee. Reads state only; changes nothing in Top.
+   */
+  paintTo(ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter): void {
+    const frame = (f: Phaser.Textures.Frame, dx: number, dy: number, w: number, h: number) =>
+      ctx.drawImage(f.source.image as CanvasImageSource, f.cutX, f.cutY, f.cutWidth, f.cutHeight, dx, dy, w, h);
+    const effort = this.effort();
+    const { phase, hop } = this.gait();
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y)); ctx.scale(k, k);
+    ctx.imageSmoothingEnabled = false;
+    const g = paint(ctx);
+    if (!this.swimming) {
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.beginPath(); ctx.ellipse(0, 0, HEAD * 0.42, HEAD * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.save(); ctx.translate(0, (this.resting ? 4 : 0) + Math.max(0, effort) * 2);
+    if (this.portrait) {
+      const weapon = this.weapon && !this.swimming && (!this.activity || this.activity.phase === "returning" || this.activity.activity === "sparring") ? this.weapon : null;
+      const drawWeapon = () => {
+        if (!weapon) return;
+        const f = weapon.frame;
+        ctx.save(); ctx.translate(this.hand.x, this.hand.y); ctx.rotate(this.hand.angle);
+        if (this.view === "left") ctx.scale(-1, 1);
+        frame(f, -f.cutWidth * weapon.originX, -f.cutHeight * weapon.originY, f.cutWidth, f.cutHeight);
+        ctx.restore();
+      };
+      if (!this.swimming) {
+        this.drawBody(0, 0, phase + effort, hop, g);
+        if (this.view === "back") { ctx.globalCompositeOperation = "destination-over"; drawWeapon(); ctx.globalCompositeOperation = "source-over"; }
+        else drawWeapon();
+      }
+      // The head on the torso, lifted with each step; in water, the head alone above a ripple.
+      const neck = this.swimming ? HEAD * (1 - ABOVE_WATER) : this.chest(0, hop) + NECK;
+      ctx.save(); ctx.translate(0, neck); ctx.rotate(Math.sin(phase) * SWAY + effort * 0.1);
+      if (this.view === "left") ctx.scale(-1, 1);
+      const f = this.portrait.frame;
+      if (this.swimming) { ctx.beginPath(); ctx.rect(-HEAD, -HEAD, HEAD * 2, HEAD * ABOVE_WATER + HEAD * (1 - ABOVE_WATER)); ctx.clip(); }
+      frame(f, -HEAD / 2, -HEAD, HEAD, HEAD);
+      ctx.restore();
+    } else {
+      // The unit's sheet, on its current animation frame, centred above its padded feet.
+      const f = this.sprite.frame;
+      const w = this.sprite.displayWidth, h = this.sprite.displayHeight * FLOOR_RATIO;
+      ctx.save(); ctx.translate(0, -this.footOffset);
+      if (this.sprite.flipX) ctx.scale(-1, 1);
+      frame(f, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
+    ctx.restore();
+    if (this.swimming) { ctx.fillStyle = "rgba(216,244,242,0.5)"; ctx.fillRect(-HEAD * 0.7, -1, HEAD * 1.4, 2); }
+    else this.propShapes(g, effort);
+    ctx.restore();
   }
 
   /** Standing still, not on the way anywhere and not on the ground: free to fight. */

@@ -21,3 +21,6 @@ for (let y = Math.floor((COLOSSEUM.y - COLOSSEUM.ry) / 64) * 64; y < COLOSSEUM.y
   }
 }
 export const ARENA_RESERVED = [{ x0: COLOSSEUM_FLOOR.x - COLOSSEUM_FLOOR.rx, y0: COLOSSEUM_FLOOR.y - COLOSSEUM_FLOOR.ry, x1: COLOSSEUM_FLOOR.x + COLOSSEUM_FLOOR.rx, y1: COLOSSEUM_FLOOR.y + COLOSSEUM_FLOOR.ry }];
+
+/** The four torch posts at the Arena's gates: two either side of the south gate, two by the north. */
+export const ARENA_TORCHES: readonly Point[] = [{ x: 1280, y: 994 }, { x: 1520, y: 994 }, { x: 1070, y: 640 }, { x: 1730, y: 640 }];

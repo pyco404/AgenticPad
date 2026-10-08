@@ -1,5 +1,5 @@
 import * as Phaser from "phaser";
-import { COLOSSEUM as O, COLOSSEUM_FLOOR as F } from "./arena-geometry";
+import { ARENA_TORCHES, COLOSSEUM as O, COLOSSEUM_FLOOR as F } from "./arena-geometry";
 import { groundDepth } from "./depth";
 import { ROAD_COLOURS } from "./palette";
 
@@ -45,8 +45,8 @@ export function drawArena(scene: Phaser.Scene, still: boolean): ArenaHandle {
   let cheering = false, up = false;
   if (!still) scene.time.addEvent({ delay: 380, loop: true, callback: () => { up = cheering && !up; crowd.setVisible(!up); cheer.setVisible(up); } });
   const lit: Phaser.GameObjects.Image[] = [];
-  for (const [i, x] of [1280, 1520, 1070, 1730].entries()) {
-    const y = i < 2 ? 994 : 640, post = scene.add.graphics().setDepth(y);
+  for (const [i, { x, y }] of ARENA_TORCHES.entries()) {
+    const post = scene.add.graphics().setDepth(y);
     post.fillStyle(0xf4bd54, .12).fillEllipse(x, y, 56, 24);
     post.fillStyle(0x153c32).fillRect(x - 4, y - 30, 8, 30);
     post.fillStyle(0xd6a340).fillRect(x - 6, y - 33, 12, 5).fillRect(x - 5, y - 5, 10, 3);

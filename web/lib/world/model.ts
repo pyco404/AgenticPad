@@ -22,8 +22,21 @@ export type WorldObject = {
   shape?: "ellipse";
   points?: readonly Pt[];
   lineWidth?: number;
-  metadata?: { texture?: string; label?: string; topAnchor?: Pt; frame?: number; mine?: boolean };
+  metadata?: { texture?: string; label?: string; topAnchor?: Pt; frame?: number; mine?: boolean;
+    /** Top's own picture of this object, drawn bottom-centred at `topAnchor`, `width` by `height`. */
+    art?: ArtRef;
+    /** Lies on the ground in Top (plots, yards, beds), so it is drawn on the ground plane. */
+    flat?: boolean;
+    /** Labelled in every view. */
+    landmark?: boolean };
 };
+
+/** A Top texture frame. */
+export type ArtRef = { key: string; frame: string | number; flipX?: boolean };
+/** Where a frame's pixels are, for a 2D canvas to draw. The image is a browser CanvasImageSource; the model stays DOM-free. */
+export type ArtFrame = { image: unknown; x: number; y: number; width: number; height: number };
+/** Top's ground layer, rendered once: terrain, roads, plazas, water, banks, flowers, shadows. */
+export type TopGround = { image: unknown; x0: number; y0: number; width: number; height: number };
 
 export type WorldModel = {
   bounds: Box;
@@ -38,7 +51,11 @@ export type WorldModel = {
   hiddenRoads: readonly Pt[][];
   objects: readonly WorldObject[];
 };
-export type WorldSnapshot = { world: WorldModel; revision: number; agents: WorldObject[]; night: boolean; forestPending: boolean };
+export type WorldSnapshot = { world: WorldModel; revision: number; agents: WorldObject[]; night: boolean; forestPending: boolean;
+  /** Top's ground layer, once rendered; until then views draw the model's surfaces. */
+  ground?: TopGround | null;
+  /** Resolves an object's `art` to Top's loaded pixels. */
+  art?: (ref: ArtRef) => ArtFrame | null };
 export type ArtSize = (key: string) => { width: number; height: number } | null;
 
 export function worldObject(id: string, type: WorldType, x: number, y: number, width: number, depth: number, height = 0): WorldObject {
@@ -54,6 +71,20 @@ function standingObject(id: string, key: string, foot: Pt, width: number, artHei
   const depth = flat ? artHeight : Math.max(8, Math.min(width * 0.65, artHeight * 0.35));
   const o = worldObject(id, type, foot.x, foot.y - (type === "tree" ? 0 : depth / 2), width, depth, flat ? 3 : artHeight * 0.85);
   o.metadata = { texture: key, topAnchor: { x: foot.x, y: foot.y } };
+  return o;
+}
+
+/**
+ * An object exactly as Top drew it: its texture frame, its natural (unstretched) size and
+ * the ground point its picture stands on. `x, y` is the centre of an approximate footprint
+ * behind that point, for depth ordering and occlusion only.
+ */
+export function pictureObject(id: string, art: ArtRef, foot: Pt, width: number, height: number, flat = false): WorldObject {
+  const o = standingObject(id, art.key, foot, width, height);
+  // Flat art covers its whole picture on the ground, from its foot back.
+  if (flat) { o.type = "prop"; o.category = "prop"; o.depth = height; o.y = foot.y - height / 2; }
+  o.height = flat ? 3 : height;
+  o.metadata = { ...o.metadata, art, flat };
   return o;
 }
 
@@ -142,12 +173,17 @@ export function createWorldModel(map: VillageMap, size: ArtSize, labels: Readonl
 export function treeObject(tree: Tree): WorldObject {
   const o = standingObject(`forest:${tree.id}`, tree.k, tree, 192 * tree.s, 192 * tree.s);
   o.metadata!.frame = tree.f;
+  o.metadata!.art = { key: tree.k, frame: tree.f };
+  o.height = 192 * tree.s;
   return o;
 }
 
 export function plotObjects(plot: Plot): WorldObject[] {
   return plot.pieces.map((p, i) => {
     const art = PIECE_ART[p.image];
-    return standingObject(`growth:${plot.id}:${i}`, p.image, p, art.width * p.scale, art.height * p.scale * art.foot);
+    // Top anchors each piece at its own foot fraction (scene.ts build); the picture's bottom sits below it.
+    const bottom = { x: p.x, y: p.y + art.height * p.scale * (1 - art.foot) };
+    return pictureObject(`growth:${plot.id}:${i}`, { key: `growth-${p.image}`, frame: 0, flipX: p.flip ?? false }, bottom,
+      art.width * p.scale, art.height * p.scale, ["Plot", "Yard", "planter"].includes(p.image));
   });
 }

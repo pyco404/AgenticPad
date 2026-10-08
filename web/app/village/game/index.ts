@@ -4,6 +4,7 @@ import type { ViewMode } from "./presentation";
 import type { Point } from "./roads";
 import type { Resident } from "../residents";
 import type { BuildingLabel } from "./building";
+import type { Painter } from "./hero";
 import type { VillageMap } from "./map";
 import { VOID } from "./palette";
 import { VillageScene, type VillageEvents } from "./scene";
@@ -13,6 +14,11 @@ export type { BuildingLabel } from "./building";
 
 export type VillageHandle = {
   snapshot: () => WorldSnapshot | null;
+  /** Draws a live agent's own Top character onto another view's canvas; false if it has none. */
+  paintAgent: (id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter) => boolean;
+  setRotationEnabled: (on: boolean) => void;
+  canRotateAt: (point: Point) => boolean;
+  rotationCamera: (point: Point) => { x: number; y: number; scale: number; tilt: number };
   setProjectedZoom: (zoom: ((step: 1 | -1) => void) | null) => void;
   setResidents: (residents: Resident[]) => void;
   /** `pan` brings the camera to them: for a selection made outside the canvas. */
@@ -105,7 +111,14 @@ export async function startVillage(
   let projectedZoom: ((step: 1 | -1) => void) | null = null;
   return {
     snapshot: () => scene.worldSnapshot(),
+    paintAgent: (id, ctx, x, y, k, paint) => scene.paintAgent(id, ctx, x, y, k, paint),
+    setRotationEnabled: (on) => scene.setRotationEnabled(on),
+    canRotateAt: (point) => scene.canRotateAt(point),
+    rotationCamera: (point) => scene.rotationCamera(point),
     setProjectedZoom: (zoom) => {
+      // Pointer capture transfers a Top drag to the orbit surface before Phaser sees pointerup.
+      // Release its held mouse/touch state so returning to Top or /agent cannot leave a phantom drag.
+      if (Boolean(zoom) !== Boolean(projectedZoom)) scene.input?.resetPointers();
       projectedZoom = zoom;
       // Skip the hidden WebGL render while keeping the same scene's simulation ticking.
       scene.sys.settings.visible = zoom === null;
