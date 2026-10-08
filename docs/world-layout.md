@@ -1,5 +1,9 @@
 # Organic field layout
 
+The field also supports six views of the same shared geometry. See
+[world projections](world-projections.md) for the model, camera transforms,
+view controls, approximations and validation.
+
 The field keeps its Phaser scene, world coordinates, building IDs and assets. The Arena remains at `(1400, 975)`. The two enclosing octagonal roads and rectangular Arena road have been removed.
 
 ## Districts
