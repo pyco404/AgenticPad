@@ -117,14 +117,11 @@ world is drawn, before any agent, forest chunk or boat exists:
   natural size and foot. Views draw that exact frame upright on that foot, like
   Top's standees. `standee()` tags the pictures it stretches, so their natural
   proportions are recovered.
-- **The Arena** is Top's own pixel art (`paintArenaArt`, in `ARENA_PALETTE`): its
-  bowl and floor, with AgenticPad's logo on the sand, come with the ground layer,
-  and its front wall and crowd lie on the ground plane in the same world rectangle
-  Top paints them in, so the oval lines up with the forecourt and roads. Top paints
-  it as one oblique picture, so at low angles it reads as painted on the ground
-  rather than standing up like the cut-out buildings. The 3D form on `COLOSSEUM`
-  stays in the model as the Arena's label anchor (its north rim), tap target and
-  occlusion volume.
+- **The Arena** stands in 3D on `COLOSSEUM`, in the village's materials
+  (`ARENA_PALETTE`): red-brown roofs, shaded coursed stone, timber seating, a
+  sand floor, thin green and brass trim, with AgenticPad's logo
+  (`agenticpad-tb.png`, unaltered) in the middle of the floor. Its name sits on
+  its north rim.
 - **Drawn as shapes in Top**, and so taken from the same shared definitions:
   the arena's four gate torches (`ARENA_TORCHES`, which
   Top's `arena.ts` now draws from too) and the garden fences (`GARDEN_RAILS`,
@@ -134,8 +131,8 @@ world is drawn, before any agent, forest chunk or boat exists:
   Top's `build()` and forest streaming use; flat pieces (plots, yards, planters)
   lie on the ground plane.
 
-Left out on purpose: the cheering crowd's alternate frame, sailing boats, glows
-and night effects.
+Left out on purpose: the arena's own sprite layers (the 3D arena replaces them),
+sailing boats, glows and night effects.
 
 Until the ground image is ready (a moment after the scene starts), views fall
 back to the model's procedural surfaces and buildings described below.
@@ -144,9 +141,7 @@ back to the model's procedural surfaces and buildings described below.
 
 `projected-materials.ts` loads Top's recoloured ground sheet and water texture
 and the tree/prop sprite sheets, and `projected-art.ts` keeps procedural
-cottages, roads and water, for the moment before Top's capture is ready. Until
-then the Arena is drawn in 3D with `ARENA_PALETTE`, with the official logo on its
-floor.
+cottages, roads and water, for the moment before Top's capture is ready.
 
 ## Live scene and interaction
 
