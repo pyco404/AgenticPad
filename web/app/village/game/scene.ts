@@ -6,8 +6,8 @@ import { inMatch, type Place, type Resident } from "../residents";
 import { duelPhase, meetingSpot, pathSpots, ringsInFull, WATCH_RADIUS, type Spot } from "./duels";
 import { Building, type BuildingLabel } from "./building";
 import { Ground } from "./ground";
-import { byGardenPond, drawGardens, GARDEN_PONDS } from "./gardens";
-import { byLandscape, LANDSCAPE_BOXES, MOUNTAIN_BOXES } from "./landscape";
+import { drawGardens, GARDEN_PONDS } from "./gardens";
+import { LANDSCAPE_BOXES, MOUNTAIN_BOXES } from "./landscape";
 import { drawScenery } from "./scenery";
 import { ActivitySimulation, ACTIVITY_CONFIG, describeActivity } from "./activities";
 import type { ActivityState } from "./activities";
@@ -18,7 +18,7 @@ import { CardTable } from "./table";
 import { drawDressing, drawSolarLights, loadDressing, overRoad } from "./dressing";
 import { loadShips, sailShips } from "./ships";
 import { buildArenaArt, drawArena, loadArena, type ArenaHandle } from "./arena";
-import { ARENA_FIELD, HIDDEN_ROADS, inTown, lots, NEW_TOWN_SITES, RESERVED, ROADS, SITES, SQUARE, stands, townBounds } from "./town";
+import { ARENA_FIELD, inTown, NEW_TOWN_SITES, RESERVED, ROADS, SITES, SQUARE, townBounds } from "./town";
 import { CROSSROADS, inNewTown, onOldGround, PIER, WORLD } from "./world";
 import { nightOf, num, VOID, warm } from "./palette";
 import { chunkKey, chunksIn, chunkTrees, CHUNK, type ForestRules, type Tree } from "./forest";
@@ -27,7 +27,7 @@ import { drawMap, loadMap, type VillageMap } from "./map";
 import { canopy, NEW_TOWN, openPlots, overlaps, PIECE_ART, plotClearing, type Box, type Plot } from "./growth";
 import { Roads, type Point } from "./roads";
 import { referenceArt } from "./reference-art";
-import { byRiver, RIVER_BANKS, waterTerrain } from "./river";
+import { byRiver, RIVER_BANKS } from "./river";
 import { drawRiver } from "./river-scenery";
 import { crispText, MONO } from "./text";
 import { layOutNames, namesInView, type NameLabel } from "./labels";
@@ -35,6 +35,7 @@ import { agentPopulation, allocateHomes, clearRoute, neighbourhoodSpots } from "
 import { playhead } from "@/lib/playhead";
 import { sound } from "@/lib/sound";
 import { bodyColours, GRID_LARGE, pixelate, portraitUrl, turned } from "@/lib/pixel-portrait";
+import { createWorldModel, plotObjects, treeObject, worldObject, type WorldModel, type WorldObject, type WorldSnapshot } from "../../../lib/world/model";
 
 /** A match being played in the arena: its two sides, the table between them, the running score over it, and the timer that drives both. */
 type Brawl = { a: string; b: string; score: Phaser.GameObjects.Text; table: CardTable; ticker: Phaser.Time.TimerEvent };
@@ -120,6 +121,12 @@ export type SceneOptions = {
 export const renderScale = (scene: Phaser.Scene) => (scene.game.scale.zoom > 0 ? 1 / scene.game.scale.zoom : 1);
 
 export class VillageScene extends Phaser.Scene {
+  private sharedWorld: WorldModel | null = null;
+  private projectedForest: WorldObject[] = [];
+  private forestQueue: { cx: number; cy: number }[] | null = null;
+  private projectionRevision = 0;
+  private projectionPopulation = -1;
+  private projectionWorld: WorldModel | null = null;
   private roads!: Roads;
   private doors = new Map<string, Point>();
   private buildings = new Map<string, Building>();
@@ -213,30 +220,27 @@ export class VillageScene extends Phaser.Scene {
 
   create(): void {
     buildArenaArt(this);
-    // Water is real terrain: navigation treats the ocean as wet ground.
-    const scenicTerrain = waterTerrain();
-    const scenicTiles = new Set(scenicTerrain.map(([c, r]) => `${c},${r}`));
-    this.map = { ...this.map, terrain: [...this.map.terrain.filter(([c, r]) => !scenicTiles.has(`${c},${r}`)), ...scenicTerrain] };
+    this.sharedWorld = createWorldModel(this.map, (key) => {
+      if (!this.textures.exists(key)) return null;
+      const frame = this.textures.getFrame(key);
+      return frame ? { width: frame.realWidth, height: frame.realHeight } : null;
+    }, Object.fromEntries(this.opts.buildings.map((b) => [b.id, b.label])));
+    this.map = this.sharedWorld.map;
     this.cameras.main.setBackgroundColor(VOID);
     // The dressing (dressing.ts), then the map with the town's roads (town.ts) in place of its own: its
     // forest, less what stands where the town is - its buildings, their props, its roads.
-    const dressing = drawDressing(this, this.opts.still);
-    const districts = drawDistrictProps(this);
+    const dressing = drawDressing(this, this.opts.still, this.sharedWorld.pieces);
+    const districts = drawDistrictProps(this, this.sharedWorld.districtPieces);
     const solids = [...dressing.solids, ...districts.solids];
-    const placed = [...dressing.placed, ...districts.placed];
-    const taken = lots(placed);
-    this.trees = drawMap(this, {
-      ...this.map,
-      paths: ROADS,
-      decorations: this.map.decorations.filter((d) => stands(d, taken) && !overRoad(d, ROADS) && !byGardenPond(d) && !byLandscape(d) && !byRiver(d)),
-    });
+    const taken = this.sharedWorld.lots;
+    this.trees = drawMap(this, this.sharedWorld.map);
     drawDistrictTerrain(this);
     drawGardens(this, taken);
     drawScenery(this, this.opts.still);
     drawRiver(this, this.opts.still);
 
     for (const def of this.opts.buildings) {
-      const site = SITES[def.id];
+      const site = this.sharedWorld.sites[def.id];
       if (!site) continue;
       const click = () => {
         if (!this.dragged) this.opts.events.selectBuilding(def.id);
@@ -246,7 +250,7 @@ export class VillageScene extends Phaser.Scene {
       this.buildings.set(def.id, building);
     }
     this.roads = new Roads(
-      [...ROADS.map((p) => p.points.map(([x, y]) => ({ x, y }))), ...HIDDEN_ROADS],
+      [...this.sharedWorld.map.paths.map((p) => p.points.map(([x, y]) => ({ x, y }))), ...this.sharedWorld.hiddenRoads],
       [...this.doors.values()],
     );
     // A building is solid as its picture's box, but the arena as its walls: agents fight inside it.
@@ -261,6 +265,7 @@ export class VillageScene extends Phaser.Scene {
     // Open ground for a ring when the paths are full: Old Town's and New Town's, not the Wilds'.
     this.ringClearings = this.ground.anywhere.filter((p) => inTown(p) || inNewTown(p));
     this.gate = this.ground.nearestDry(this.map.spawn);
+    this.sharedWorld = { ...this.sharedWorld, objects: this.sharedWorld.objects.map((o) => o.id === "movement:spawn" ? { ...o, x: this.gate.x, y: this.gate.y } : o) };
 
     // The existing southern pier remains walkable; routine activities do not send agents swimming.
     this.dock = { x: PIER.x, y: PIER.y + 20, halfWidth: 22, halfHeight: 70 };
@@ -313,6 +318,35 @@ export class VillageScene extends Phaser.Scene {
   }
 
   // --- Growth -------------------------------------------------------------
+
+  /** Read-only projections observe the live scene; they never create another simulation. */
+  worldSnapshot(): WorldSnapshot | null {
+    if (!this.sharedWorld || !this.forestRules) return null;
+    if (this.projectionPopulation !== this.grown.size) {
+      this.projectionPopulation = this.grown.size;
+      this.projectedForest = [];
+      this.forestQueue = chunksIn(this.sharedWorld.bounds);
+      this.projectionWorld = null;
+    }
+    // Generate the identical seeded forest independently of Top's streamed sprite visibility.
+    // Bound main-thread work per snapshot, then retain the full geometry across view switches.
+    const fresh = this.forestQueue?.splice(0, 3) ?? [];
+    for (const c of fresh) this.projectedForest.push(...chunkTrees(c.cx, c.cy, this.forestRules).map(treeObject));
+    if (!this.projectionWorld || fresh.length) {
+      const plots = NEW_TOWN.plots.filter((p) => this.grown.has(p.id));
+      const clearings = plots.map((p) => plotClearing(p, 180));
+      const base = this.sharedWorld.objects.filter((o) => o.type !== "tree" || !clearings.some((b) => {
+        const p = o.metadata?.topAnchor ?? o;
+        const s = o.width / 192;
+        return overlaps(canopy({ ...p, s }), b);
+      }));
+      this.projectionWorld = { ...this.sharedWorld, objects: [...base, ...plots.flatMap(plotObjects), ...this.projectedForest] };
+      this.projectionRevision++;
+    }
+    const agents = [...this.heroes].map(([id, h]) => ({ ...worldObject(`agent:${id}`, "agent", h.x, h.y, 20, 14, 38),
+      metadata: { label: this.residents.get(id)?.name, mine: this.mine.has(id) } }));
+    return { world: this.projectionWorld, revision: this.projectionRevision, agents, night: this.isNight, forestPending: !!this.forestQueue?.length };
+  }
 
   /**
    * The village grows with real agents across all tokens (growth.ts): each plot that has opened

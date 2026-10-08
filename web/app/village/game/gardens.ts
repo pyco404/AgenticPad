@@ -6,7 +6,7 @@ import { SOLAR_LIGHTS } from "./dressing";
 import { byRiver } from './river';
 
 /** Hand tended gardens around the playable village; never inputs to a match. */
-import { GARDEN_PONDS } from "./landmarks";
+import { GARDEN_BENCHES, GARDEN_PONDS, GARDEN_RAILS } from "../../../lib/world/landmarks";
 export { GARDEN_PONDS } from "./landmarks";
 const inside = (p: { x: number; y: number }, b: Rect, margin = 0) =>
   p.x > b.x0 - margin && p.x < b.x1 + margin && p.y > b.y0 - margin && p.y < b.y1 + margin;
@@ -95,7 +95,7 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
   }
   // Low timber rails and benches divide the gardens into tended little
   // clearings without closing any of the walking routes.
-  for (const [x, y, width] of [[660, 285, 120], [1850, 285, 145], [1050, 1380, 150], [1570, 1400, 160], [440, 1050, 85], [2270, 1060, 90]]) {
+  for (const [x, y, width] of GARDEN_RAILS) {
     if (nearRoad({ x: x! + width! / 2, y: y! }, 25) || byRiver({ x: x! + width! / 2, y: y! })) continue;
     const fence = scene.add.graphics().setDepth(y!);
     fence.fillStyle(0x473b2b).fillRect(x!, y! - 17, width!, 5).fillRect(x!, y! - 8, width!, 4);
@@ -106,7 +106,7 @@ export function drawGardens(scene: Phaser.Scene, taken: Rect[]): void {
       fence.fillStyle(0xe0b765).fillRect(x! + dx - 2, y! - 24, 6, 3);
     }
   }
-  for (const [x, y] of [[1160, 235], [1550, 215], [1230, 1310], [1570, 1320], [770, 1400], [2040, 1420]]) {
+  for (const [x, y] of GARDEN_BENCHES) {
     if (!nearRoad({ x: x!, y: y! }, 15) && !byRiver({ x: x!, y: y! }) && !taken.some((b) => inside({ x: x!, y: y! }, b)) && scene.textures.exists("ac-bench")) {
       scene.add.image(x!, y!, "ac-bench").setOrigin(0.5, 1).setScale(2).setDepth(y!);
     }

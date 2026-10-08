@@ -7,11 +7,13 @@ import type { BuildingLabel } from "./building";
 import type { VillageMap } from "./map";
 import { VOID } from "./palette";
 import { VillageScene, type VillageEvents } from "./scene";
-import { CROSSROADS, lakeTerrain, WORLD } from "./world";
+import { prepareWorldMap, type WorldSnapshot } from "../../../lib/world/model";
 
 export type { BuildingLabel } from "./building";
 
 export type VillageHandle = {
+  snapshot: () => WorldSnapshot | null;
+  setProjectedZoom: (zoom: ((step: 1 | -1) => void) | null) => void;
   setResidents: (residents: Resident[]) => void;
   /** `pan` brings the camera to them: for a selection made outside the canvas. */
   select: (id: string | null, pan?: boolean) => void;
@@ -52,13 +54,7 @@ export async function startVillage(
   // Agent Quest's map brings Old Town's ground, its in-town trees and its props; the world round it is
   // laid out here (world.ts): its size, plain grass under everything, the small lake, the crossroads' plazas.
   const imported = (await res.json()) as VillageMap;
-  const map: VillageMap = {
-    ...imported,
-    world: { x0: WORLD.x0, y0: WORLD.y0, width: WORLD.x1 - WORLD.x0, height: WORLD.y1 - WORLD.y0 },
-    baseFrame: 11,
-    terrain: lakeTerrain(),
-    plazas: CROSSROADS.map((c) => [c.x, c.y]),
-  };
+  const map = prepareWorldMap(imported);
 
   const scene = new VillageScene(map, opts);
   const size = () => {
@@ -106,7 +102,14 @@ export async function startVillage(
   };
   watchDensity();
 
+  let projectedZoom: ((step: 1 | -1) => void) | null = null;
   return {
+    snapshot: () => scene.worldSnapshot(),
+    setProjectedZoom: (zoom) => {
+      projectedZoom = zoom;
+      // Skip the hidden WebGL render while keeping the same scene's simulation ticking.
+      scene.sys.settings.visible = zoom === null;
+    },
     setResidents: (r) => scene.setResidents(r),
     select: (id, pan = false) => scene.select(id, pan),
     setInsets: (inset) => scene.setInsets(inset),
@@ -115,7 +118,7 @@ export async function startVillage(
     setMine: (ids) => scene.setMine(ids),
     setObservation: (on) => scene.setObservation(on),
     findMine: () => scene.findMine(),
-    zoom: (step) => scene.zoomBy(step),
+    zoom: (step) => projectedZoom ? projectedZoom(step) : scene.zoomBy(step),
     view: (mode) => scene.showView(mode),
     lookAt: (point) => scene.lookAt(point),
     destroy: () => {

@@ -44,7 +44,7 @@ export function loadDressing(scene: Phaser.Scene): void {
 export type Bounds = { x: number; y: number; width: number; height: number };
 
 /** Draw the dressing, each piece at the depth of its foot like the map's own; return what is solid, and where everything is. */
-export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bounds[]; placed: Bounds[] } {
+export function drawDressing(scene: Phaser.Scene, still: boolean, pieces: readonly Piece[] = PIECES): { solids: Bounds[]; placed: Bounds[] } {
   // Scattered worn cobbles under the stalls; the ordinary roads supply their connection.
   // No enclosing platform or kerb: grass meets the market along an uneven edge.
   const market = scene.add.graphics().setDepth(groundDepth(-410));
@@ -70,7 +70,7 @@ export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bou
 
   const solids: Bounds[] = [];
   const placed: Bounds[] = [];
-  for (const p of PIECES) {
+  for (const p of pieces) {
     if (!scene.textures.exists(p.key)) continue;
     const obj = p.sheet ? scene.add.sprite(p.x, p.y, p.key, p.sheet.start ?? 0) : scene.add.image(p.x, p.y, p.key);
     obj.setOrigin(0.5, p.foot ?? 1).setScale(p.scale).setFlipX(p.flip ?? false).setDepth(p.depth ?? p.y);
@@ -97,10 +97,8 @@ export function drawDressing(scene: Phaser.Scene, still: boolean): { solids: Bou
  * dark, charging; at night they come on, a warm pool on the ground and a glow
  * drawn over the night's blue so it reads as light rather than as paint.
  */
-export const SOLAR_LIGHTS: { x: number; y: number }[] = [
-  { x: 1100, y: 1192 },
-  { x: 1700, y: 1192 },
-];
+import { SOLAR_LIGHTS } from "../../../lib/world/landmarks";
+export { SOLAR_LIGHTS } from "../../../lib/world/landmarks";
 
 /** The lamp, a row to a string, in art pixels: panel, lamp, cap, post, foot. */
 const LAMP_ART = [

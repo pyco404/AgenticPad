@@ -3,9 +3,7 @@ import type * as Phaser from "phaser";
 import { DISTRICTS } from "./districts";
 import { groundDepth } from "./depth";
 import { standee } from "./billboard";
-import { byRiver } from "./river";
-import { nearRoad, RESERVED, SITES } from "./town";
-import { byGardenPond } from "./gardens";
+import { SITES } from "./town";
 import type { Bounds } from "./dressing";
 
 /** Seeded, low-resolution ground patches fade with pixel dithering, rather than artificial district borders. */
@@ -37,12 +35,11 @@ export function drawDistrictTerrain(scene: Phaser.Scene): void {
 }
 
 /** Reuse the existing pixel art for small neighbourhood clusters. Houses remain obstacles. */
-export function drawDistrictProps(scene: Phaser.Scene): { solids: Bounds[]; placed: Bounds[] } {
+export function drawDistrictProps(scene: Phaser.Scene, plan: typeof DISTRICT_PIECES): { solids: Bounds[]; placed: Bounds[] } {
 
   const solids: Bounds[] = [], placed: Bounds[] = [];
-  for (const p of DISTRICT_PIECES) {
-    if (!scene.textures.exists(p.key) || byRiver(p) || byGardenPond(p) || nearRoad(p, 50) || RESERVED.some((b) => p.x > b.x0 && p.x < b.x1 && p.y > b.y0 && p.y < b.y1)) continue;
-    if ((p.x < 200 && !SITES.bazaar) || (p.x > 2600 && !SITES.launchpad)) continue;
+  for (const p of plan) {
+    if (!scene.textures.exists(p.key)) continue;
     const obj = scene.add.image(p.x, p.y, p.key).setOrigin(0.5, 1).setScale(p.scale).setDepth(p.y);
     const box = { x: p.x, y: p.y, width: obj.displayWidth, height: obj.displayHeight };
     placed.push(box);
