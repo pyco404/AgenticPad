@@ -170,4 +170,4 @@ More: [docs/holder-agents.md](docs/holder-agents.md) · [docs/economy.md](docs/e
 
 ## Contributors
 
-- **OpenAI Codex** — AI coding assistance for the arena entrances, continuous projected agent rendering, and render regression validation.
+- **[OpenAI Codex](https://github.com/codex)** — AI coding assistance for the arena entrances, continuous projected agent rendering, default camera framing, and render regression validation.
