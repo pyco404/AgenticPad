@@ -551,6 +551,11 @@ export class Hero {
   }
 
   /** Whether its name would show at all, before names are kept apart. */
+  /** The name tag as Top would show it, for another view to draw: its text, colour and whether it shows. */
+  nameTag(): { text: string; colour: string; shown: boolean; mine: boolean; selected: boolean } {
+    return { text: this.label.text, colour: this.mine ? "#f3cf70" : this.opts.nameColour, shown: this.wantsName(), mine: this.mine, selected: this.selected };
+  }
+
   private wantsName(): boolean {
     // Standing at its hall, a house agent's name waits for the pointer: a dozen names there at once would bury the hall.
     return this.opts.named || this.mine || this.hovered || this.selected || this.walking || this.roaming;

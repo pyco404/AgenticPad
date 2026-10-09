@@ -9,6 +9,9 @@ import type { VillageHandle } from "./game";
 import { renderProjectedWorld, type ProjectedLayer, type ProjectionCamera } from "./game/projected-art";
 import { dragCamera, easeCamera, frameProjection, project, unprojectGround, yawDelta } from "../../lib/world/projection";
 import { VOID, nightOf } from "./game/palette";
+
+/** The village's monospace, as Top's labels use; game/text.ts imports Phaser, which cannot load here. */
+const MONO = 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace';
 import { loadProjectedMaterials } from "./game/projected-materials";
 import { canvasPainter } from "./game/projected-agents";
 import { agentBox, inside, worldPicker, type ScreenBox, type WorldTarget } from "./game/projected-picking";
@@ -336,6 +339,25 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         }
         worldPerformance.endStage("composite",compositeStarted);
         const labelStarted=worldPerformance.start();
+        // Agents' names over their heads, as Top shows them: your own (gold) and players' always, house
+        // agents while walking or hovered. Yours and the selected one first; none overlaps another.
+        {
+          ctx.save();
+          ctx.font = `bold 12px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom"; ctx.lineJoin = "round";
+          const tags = shown.flatMap(({ agent, x, y }) => {
+            const tag = handle.nameTag(agent.id);
+            return tag && tag.shown && tag.text ? [{ ...tag, x, y: y - 42 * k - 3 }] : [];
+          }).sort((a, b) => Number(b.mine) - Number(a.mine) || Number(b.selected) - Number(a.selected) || a.y - b.y);
+          const taken: { x0: number; x1: number; y0: number; y1: number }[] = [];
+          for (const t of tags) {
+            const w = ctx.measureText(t.text).width, box = { x0: t.x - w / 2 - 3, x1: t.x + w / 2 + 3, y0: t.y - 14, y1: t.y + 1 };
+            if (!t.mine && taken.some((b) => b.x0 < box.x1 && box.x0 < b.x1 && b.y0 < box.y1 && box.y0 < b.y1)) continue;
+            taken.push(box);
+            ctx.lineWidth = t.selected ? 5 : 3; ctx.strokeStyle = t.selected ? "#5c4a22" : "#000";
+            ctx.strokeText(t.text, t.x, t.y); ctx.fillStyle = t.colour; ctx.fillText(t.text, t.x, t.y);
+          }
+          ctx.restore();
+        }
         // Labels are bounded to landmarks and avoid DOM nodes for objects/agents.
         const labels = snapshot.world.objects.filter((o) => o.id.startsWith("site:") || o.type === "mountain" || o.metadata?.landmark).sort((a, b) => Number(b.type === "arena") - Number(a.type === "arena"));
         ctx.font = "11px monospace"; ctx.textAlign = "center";

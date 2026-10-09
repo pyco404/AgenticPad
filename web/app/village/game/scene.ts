@@ -439,6 +439,9 @@ export class VillageScene extends Phaser.Scene {
   private visibleAgents: ReadonlySet<string> | null = null;
   setVisibleAgents(ids: ReadonlySet<string> | null): void { this.visibleAgents = ids; }
   inspectAgent(id: string) { return this.heroes.get(id.replace(/^agent:/, ""))?.renderState() ?? null; }
+  /** Each agent's name tag, as Top would show it (Hero.nameTag). */
+  nameTag(id: string) { return this.heroes.get(id.replace(/^agent:/, ""))?.nameTag() ?? null; }
+
   agentSnapshot(): WorldSnapshot["agents"] {
     return [...this.heroes].map(([id, h]) => ({ ...worldObject(`agent:${id}`, "agent", h.x, h.y, 20, 14, 38),
       metadata: { label: this.residents.get(id)?.name, mine: this.mine.has(id) } }));

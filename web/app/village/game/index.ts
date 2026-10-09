@@ -24,6 +24,8 @@ export type VillageHandle = {
   snapshot: () => WorldSnapshot | null;
   agents: () => WorldSnapshot["agents"];
   setVisibleAgents: (ids: ReadonlySet<string> | null) => void;
+  /** An agent's name tag as Top would show it, for the world camera to draw. */
+  nameTag: (id: string) => ReturnType<VillageScene["nameTag"]>;
   /** Live Bluff & Fold matches, for the world camera to draw: rings on the ground, tables and scores. */
   matchRings: () => ReturnType<VillageScene["matchRings"]>;
   matchTables: () => ReturnType<VillageScene["matchTables"]>;
@@ -127,6 +129,7 @@ export async function startVillage(
     snapshot: () => scene.worldSnapshot(),
     agents: () => scene.agentSnapshot(),
     setVisibleAgents: (ids) => scene.setVisibleAgents(ids),
+    nameTag: (id) => scene.nameTag(id),
     matchRings: () => scene.matchRings(),
     matchTables: () => scene.matchTables(),
     setViewCentre: (p) => scene.setViewCentre(p),
