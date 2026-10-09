@@ -47,6 +47,21 @@ export async function ownerOf(request: Request): Promise<string> {
   return new PublicKey(data.ownerId).toBase58();
 }
 
+/**
+ * Whether a POST comes from this site's own pages. Behind a host's proxy (Railway) the request's
+ * own URL is the internal address, so the origin is checked against the public one the proxy
+ * forwarded, the configured site address, and the request URL for local runs.
+ */
+export function fromThisSite(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+  const allowed = new Set<string>([new URL(request.url).origin]);
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (host) allowed.add(`${request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https"}://${host.split(",")[0]!.trim()}`);
+  try { allowed.add(new URL(siteLinks.website).origin); } catch { /* not configured */ }
+  return allowed.has(origin);
+}
+
 /** Limit even chunked requests before parsing; uploads never fetch arbitrary user URLs. */
 export async function readLaunchBody(request: Request): Promise<Record<string, unknown>> {
   const reader = request.body?.getReader();

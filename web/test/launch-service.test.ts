@@ -5,7 +5,7 @@ import { globalFixture, sharedTable } from "./pump-fixture";
 import { pump } from "../lib/pump-sdk";
 import { feeWallets } from "../lib/launchpad-config";
 import { launchStore } from "../lib/launchpad-store";
-import { ownerOf, prepareLaunch, pumpConfig, readLaunchBody, statusOfLaunch, submitLaunch, listPumpTokens } from "../lib/launchpad-server";
+import { fromThisSite, ownerOf, prepareLaunch, pumpConfig, readLaunchBody, statusOfLaunch, submitLaunch, listPumpTokens } from "../lib/launchpad-server";
 import type { LaunchForm } from "../lib/launchpad";
 
 const MAINNET = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -173,6 +173,16 @@ describe("Launch service (RPC and IPFS stubbed; no transactions sent)", () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ownerId: form.creator }));
     expect(await ownerOf(new Request("https://agenticpad.example/api/launchpad/prepare", { headers: { authorization: "Bearer test-session" } }))).toBe(form.creator);
     await expect(ownerOf(new Request("https://agenticpad.example/"))).rejects.toThrow("sign in");
+  });
+  it("accepts launch posts from this site behind a host's proxy, and refuses other sites", () => {
+    // Railway hands the app its internal address; the public one arrives in forwarded headers.
+    const at = (origin: string | null, headers: Record<string, string> = {}) =>
+      fromThisSite(new Request("http://localhost:8080/api/launchpad/prepare", { method: "POST", headers: { ...(origin ? { origin } : {}), ...headers } }));
+    expect(at("https://agenticpad.site", { "x-forwarded-host": "agenticpad.site", "x-forwarded-proto": "https" })).toBe(true);
+    expect(at("https://agenticpad.site")).toBe(true);
+    expect(at("http://localhost:8080")).toBe(true);
+    expect(at("https://evil.example", { "x-forwarded-host": "agenticpad.site", "x-forwarded-proto": "https" })).toBe(false);
+    expect(at(null)).toBe(false);
   });
   it("bounds chunked JSON request bodies", async () => {
     const request = new Request("https://agenticpad.example/", { method: "POST", body: "a".repeat(3_000_001) });

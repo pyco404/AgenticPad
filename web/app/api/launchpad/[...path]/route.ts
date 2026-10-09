@@ -1,5 +1,5 @@
 import {
-  getPumpToken, LaunchError, listPumpTokens, ownerOf, prepareLaunch,
+  getPumpToken, LaunchError, fromThisSite, listPumpTokens, ownerOf, prepareLaunch,
   pumpConfig, readLaunchBody, statusOfLaunch, submitLaunch,
 } from "@/lib/launchpad-server";
 import type { LaunchSort } from "@/lib/launchpad";
@@ -30,7 +30,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       });
       else throw new LaunchError("Not found.", 404);
     } else {
-      if (request.method === "POST" && request.headers.get("origin") !== url.origin) throw new LaunchError("Launch requests must come from this site.", 403);
+      if (request.method === "POST" && !fromThisSite(request)) throw new LaunchError("Launch requests must come from this site.", 403);
       const owner = await ownerOf(request);
       if (request.method === "POST" && path.length === 1 && path[0] === "prepare") result = await prepareLaunch(await readLaunchBody(request), owner);
       else if (request.method === "POST" && path.length === 2 && path[1] === "submit") result = await submitLaunch(path[0]!, await readLaunchBody(request), owner);

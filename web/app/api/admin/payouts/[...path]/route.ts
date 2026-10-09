@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { LAUNCH_FEE_RECIPIENT, DAILY_REWARDS_WALLET, WEEKLY_REWARDS_WALLET } from "@/lib/launchpad-fees";
-import { LaunchError, ownerOf, readLaunchBody } from "@/lib/launchpad-server";
+import { fromThisSite, LaunchError, ownerOf, readLaunchBody } from "@/lib/launchpad-server";
 import { buildPayoutPlan, type PayoutInput, type PayoutWinner } from "@/lib/payout-plan";
 import { PayoutStore } from "@/lib/payout-store";
 import { ExecutionStore } from "@/lib/payout-execution-store";
@@ -30,7 +30,7 @@ function agpMint() {
 }
 async function handle(request: Request, context: { params: Promise<{ path: string[] }> }) {
   try {
-    if (request.method === "POST" && request.headers.get("origin") !== new URL(request.url).origin) throw new LaunchError("Payout requests must come from this site.", 403);
+    if (request.method === "POST" && !fromThisSite(request)) throw new LaunchError("Payout requests must come from this site.", 403);
     const owner = await ownerOf(request);
     await adminRead(request, "/admin");
     const { path } = await context.params;
