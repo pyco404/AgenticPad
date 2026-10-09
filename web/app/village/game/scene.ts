@@ -1,3 +1,4 @@
+import { worldPerformance } from "../../../lib/world/render-performance";
 // Adapted from Agent Quest (MIT, see ./LICENSE).
 import * as Phaser from "phaser";
 import { standee, standingVisible } from "./billboard";
@@ -353,6 +354,7 @@ export class VillageScene extends Phaser.Scene {
   private readonly frameArt = new Map<string, ArtFrame>();
 
   private captureTop(): void {
+    worldPerformance.count("phaserCaptures");
     // The arena keeps its own 3D form on the shared footprint; boats sail; glows and shadows are effects.
     const skip = new Set(["building-arena", "ac-oval-front", "ac-oval-crowd", "ac-oval-cheer", "dress-ship", "dress-solar-glow", "world-pixel-shadow"]);
     const labels = new Map(this.sharedWorld!.objects.filter((o) => o.id.startsWith("site:")).map((o) => [o.id, o.metadata?.label]));
@@ -453,8 +455,10 @@ export class VillageScene extends Phaser.Scene {
     // Generate the identical seeded forest independently of Top's streamed sprite visibility.
     // Bound main-thread work per snapshot, then retain the full geometry across view switches.
     const fresh = this.forestQueue?.splice(0, 3) ?? [];
+    worldPerformance.count("forestChunks",fresh.length);
     for (const c of fresh) this.projectedForest.push(...chunkTrees(c.cx, c.cy, this.forestRules).map(treeObject));
     if (!this.projectionWorld || fresh.length) {
+      worldPerformance.count("worldBuilds");
       const plots = NEW_TOWN.plots.filter((p) => this.grown.has(p.id));
       const clearings = plots.map((p) => plotClearing(p, 180));
       // Top's captured pictures replace the model's own sprite placements; the model keeps what Top
@@ -480,6 +484,7 @@ export class VillageScene extends Phaser.Scene {
       const key = `${ref.key}:${ref.frame}`, image = f.source.image as CanvasImageSource;
       const cached = this.frameArt.get(key);
       if (cached?.image === image) return cached;
+      worldPerformance.count("textureDecodes");
       const frame: ArtFrame = { image, x: f.cutX, y: f.cutY, width: f.cutWidth, height: f.cutHeight };
       const canvas = document.createElement("canvas"); canvas.width = frame.width; canvas.height = frame.height;
       const ctx = canvas.getContext("2d", { willReadFrequently: true })!;

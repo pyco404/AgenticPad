@@ -2,7 +2,9 @@ import type { ArtFrame, ArtRef, WorldObject } from './model';
 import { directionalArt, localSize, objectVertex, ORIENTATION_YAW, physicalKind, type ObjectSide } from './object-appearance';
 import { cameraAngle, type Projection } from './projection';
 import { buildingMaterial, VILLAGE_MATERIAL as M } from './object-materials';
-import { darker, TERRAIN } from '../../app/village/game/palette';
+import { darker } from '../../app/village/game/palette';
+
+export const TREE_VARIATION_COUNT=7;
 
 type Vertex = { x: number; y: number; z: number };
 export type PhysicalFace = { vertices: Vertex[]; colour: string; normal: Vertex; art?: ArtRef | undefined; side?: ObjectSide | undefined; crop?: ArtFrame["content"] | undefined };
@@ -119,24 +121,26 @@ export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalF
     face([[-w*.17,d/2+1,0],[w*.17,d/2+1,0],[0,d/2+1,h*.64]],M.woodDark,[0,1,0]);
     for(const side of ['front','back','left','right'] as const) facade(side,1);
   } else if(kind==='tree' || kind==='shrub') {
-    box(-w*.055,-w*.055,0,w*.055,w*.055,h*.65,M.woodDark,M.wood);
-    // Fixed, asymmetrical foliage clusters. Rotation reveals different branches and facets.
+    // Vegetation is radially irregular rather than a building facade. Two fixed,
+    // double-sided planes use its own pixel foliage, with a crown surface for high
+    // camera tilts. Their local axes never follow camera yaw (no billboarding).
     const seed=[...o.id].reduce((n,char)=>(n*31+char.charCodeAt(0))>>>0,0);
-    const colours=[TERRAIN.tree.deep,TERRAIN.tree.mid,TERRAIN.tree.light];
-    for(let i=0;i<3;i++) {
-      const a=(seed%17+i*2.4), r=w*(i? .13:0), x=Math.cos(a)*r, y=Math.sin(a)*r;
-      const z=h*(.45+(i%3)*.15), radius=w*(i?.27:.3);
-      // Rounded, faceted crowns have tapered tops/bottoms rather than barrel-shaped caps.
-      const half = h * .17, middle = Math.min(h - half, z + half), n = 8;
-      for (let j = 0; j < n; j++) {
-        const a = j * Math.PI * 2 / n, b = (j + 1) * Math.PI * 2 / n;
-        const p = [x + Math.cos(a) * radius, y + Math.sin(a) * radius * .85, middle];
-        const q = [x + Math.cos(b) * radius, y + Math.sin(b) * radius * .85, middle];
-        const normal = [Math.cos((a+b)/2), Math.sin((a+b)/2)];
-        face([p,q,[x,y,middle+half]],colours[(i+j%2)%3]!,[normal[0]!,normal[1]!,1]);
-        face([q,p,[x,y,middle-half]],colours[i%3]!,[normal[0]!,normal[1]!,-1]);
-      }
-    }
+    const source=directionalArt(o,'front');
+    const art:ArtRef=kind==='tree'
+      ? {key:'resources-trees-tree',frame:typeof source?.frame==='number' ? source.frame%4 : seed%2}
+      : source ?? {key:o.metadata?.texture ?? 'bush-1',frame:0};
+    const turn=((seed%7)-3)*Math.PI/90, ca=Math.cos(turn),sa=Math.sin(turn);
+    const plane=(x:number,y:number,z:number)=>[x*ca-y*sa,y*ca+x*sa,z];
+    const normal=(x:number,y:number,z:number)=>[x*ca-y*sa,y*ca+x*sa,z];
+    face([plane(-w/2,0,0),plane(w/2,0,0),plane(w/2,0,h),plane(-w/2,0,h)],M.crest,normal(0,1,0),'front',art);
+    face([plane(w/2,0,0),plane(-w/2,0,0),plane(-w/2,0,h),plane(w/2,0,h)],M.crest,normal(0,-1,0),'back',art);
+    face([plane(0,w/2,0),plane(0,-w/2,0),plane(0,-w/2,h),plane(0,w/2,h)],M.crest,normal(1,0,0),'right',art);
+    face([plane(0,-w/2,0),plane(0,w/2,0),plane(0,w/2,h),plane(0,-w/2,h)],M.crest,normal(-1,0,0),'left',art);
+    for(const f of faces) f.crop=bounds;
+    // Only foliage goes on the horizontal crown: the source trunk stays vertical.
+    const crown=w*.44;
+    face([plane(-crown,crown,h*.72),plane(crown,crown,h*.72),plane(crown,-crown,h*.72),plane(-crown,-crown,h*.72)],M.crest,[0,0,1],undefined,art);
+    faces[faces.length-1]!.crop={x:bounds?.x??0,y:bounds?.y??0,width:bounds?.width??frame?.width??192,height:Math.max(1,Math.round((bounds?.height??frame?.height??192)*.64))};
   } else if(kind==='bench') {
     box(-w/2,-d/2,h*.34,w/2,d/2,h*.44,M.wood,M.woodLight);
     box(-w/2,-d/2,h*.44,w/2,-d*.32,h,M.wood,M.woodLight);
@@ -201,7 +205,7 @@ export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalF
   // Explicit directional artwork wins on its own face for every physical category.
   // Tree sprites supplied by the forest are source silhouettes, not directional sets.
   for (const side of ['front','back','left','right'] as const) {
-    if (o.directionalAssets?.[side] && !faces.some(f=>f.side===side && f.art)) facade(side,1);
+    if (kind!=='tree' && kind!=='shrub' && o.directionalAssets?.[side] && !faces.some(f=>f.side===side && f.art)) facade(side,1);
   }
   meshes.set(o,{frame,faces}); return faces;
 }

@@ -25,7 +25,7 @@ describe("one Field camera's interactions", () => {
     expect(house).toEqual(before);
   });
 
-  it("lets actual foreground foliage block a building independently of the legacy sprite alpha", () => {
+  it("lets opaque foreground foliage block a building while transparent gaps remain pickable", () => {
     const hall = pictureObject("site:hall", { key: "hall", frame: 0 }, { x: 0, y: 0 }, 100, 300);
     hall.type = "building";
     const tree = pictureObject("tree", { key: "tree", frame: 0 }, { x: 0, y: 100 }, 100, 300);
@@ -33,7 +33,7 @@ describe("one Field camera's interactions", () => {
     const angle = { yaw: 0, tilt: 0.5 }, at = { x: 100, y: 50 };
     const resolve = (ref: { key: string }) => art(ref.key);
     expect(worldPicker(angle, [tree, hall], camera, 200, 200, resolve, () => true)(at)).toBeNull();
-    expect(worldPicker(angle, [tree, hall], camera, 200, 200, resolve, (f) => f.image !== "tree")(at)).toBeNull();
+    expect(worldPicker(angle, [tree, hall], camera, 200, 200, resolve, (f) => f.image !== "resources-trees-tree")(at)).toEqual({ kind: "building", id: "hall" });
   });
 
   it("uses flipped sprite pixels and keeps flat dressing non-interactive", () => {

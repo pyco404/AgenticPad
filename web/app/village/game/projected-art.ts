@@ -1,3 +1,4 @@
+import { worldPerformance } from "../../../lib/world/render-performance";
 import { ARENA_ENTRANCES, ARENA_GATE_WIDTH, ARENA_SIDE_WIDTH, COLOSSEUM_FLOOR } from "../../../lib/world/arena-geometry";
 import type { ArtFrame, ArtRef, TopGround, WorldModel, WorldObject } from "../../../lib/world/model";
 import { depthOrder, footprint, project, type Projection } from "../../../lib/world/projection";
@@ -8,7 +9,7 @@ import type { Pt } from "../../../lib/world/world";
 import { fixedObjectLayer } from "./fixed-world-art";
 
 export type ProjectionCamera = { x: number; y: number; scale: number };
-export type ProjectedLayer = { depth: number; draw: () => void };
+export type ProjectedLayer = { depth: number; draw: () => void; drawScreen?: (camera: ProjectionCamera, width: number, height: number) => void };
 type CaptureLayer = (layer: ProjectedLayer) => void;
 type Vertex = Pt & { z?: number };
 type Brush = {
@@ -390,6 +391,21 @@ function road(b: Brush, o: WorldObject): void {
   }
 }
 
+type StaticGroups={surfaces:WorldObject[];flat:WorldObject[];standing:WorldObject[];water:Set<string>};
+const groups=new WeakMap<WorldModel,StaticGroups>();
+function staticGroups(world:WorldModel):StaticGroups {
+  let known=groups.get(world);if(known)return known;
+  known={surfaces:[],flat:[],standing:[],water:new Set()};
+  for(const o of world.objects){
+    if(o.category==='movement'||o.category==='agent')continue;
+    if(o.type==='water')known.water.add(`${o.x},${o.y}`);
+    if(o.category==='surface')known.surfaces.push(o);
+    else if(o.metadata?.flat)known.flat.push(o);
+    else known.standing.push(o);
+  }
+  groups.set(world,known);return known;
+}
+
 export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: WorldModel, view: Projection, camera: ProjectionCamera, width: number, height: number, materials?: ProjectedMaterials, top?: TopArt, capture?: CaptureLayer): void {
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, width, height);
@@ -406,9 +422,10 @@ export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: World
   else b.ground(corners, 0, materials?.grass);
   // Strata follow the actual terrain block edges in every projection.
   for (const z of [-35, -80, -115]) for (let i = 0; i < 4; i++) b.line([{ ...corners[i]!, z }, { ...corners[(i + 1) % 4]!, z }], z === -115 ? COLOUR.deep : "#c09958", 3);
-  const ordered = depthOrder(view, world.objects.filter((o) => o.category !== "movement"));
-  const waterCells = new Set(world.objects.filter((o) => o.type === "water").map((o) => `${o.x},${o.y}`));
-  for (const o of ordered.filter((o) => o.category === "surface")) {
+  const cached=staticGroups(world),waterCells=cached.water;
+  // Captured scenery is sorted once with live actors by WorldCamera. Sorting every
+  // ground tile and offscreen tree here duplicated that work on every camera delta.
+  for (const o of (ground?[]:cached.surfaces)) {
     if (ground) continue;
     if (o.type === "road") { road(b, o); continue; }
     const wet = o.type === "water" || o.type === "pond";
@@ -434,9 +451,9 @@ export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: World
     }
   }
   // Flat art lies on the ground, under everything standing.
-  for (const o of ordered) if (o.metadata?.flat) picture(ctx, view, o, top);
-  const standing = ordered.filter((o) => o.category !== "surface" && !o.metadata?.flat);
-  for (const o of standing) {
+  for (const o of depthOrder(view,cached.flat)) picture(ctx,view,o,top);
+  const standing=cached.standing;
+  for (const o of (ground?[]:standing)) {
     // Top's ground layer already carries its own shadows.
     if (ground || o.height < 12) continue;
     const at = project(view, o);
@@ -445,9 +462,11 @@ export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: World
     b.polygon(Array.from({ length: 8 }, (_, i) => ({ x: o.x + Math.cos(i * Math.PI / 4) * radius,
       y: o.y + Math.sin(i * Math.PI / 4) * (o.type === "tree" ? radius * 0.6 : o.depth * 0.5), z: 0.1 })), "#163e2438");
   }
-  for (const o of standing) {
-    const centre = project(view, o, o.height / 2), reach = o.width + o.depth + o.height;
-    if (Math.abs(centre.x - camera.x) > width / camera.scale / 2 + reach || Math.abs(centre.y - camera.y) > height / camera.scale / 2 + reach) continue;
+  const near=standing.filter(o=>{
+    const centre=project(view,o,o.height/2),reach=o.width+o.depth+o.height;
+    return Math.abs(centre.x-camera.x)<=width/camera.scale/2+reach&&Math.abs(centre.y-camera.y)<=height/camera.scale/2+reach;
+  });
+  for (const o of (capture?near:depthOrder(view,near))) {
     if (o.type === "arena") { arena(b, view, o, () => arenaFloor(ctx, view, top), capture); continue; }
     const resolve = (ref: ArtRef): ArtFrame | null => {
       const captured = top?.art?.(ref); if (captured) return captured;

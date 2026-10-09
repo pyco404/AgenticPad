@@ -1,5 +1,6 @@
 "use client";
 
+import { worldPerformance } from "../../lib/world/render-performance";
 import { projectedObjectFaces } from "../../lib/world/object-geometry";
 
 import { useEffect, useRef, type RefObject } from "react";
@@ -38,6 +39,7 @@ const homeScale = (width: number) => Math.max(0.3, Math.min(1.2, width / HOME.sp
 
 /** The application's persistent visual world, independent of the active route. */
 export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }: Props) {
+  worldPerformance.count("reactRenders");
   const canvas = useRef<HTMLCanvasElement>(null);
   const options = useRef({ observing, scrolls, inset }); options.current = { observing, scrolls, inset };
   const fit = useRef<(whole?: boolean) => void>(() => {});
@@ -59,6 +61,9 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
     let artwork: ReturnType<typeof loadProjectedMaterials> | null = null;
     let scenery: ProjectedLayer[] = [], retained = new Set<string>();
     const debug = new URLSearchParams(window.location.search).has("debugAgents");
+    worldPerformance.enabled = new URLSearchParams(window.location.search).has("debugWorldPerf");
+    if (worldPerformance.enabled) Object.assign(window,{__worldRenderPerf:worldPerformance,
+      __worldPerfCamera:(yaw:number,tilt=angle.tilt)=>{target={yaw,tilt};dirty=true;}});
     let pickWorld: (p: { x: number; y: number }) => WorldTarget | null = () => null;
     let agentHits: Hit[] = [], labelHits: Hit[] = [];
     const pick = (point: { x: number; y: number }) => {
@@ -125,6 +130,7 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
       if (a && b) for (const p of pointers.values()) p.dragging = true;
     };
     const move = (e: PointerEvent) => {
+      worldPerformance.count("pointerMoves");
       const p = pointers.get(e.pointerId);
       if (!p) return;
       const next = local(e), dx = next.x - p.x, dy = next.y - p.y;
@@ -192,11 +198,17 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
       if (Math.abs(yawDelta(angle.yaw, target.yaw)) + Math.abs(angle.tilt - target.tilt) > 0.00001) {
         angle = easeCamera(angle, target, seconds); dirty = true;
       }
+      const readStarted = worldPerformance.start();
       const read = now - lastRead >= 100;
       if (read) { snapshot = handle.snapshot(); lastRead = now; }
       if (snapshot && width > 0 && height > 0 && now - lastDraw >= 32) {
+        worldPerformance.begin(now);
+        worldPerformance.endStage("snapshot",readStarted);
         // Positions follow the simulation at the paint rate; scenery snapshots can stay throttled.
+        const agentReadStarted=worldPerformance.start();
         snapshot.agents = handle.agents();
+        worldPerformance.endStage("agentSnapshot",agentReadStarted);
+        worldPerformance.count("activeAgents",snapshot.agents.length);
         focus ??= { ...HOME.focus };
         if (following) {
           const agent = snapshot.agents.find((a) => a.id === `agent:${following}`);
@@ -224,12 +236,25 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
           artwork ??= loadProjectedMaterials(snapshot.world, () => { dirty = true; });
           scenery = [];
           // Cache the ground separately. Upright scenery joins live actors in one painter order.
+          const sceneryStarted=worldPerformance.start();
           renderProjectedWorld(ctx, snapshot.world, view, camera, width, height, artwork.materials, { ground: snapshot.ground, art: snapshot.art }, (part) => scenery.push(part));
+          worldPerformance.endStage("scenery",sceneryStarted);
+          const scenerySortStarted=worldPerformance.start();
           scenery.sort((a, b) => a.depth - b.depth);
+          worldPerformance.endStage("scenerySort",scenerySortStarted);
           layer.setTransform(1, 0, 0, 1, 0, 0); layer.clearRect(0, 0, still.width, still.height); layer.drawImage(el, 0, 0);
-          pickWorld = worldPicker(view, snapshot.world.objects, camera, width, height, snapshot.art);
+          // Keep a frozen pose for hit testing. Only a click/gesture start needs the
+          // projected hit polygons; dragging must not rebuild them every paint.
+          const pickView={...view},pickCamera={...camera},pickSnapshot=snapshot,pickWidth=width,pickHeight=height;
+          let prepared:ReturnType<typeof worldPicker>|null=null;
+          pickWorld=point=>{
+            if(!prepared){const started=worldPerformance.start();prepared=worldPicker(pickView,pickSnapshot.world.objects,pickCamera,pickWidth,pickHeight,pickSnapshot.art);worldPerformance.endStage("picking",started);worldPerformance.count("pickBuilds");}
+            return prepared(point);
+          };
           revision = snapshot.revision; dirty = Math.abs(scale - camera.scale) > 0.00001;
         }
+        worldPerformance.count("visibleObjects",scenery.length);
+        const compositeStarted=worldPerformance.start();
         lastDraw = now;
         ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, el.width, el.height); ctx.drawImage(still, 0, 0);
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -271,6 +296,7 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         shown.sort((a, b) => a.depth - b.depth || a.agent.id.localeCompare(b.agent.id));
         agentHits = shown.map(({ agent, x, y }) => ({ target: { kind: "agent" as const, id: agent.id }, box: agentBox({ x, y }, camera!.scale) }));
         const drawScenery = (part: ProjectedLayer) => {
+          if(part.drawScreen){part.drawScreen(camera!,width,height);return;}
           ctx.save(); ctx.translate(width / 2, height / 2); ctx.scale(camera!.scale, camera!.scale); ctx.translate(-camera!.x, -camera!.y);
           part.draw(); ctx.restore();
         };
@@ -308,6 +334,8 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         if (snapshot.night) {
           ctx.save(); ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = nightOf("#ffffff"); ctx.fillRect(0, 0, width, height); ctx.restore();
         }
+        worldPerformance.endStage("composite",compositeStarted);
+        const labelStarted=worldPerformance.start();
         // Labels are bounded to landmarks and avoid DOM nodes for objects/agents.
         const labels = snapshot.world.objects.filter((o) => o.id.startsWith("site:") || o.type === "mountain" || o.metadata?.landmark).sort((a, b) => Number(b.type === "arena") - Number(a.type === "arena"));
         ctx.font = "11px monospace"; ctx.textAlign = "center";
@@ -344,8 +372,10 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
           diagnostics.filter((d) => d.state === "composited").slice(0, 6).forEach((d, i) => ctx.fillText(`${d.id} world ${Math.round(d.worldX as number)},${Math.round(d.worldY as number)} screen ${Math.round(d.screenX as number)},${Math.round(d.screenY as number)} depth ${Math.round(d.depth as number)} ${d.state}`, 20, height - 139 + i * 18));
           ctx.restore();
         }
+        worldPerformance.endStage("labels",labelStarted);
         el.dataset.focusX = String(focus.x); el.dataset.focusY = String(focus.y); el.dataset.following = following ?? "";
         el.dataset.yaw = String(angle.yaw); el.dataset.tilt = String(angle.tilt); el.dataset.zoom = String(camera.scale);
+        worldPerformance.end();
       }
       raf = requestAnimationFrame(frame);
     };
@@ -353,6 +383,7 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
     return () => {
       cancelAnimationFrame(raf); observer.disconnect(); handle.setViewCentre(null); artwork?.dispose(); handle.setVisibleAgents(null); handle.setWorldCamera(null);
       if (debug) Reflect.deleteProperty(window, "__agentRenderDebug");
+      if(worldPerformance.enabled){worldPerformance.enabled=false;Reflect.deleteProperty(window,"__worldRenderPerf");Reflect.deleteProperty(window,"__worldPerfCamera");}
       blur();
       el.removeEventListener("pointerdown", down);
       window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel);
