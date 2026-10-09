@@ -23,6 +23,8 @@ import { WorldCamera } from "@/app/village/world-camera";
 import { AgentStatus, type AgentAccount } from "@/app/village/agent-status";
 import type { WorldView } from "@/app/village/game/presentation";
 import { useArena } from "@/app/village/use-arena";
+import { CopyButton } from "@/app/copy-button";
+import { AGP_MINT } from "@/lib/agp";
 
 /** The phone layout ends here: from md up the page is a panel on the right, below it a sheet along the bottom. */
 const WIDE = "(min-width: 768px)";
@@ -573,23 +575,27 @@ function PersistentWorld({
             Camera
           </button>
         ) : null}
-        <p
-          className={`rounded-panel border border-hud-line bg-hud px-2.5 py-1 text-[11px] uppercase tracking-wide text-muted ${
-            observing || status === "ready" && !stranded ? "hidden md:block" : "mb-10 max-w-[55%] md:mb-0 md:max-w-none"
-          }`}
-        >
-          {status === "failed"
-            ? "The village didn't load"
-            : status === "loading"
-              ? "Opening..."
-              : stranded
-                ? "Can't reach the game server, so no agents yet. Retrying…"
-                : observing
-                  ? "Following your autonomous agent"
-                  : scrolls
-                  ? "Drag empty ground to rotate · ctrl + scroll or pinch to zoom"
-                  : "Drag empty ground to rotate · drag up to look down · scroll or pinch to zoom"}
-        </p>
+        {status === "ready" && !stranded && !observing ? (
+          // The world itself: $AGP's contract address, ready to copy.
+          <p className="rounded-panel pointer-events-auto hidden items-center gap-2 border border-hud-line bg-hud py-1 pl-2.5 pr-1 text-[12px] text-muted md:flex">
+            <span><span className="text-accent">$AGP</span> - <span className="font-mono text-text">{AGP_MINT}</span></span>
+            <CopyButton value={AGP_MINT} label="Copy" className="rounded border border-hud-line px-2 py-0.5 text-[11px] text-accent hover:border-accent" />
+          </p>
+        ) : (
+          <p
+            className={`rounded-panel border border-hud-line bg-hud px-2.5 py-1 text-[11px] uppercase tracking-wide text-muted ${
+              observing || status === "ready" && !stranded ? "hidden md:block" : "mb-10 max-w-[55%] md:mb-0 md:max-w-none"
+            }`}
+          >
+            {status === "failed"
+              ? "The village didn't load"
+              : status === "loading"
+                ? "Opening..."
+                : stranded
+                  ? "Can't reach the game server, so no agents yet. Retrying…"
+                  : "Following your autonomous agent"}
+          </p>
+        )}
         </div>
         {status === "ready" && !scrolls && !observing ? (
           // On a phone the footer chip runs along the bottom edge and "Show the page" sits over it, so these
