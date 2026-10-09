@@ -1,0 +1,795 @@
+[
+  {
+    "kind": "arena",
+    "asset": "site:arena",
+    "available": [],
+    "missing": [
+      "front",
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Arena"
+    ]
+  },
+  {
+    "kind": "bench",
+    "asset": "ac-bench",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 12,
+    "labels": []
+  },
+  {
+    "kind": "bridge",
+    "asset": "ac-pier",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "chest",
+    "asset": "ac-chest",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 3,
+    "labels": []
+  },
+  {
+    "kind": "fence",
+    "asset": "farm-fence",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 2,
+    "labels": []
+  },
+  {
+    "kind": "fence",
+    "asset": "fence",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 5,
+    "labels": []
+  },
+  {
+    "kind": "fire",
+    "asset": "effects-fire-fire",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 5,
+    "labels": []
+  },
+  {
+    "kind": "fire",
+    "asset": "torch",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 4,
+    "labels": []
+  },
+  {
+    "kind": "flag",
+    "asset": "ac-banner",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 11,
+    "labels": []
+  },
+  {
+    "kind": "flag",
+    "asset": "ac-banner-fame",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "flag",
+    "asset": "ac-banner-gold",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "flag",
+    "asset": "ac-flag",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 7,
+    "labels": []
+  },
+  {
+    "kind": "fountain",
+    "asset": "dress-fountain",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "house",
+    "asset": "building-alchemist",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Rulebook House"
+    ]
+  },
+  {
+    "kind": "house",
+    "asset": "dress-house-blue",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 2,
+    "labels": []
+  },
+  {
+    "kind": "house",
+    "asset": "dress-house-red",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 3,
+    "labels": []
+  },
+  {
+    "kind": "house",
+    "asset": "dress-house-yellow",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 3,
+    "labels": []
+  },
+  {
+    "kind": "house",
+    "asset": "growth-apartments",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 4,
+    "labels": []
+  },
+  {
+    "kind": "house",
+    "asset": "growth-house-a",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 10,
+    "labels": []
+  },
+  {
+    "kind": "house",
+    "asset": "growth-house-b",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 4,
+    "labels": []
+  },
+  {
+    "kind": "house",
+    "asset": "growth-office",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 4,
+    "labels": []
+  },
+  {
+    "kind": "lamp",
+    "asset": "dress-solar-lamp",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 2,
+    "labels": []
+  },
+  {
+    "kind": "launch-pad",
+    "asset": "building-launchpad",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Launch Pad"
+    ]
+  },
+  {
+    "kind": "major-building",
+    "asset": "building-castle",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Strategy Lab"
+    ]
+  },
+  {
+    "kind": "major-building",
+    "asset": "building-chapel",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Treasury"
+    ]
+  },
+  {
+    "kind": "major-building",
+    "asset": "building-forge",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Game Hall"
+    ]
+  },
+  {
+    "kind": "major-building",
+    "asset": "building-library",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Hall of Fame"
+    ]
+  },
+  {
+    "kind": "major-building",
+    "asset": "building-tavern",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Hiring Hall"
+    ]
+  },
+  {
+    "kind": "market",
+    "asset": "building-bazaar",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Bazaar"
+    ]
+  },
+  {
+    "kind": "market",
+    "asset": "market-blue",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 2,
+    "labels": []
+  },
+  {
+    "kind": "market",
+    "asset": "market-red",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "miscellaneous",
+    "asset": "ac-dummy",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 2,
+    "labels": []
+  },
+  {
+    "kind": "miscellaneous",
+    "asset": "stump-3",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "miscellaneous",
+    "asset": "stump-4",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 5,
+    "labels": []
+  },
+  {
+    "kind": "mountain",
+    "asset": "wild-mountain",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Mountain"
+    ]
+  },
+  {
+    "kind": "rock",
+    "asset": "ac-coins",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "rock",
+    "asset": "ac-log",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 4,
+    "labels": []
+  },
+  {
+    "kind": "rock",
+    "asset": "farm-pumpkin",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "rock",
+    "asset": "prop-gold",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "shop",
+    "asset": "growth-kiosk",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 3,
+    "labels": []
+  },
+  {
+    "kind": "shop",
+    "asset": "growth-shop",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 5,
+    "labels": []
+  },
+  {
+    "kind": "shop",
+    "asset": "village-smithy",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "shrub",
+    "asset": "bush-1",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 3,
+    "labels": []
+  },
+  {
+    "kind": "shrub",
+    "asset": "bush-2",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 4,
+    "labels": []
+  },
+  {
+    "kind": "shrub",
+    "asset": "bush-4",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 2,
+    "labels": []
+  },
+  {
+    "kind": "sign",
+    "asset": "ac-hiring-board",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "sign",
+    "asset": "ac-scoreboard",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "sign",
+    "asset": "ac-strategy-board",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "sign",
+    "asset": "building-board",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Notice Board"
+    ]
+  },
+  {
+    "kind": "statue",
+    "asset": "ac-statue",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "statue",
+    "asset": "ac-trophy",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "table",
+    "asset": "ac-war-table",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": []
+  },
+  {
+    "kind": "tent",
+    "asset": "ac-tent",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 5,
+    "labels": []
+  },
+  {
+    "kind": "tower",
+    "asset": "building-watchtower",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 1,
+    "labels": [
+      "Lookout"
+    ]
+  },
+  {
+    "kind": "tree",
+    "asset": "resources-trees-tree",
+    "available": [
+      "front"
+    ],
+    "missing": [
+      "back",
+      "left",
+      "right"
+    ],
+    "objects": 3925,
+    "labels": []
+  }
+]

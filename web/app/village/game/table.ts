@@ -272,48 +272,41 @@ export class CardTable {
     this.spoken = 0;
   }
 
-  /**
-   * Draws this table, as it stands now, onto another view's canvas: upright on the ground midway
-   * between the two players, like the characters, with its cards, the pot's chips, the cards'
-   * edges at a showdown and the words said over each side. `a`/`b` are where seat A's and seat
-   * B's feet are on screen; `k` is screen pixels per world unit. Reads state only.
-   */
-  paintTo(ctx: CanvasRenderingContext2D, a: Side, b: Side, k: number): void {
+  /** Physical table/cards stay on fixed world axes; speech and scores remain readable UI. */
+  paintTo(ctx: CanvasRenderingContext2D, a: Side, b: Side, k: number, projectWorld: (p: Side, z: number) => Side): void {
     if (!this.onMap || Number.isNaN(this.mid.x)) return;
-    const side = { A: a, B: b };
-    // Left and right as the player sees them: Top's x offsets keep their sense along A to B.
-    const dir = Math.sign((b.x - a.x) * (this.sides.B.x - this.sides.A.x)) || 1;
-    const base = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    // The top stands at hip height; Top draws it TABLE_DROP below the pair's middle.
-    const top = { x: base.x, y: base.y - 18 * k };
+    const side = { A: a, B: b }, ground = { x: this.mid.x, y: this.mid.y - TABLE_DROP };
+    const base = projectWorld(ground, 0);
     const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
-    const rect = (x: number, y: number, w: number, h: number, fill: number) => {
-      ctx.fillStyle = hex(fill); ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+    const point = (x: number, y: number, z: number) => projectWorld({ x: ground.x + x, y: ground.y + y }, z);
+    const polygon = (points: Side[], colour: number, border?: number) => {
+      ctx.beginPath(); points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
+      ctx.fillStyle = hex(colour); ctx.fill();
+      if (border !== undefined) { ctx.strokeStyle = hex(border); ctx.lineWidth = Math.max(.5, k); ctx.stroke(); }
     };
-    const at = (o: { x: number; y: number }) => ({ x: top.x + (o.x - this.mid.x) * k * dir, y: top.y + (o.y - this.mid.y) * k });
-    ctx.save();
-    ctx.globalAlpha = 0.28; ctx.fillStyle = "#000";
-    ctx.beginPath(); ctx.ellipse(base.x, base.y, TABLE_W * 0.55 * k, 4 * k, 0, 0, Math.PI * 2); ctx.fill();
+    const rectangle = (x: number, y: number, w: number, h: number, z: number, colour: number, border?: number) =>
+      polygon([point(x, y, z), point(x + w, y, z), point(x + w, y + h, z), point(x, y + h, z)], colour, border);
+    const at = (o: Side) => point(o.x - this.mid.x, o.y - this.mid.y, 19);
+    ctx.save(); ctx.globalAlpha = .28;
+    polygon(Array.from({ length: 16 }, (_, i) => point(Math.cos(i * Math.PI / 8) * TABLE_W * .55, Math.sin(i * Math.PI / 8) * 12, 0)), 0x000000);
     ctx.globalAlpha = 1;
-    // Two legs and a top, the same pixels Top's table draws.
-    rect(top.x - (TABLE_W / 2 - 3) * k, top.y, 3 * k, base.y - top.y, WOOD_DARK);
-    rect(top.x + (TABLE_W / 2 - 6) * k, top.y, 3 * k, base.y - top.y, WOOD_DARK);
-    rect(top.x - (TABLE_W / 2 + 1) * k, top.y - (TABLE_H / 2 + 1) * k, (TABLE_W + 2) * k, (TABLE_H + 2) * k, WOOD_DARK);
-    rect(top.x - (TABLE_W / 2) * k, top.y - (TABLE_H / 2) * k, TABLE_W * k, TABLE_H * k, WOOD);
-    rect(top.x - (TABLE_W / 2 - 3) * k, top.y - (TABLE_H / 2 - 2) * k, (TABLE_W - 6) * k, (TABLE_H - 4) * k, 0x3f6b3a);
+    const legs = [-1, 1].flatMap(x => [-1, 1].map(y => ({ x: x * (TABLE_W / 2 - 5), y: y * 7 }))).sort((a, b) => point(a.x, a.y, 0).y - point(b.x, b.y, 0).y);
+    for (const leg of legs) {
+      polygon([point(leg.x, leg.y, 0), point(leg.x + 3, leg.y, 0), point(leg.x + 3, leg.y, 18), point(leg.x, leg.y, 18)], WOOD_DARK);
+      polygon([point(leg.x, leg.y, 0), point(leg.x, leg.y + 3, 0), point(leg.x, leg.y + 3, 18), point(leg.x, leg.y, 18)], WOOD);
+    }
+    rectangle(-TABLE_W / 2 - 1, -10, TABLE_W + 2, 20, 18, WOOD_DARK);
+    rectangle(-TABLE_W / 2, -9, TABLE_W, 18, 18.2, WOOD);
+    rectangle(-TABLE_W / 2 + 3, -7, TABLE_W - 6, 14, 18.4, 0x3f6b3a);
     for (const card of Object.values(this.cards)) {
       if (!card?.active || !card.visible) continue;
-      const p = at(card);
       ctx.globalAlpha = card.alpha;
-      rect(p.x - (CARD_W / 2) * k, p.y - (CARD_H / 2) * k, CARD_W * k, CARD_H * k, card.fillColor);
-      ctx.strokeStyle = hex(card.strokeColor); ctx.lineWidth = Math.max(1, card.lineWidth * k);
-      ctx.strokeRect(Math.round(p.x - (CARD_W / 2) * k), Math.round(p.y - (CARD_H / 2) * k), Math.round(CARD_W * k), Math.round(CARD_H * k));
+      rectangle(card.x - this.mid.x - CARD_W / 2, card.y - this.mid.y - CARD_H / 2, CARD_W, CARD_H, 19, card.fillColor, card.strokeColor);
     }
     for (const chip of this.pot) {
       if (!chip.active || !chip.visible) continue;
-      const p = at(chip);
-      ctx.globalAlpha = chip.alpha; ctx.fillStyle = hex(CHIP); ctx.strokeStyle = "#7a5a1c"; ctx.lineWidth = Math.max(1, k);
-      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.5, 3 * k), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.globalAlpha = chip.alpha;
+      polygon(Array.from({ length: 12 }, (_, i) => point(chip.x - this.mid.x + Math.cos(i * Math.PI / 6) * 3, chip.y - this.mid.y + Math.sin(i * Math.PI / 6) * 3, 19.5)), CHIP, 0x7a5a1c);
     }
     ctx.globalAlpha = 1;
     // Words: the edges over the cards, and what each side says over its head, rising as Top's do.

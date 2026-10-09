@@ -1,10 +1,11 @@
 import { ARENA_ENTRANCES, ARENA_GATE_WIDTH, ARENA_SIDE_WIDTH, COLOSSEUM_FLOOR } from "../../../lib/world/arena-geometry";
 import type { ArtFrame, ArtRef, TopGround, WorldModel, WorldObject } from "../../../lib/world/model";
-import { cameraAngle, depthOrder, footprint, project, type Projection } from "../../../lib/world/projection";
+import { depthOrder, footprint, project, type Projection } from "../../../lib/world/projection";
 import { TERRAIN, darker } from "./palette";
 import { ARENA_PALETTE as A } from "./arena-art";
 import { buildingMaterial, VILLAGE_MATERIAL as M, type ProjectedMaterials } from "./projected-materials";
 import type { Pt } from "../../../lib/world/world";
+import { fixedObjectLayer } from "./fixed-world-art";
 
 export type ProjectionCamera = { x: number; y: number; scale: number };
 export type ProjectedLayer = { depth: number; draw: () => void };
@@ -13,7 +14,6 @@ type Vertex = Pt & { z?: number };
 type Brush = {
   detail: boolean;
   ground: (points: Pt[], z: number, material?: CanvasPattern) => void;
-  sprite: (o: WorldObject) => boolean;
   polygon: (points: Vertex[], colour: string, stroke?: string) => void;
   line: (points: Vertex[], colour: string, width?: number) => void;
 };
@@ -35,18 +35,6 @@ function brush(ctx: CanvasRenderingContext2D, view: Projection, scale: number, m
       ctx.beginPath(); points.forEach((p, i) => { if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); }); ctx.closePath();
       ctx.fillStyle = material; ctx.fill(); ctx.restore();
     },
-    sprite: (o) => {
-      if (o.height <= 5) return false;
-      const sprite = materials?.sprites.get(o.metadata?.texture ?? "");
-      if (!sprite) return false;
-      const frame = o.metadata?.frame ?? 0, columns = Math.max(1, Math.floor(sprite.image.width / sprite.width));
-      const at = project(view, o.metadata?.topAnchor ?? o, o.elevation), tilt = cameraAngle(view).tilt;
-      // Camera-facing sprite art is the same convention as Top's upright standees.
-      const h = o.height / 0.85 * (0.55 + 0.45 * Math.cos(tilt));
-      ctx.drawImage(sprite.image, frame % columns * sprite.width, Math.floor(frame / columns) * sprite.height, sprite.width, sprite.height,
-        at.x - o.width / 2, at.y - h, o.width, h);
-      return true;
-    },
     polygon: (points, colour, stroke) => { if (!points.length) return; path(points); ctx.closePath(); ctx.fillStyle = colour; ctx.fill();
       if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); } },
     line: (points, colour, width = 2) => { path(points); ctx.strokeStyle = colour; ctx.lineWidth = width; ctx.lineJoin = "round"; ctx.stroke(); },
@@ -63,10 +51,10 @@ function onGround(ctx: CanvasRenderingContext2D, view: Projection, draw: () => v
 }
 
 /**
- * An object in Top's own picture: standing upright on its foot like Top's standees, or, for
- * flat art, lying on the ground exactly where Top lays it. False if the art is not loaded.
+ * Flat terrain art remains on the ground plane. Standing objects use fixed geometry below.
  */
 function picture(ctx: CanvasRenderingContext2D, view: Projection, o: WorldObject, top?: TopArt): boolean {
+  if (!o.metadata?.flat) return false;
   const ref = o.metadata?.art, f = ref && top?.art?.(ref);
   if (!ref || !f) return false;
   const foot = o.metadata?.topAnchor ?? { x: o.x, y: o.y };
@@ -75,8 +63,7 @@ function picture(ctx: CanvasRenderingContext2D, view: Projection, o: WorldObject
     ctx.drawImage(f.image as CanvasImageSource, f.x, f.y, f.width, f.height, -w / 2, -h, w, h);
     ctx.restore();
   };
-  if (o.metadata?.flat) onGround(ctx, view, () => draw(foot.x, foot.y, o.width, o.depth));
-  else { const at = project(view, foot, o.elevation); draw(at.x, at.y, o.width, o.height); }
+  onGround(ctx, view, () => draw(foot.x, foot.y, o.width, o.depth));
   return true;
 }
 
@@ -384,51 +371,6 @@ function arena(b: Brush, view: Projection, o: WorldObject, floor?: () => void, c
   architecture.sort((a, c) => a.depth - c.depth).forEach((part) => capture ? capture(part) : part.draw());
 }
 
-function tree(b: Brush, view: Projection, o: WorldObject): void {
-  if (b.sprite(o)) return;
-  const z = o.elevation, h = o.height;
-  b.line([{ x: o.x, y: o.y, z }, { x: o.x, y: o.y, z: z + h * 0.65 }], M.wood, Math.max(5, o.width * 0.12));
-  // Rounded deciduous foliage is also the fallback while the reference sheet loads.
-  for (const [radius, level, colour] of [[0.5, 0.5, TERRAIN.tree.deep], [0.43, 0.7, TERRAIN.tree.mid], [0.3, 0.88, TERRAIN.tree.light]] as const) {
-    b.polygon(Array.from({ length: 12 }, (_, i) => ({ x: o.x + Math.cos(i * Math.PI / 6) * o.width * radius,
-      y: o.y + Math.sin(i * Math.PI / 6) * o.width * radius, z: z + h * level })), colour, TERRAIN.tree.low);
-  }
-}
-
-function prop(b: Brush, view: Projection, o: WorldObject): void {
-  if (b.sprite(o)) return;
-  const key = o.metadata?.texture ?? "", top = o.elevation + o.height;
-  if (key === "fence") {
-    // Top's garden rail (gardens.ts): two timber rails on posts every 30 units, as tall as it draws them.
-    const x0 = o.x - o.width / 2, x1 = o.x + o.width / 2;
-    for (const z of [17, 8]) b.line([{ x: x0, y: o.y, z }, { x: x1, y: o.y, z }], M.wood, 4);
-    for (let x = x0; x <= x1 + 0.5; x += 30) b.line([{ x, y: o.y, z: 0 }, { x, y: o.y, z: 24 }], M.woodDark, 5);
-    return;
-  }
-  if (key === "torch") {
-    // Top's arena gate torch (arena.ts): a dark post, a gold collar and an orange flame.
-    b.line([{ x: o.x, y: o.y, z: 0 }, { x: o.x, y: o.y, z: 30 }], "#153c32", 8);
-    b.line([{ x: o.x, y: o.y, z: 30 }, { x: o.x, y: o.y, z: 33 }], "#d6a340", 12);
-    b.line([{ x: o.x, y: o.y, z: 33 }, { x: o.x, y: o.y, z: 45 }], "#e47b27", 8);
-    b.line([{ x: o.x, y: o.y, z: 36 }, { x: o.x, y: o.y, z: 44 }], "#ffc95e", 4);
-    return;
-  }
-  if (/flag|banner|lamp|lantern/.test(key)) {
-    b.line([{ x: o.x, y: o.y, z: 0 }, { x: o.x, y: o.y, z: top }], M.woodDark, Math.max(3, o.width * 0.12));
-    if (/lamp|lantern/.test(key)) prism(b, view, { ...o, width: 12, depth: 10, height: 9, elevation: top - 11 }, "#e5c67c", "#3e605c");
-    else {
-      const w = o.width * 0.65;
-      b.polygon([{ x: o.x, y: o.y, z: top }, { x: o.x + w, y: o.y, z: top - 3 }, { x: o.x + w, y: o.y, z: top * 0.65 }, { x: o.x, y: o.y, z: top * 0.6 }], M.crest, COLOUR.gold);
-    }
-  } else if (/bush|planter/.test(key)) {
-    prism(b, view, { ...o, shape: "ellipse", height: o.height * 0.7 }, TERRAIN.tree.low, TERRAIN.tree.light);
-  } else if (/fountain/.test(key)) {
-    prism(b, view, { ...o, shape: "ellipse", height: o.height * 0.25 }, M.stone, COLOUR.water);
-    prism(b, view, { ...o, width: o.width * 0.14, depth: o.depth * 0.25 }, M.stoneLight, "#8ccce1");
-  } else if (/farm-bed|plot|yard/.test(key)) prism(b, view, o, M.woodDark, TERRAIN.grass.shade);
-  else prism(b, view, o, /bench|fence|chest|tent|barrel/.test(key) ? COLOUR.wood : M.stone, /bench|fence|chest|tent|barrel/.test(key) ? M.woodLight : M.stoneShade);
-}
-
 function road(b: Brush, o: WorldObject): void {
   const points = o.points ?? [], half = (o.lineWidth ?? 30) / 2;
   for (let i = 1; i < points.length; i++) {
@@ -507,20 +449,20 @@ export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: World
     const centre = project(view, o, o.height / 2), reach = o.width + o.depth + o.height;
     if (Math.abs(centre.x - camera.x) > width / camera.scale / 2 + reach || Math.abs(centre.y - camera.y) > height / camera.scale / 2 + reach) continue;
     if (o.type === "arena") { arena(b, view, o, () => arenaFloor(ctx, view, top), capture); continue; }
-    const draw = () => {
-      if (picture(ctx, view, o, top)) return;
-      if (o.type === "tree") tree(b, view, o);
-      else if (o.type === "mountain") {
-        const ring = footprint({ ...o, shape: "ellipse" });
-        for (let i = 0; i < ring.length; i++) b.polygon([ring[i]!, ring[(i + 1) % ring.length]!, { x: o.x, y: o.y, z: o.height }], i % 3 === 0 ? "#b6b7a6" : i % 3 === 1 ? "#7b8977" : "#98a18c", "#7c8876");
-        b.line([{ x: o.x - 18, y: o.y, z: o.height - 25 }, { x: o.x, y: o.y, z: o.height }, { x: o.x + 18, y: o.y, z: o.height - 25 }], "#e9e8cd", 10);
-      } else if (o.type === "prop" || o.type === "stall") prop(b, view, o);
-      else if (o.type === "building") { if (!b.sprite(o)) cottage(b, view, o); }
-      else prism(b, view, o, COLOUR.wall, o.type === "bridge" ? M.woodLight : COLOUR.roof);
+    const resolve = (ref: ArtRef): ArtFrame | null => {
+      const captured = top?.art?.(ref); if (captured) return captured;
+      const sprite = materials?.sprites.get(ref.key); if (!sprite) return null;
+      const frame = typeof ref.frame === "number" ? ref.frame : 0;
+      const columns = Math.max(1, Math.floor(sprite.image.width / sprite.width));
+      return { image: sprite.image, x: frame % columns * sprite.width, y: Math.floor(frame / columns) * sprite.height, width: sprite.width, height: sprite.height };
     };
-    const depth = o.metadata?.art ? project(view, o.metadata.topAnchor ?? o).depth :
-      project(view, o).depth + (o.type === "tree" ? 0 : (Math.abs(Math.sin(cameraAngle(view).yaw)) * o.width + Math.abs(Math.cos(cameraAngle(view).yaw)) * o.depth) / 2);
-    if (capture) capture({ depth, draw }); else draw();
+    if (o.type === "bridge") {
+      const part = { depth: project(view, o).depth, draw: () => prism(b, view, o, COLOUR.wall, M.woodLight) };
+      if (capture) capture(part); else part.draw();
+    } else {
+      const part = fixedObjectLayer(ctx, view, o, camera.scale, resolve);
+      if (capture) capture(part); else part.draw();
+    }
   }
   ctx.globalAlpha = 1;
   ctx.restore();

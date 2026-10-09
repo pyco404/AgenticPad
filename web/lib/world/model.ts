@@ -10,6 +10,7 @@ import { DISTRICT_PIECES } from "./district-pieces";
 import { ACTIVITY_DESTINATIONS } from "./activity-destinations";
 import { PIECE_ART, type Plot } from "./growth";
 import type { Tree } from "./forest";
+import type { ObjectSide, PhysicalKind } from "./object-appearance";
 
 export type WorldType = "arena" | "building" | "tree" | "road" | "water" | "bridge" | "mountain" | "stall" | "pond" | "plaza" | "prop" | "movement" | "agent";
 export type WorldObject = {
@@ -18,6 +19,9 @@ export type WorldObject = {
   /** Centre of the ground footprint. x grows east, y grows south; z grows up. */
   x: number; y: number; width: number; depth: number; height: number; elevation: number;
   orientation: "north" | "south" | "east" | "west";
+  /** Physical shape and artwork on fixed faces; agents use their own character system. */
+  appearance?: PhysicalKind;
+  directionalAssets?: Partial<Record<ObjectSide, ArtRef>>;
   category: "surface" | "structure" | "vegetation" | "prop" | "movement" | "agent";
   shape?: "ellipse";
   points?: readonly Pt[];
@@ -34,7 +38,9 @@ export type WorldObject = {
 /** A Top texture frame. */
 export type ArtRef = { key: string; frame: string | number; flipX?: boolean };
 /** Where a frame's pixels are, for a 2D canvas to draw. The image is a browser CanvasImageSource; the model stays DOM-free. */
-export type ArtFrame = { image: unknown; x: number; y: number; width: number; height: number };
+export type ArtFrame = { image: unknown; x: number; y: number; width: number; height: number;
+  /** Opaque pixel bounds, measured once from this same frame; never changes world coordinates. */
+  content?: { x: number; y: number; width: number; height: number } };
 /** Top's ground layer, rendered once: terrain, roads, plazas, water, banks, flowers, shadows. */
 export type TopGround = { image: unknown; x0: number; y0: number; width: number; height: number };
 
@@ -85,6 +91,7 @@ export function pictureObject(id: string, art: ArtRef, foot: Pt, width: number, 
   if (flat) { o.type = "prop"; o.category = "prop"; o.depth = height; o.y = foot.y - height / 2; }
   o.height = flat ? 3 : height;
   o.metadata = { ...o.metadata, art, flat };
+  if (!flat) o.directionalAssets = { front: art };
   return o;
 }
 

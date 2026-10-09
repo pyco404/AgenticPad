@@ -350,6 +350,8 @@ export class VillageScene extends Phaser.Scene {
    * water, banks, beds, flowers, shadows) is rendered once to an image laid on the ground plane.
    * Other views then show the same world by construction rather than by a parallel layout.
    */
+  private readonly frameArt = new Map<string, ArtFrame>();
+
   private captureTop(): void {
     // The arena keeps its own 3D form on the shared footprint; boats sail; glows and shadows are effects.
     const skip = new Set(["building-arena", "ac-oval-front", "ac-oval-crowd", "ac-oval-cheer", "dress-ship", "dress-solar-glow", "world-pixel-shadow"]);
@@ -405,13 +407,13 @@ export class VillageScene extends Phaser.Scene {
    * that draws its card table between them and its score over them, given where each player's
    * feet are on that view's screen.
    */
-  matchTables(): { a: Point; b: Point; paint: (ctx: CanvasRenderingContext2D, a: Point, b: Point, k: number) => void }[] {
+  matchTables(): { a: Point; b: Point; paint: (ctx: CanvasRenderingContext2D, a: Point, b: Point, k: number, projectWorld: (p: Point, z: number) => Point) => void }[] {
     const out: ReturnType<VillageScene["matchTables"]> = [];
     for (const brawl of this.brawls.values()) {
       const ha = this.heroes.get(brawl.a), hb = this.heroes.get(brawl.b);
       if (!ha || !hb) continue;
-      out.push({ a: { x: ha.x, y: ha.y }, b: { x: hb.x, y: hb.y }, paint: (ctx, a, b, k) => {
-        brawl.table.paintTo(ctx, a, b, k);
+      out.push({ a: { x: ha.x, y: ha.y }, b: { x: hb.x, y: hb.y }, paint: (ctx, a, b, k, projectWorld) => {
+        brawl.table.paintTo(ctx, a, b, k, projectWorld);
         const score = brawl.score;
         if (!score.active || !score.visible || !score.text) return;
         ctx.save();
@@ -474,7 +476,23 @@ export class VillageScene extends Phaser.Scene {
     const art = (ref: ArtRef): ArtFrame | null => {
       if (!this.textures.exists(ref.key)) return null;
       const f = this.textures.getFrame(ref.key, ref.frame);
-      return f ? { image: f.source.image as CanvasImageSource, x: f.cutX, y: f.cutY, width: f.cutWidth, height: f.cutHeight } : null;
+      if (!f) return null;
+      const key = `${ref.key}:${ref.frame}`, image = f.source.image as CanvasImageSource;
+      const cached = this.frameArt.get(key);
+      if (cached?.image === image) return cached;
+      const frame: ArtFrame = { image, x: f.cutX, y: f.cutY, width: f.cutWidth, height: f.cutHeight };
+      const canvas = document.createElement("canvas"); canvas.width = frame.width; canvas.height = frame.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+      ctx.drawImage(image, frame.x, frame.y, frame.width, frame.height, 0, 0, frame.width, frame.height);
+      const pixels = ctx.getImageData(0, 0, frame.width, frame.height).data;
+      let x0 = frame.width, y0 = frame.height, x1 = -1, y1 = -1;
+      for (let y = 0; y < frame.height; y++) for (let x = 0; x < frame.width; x++) {
+        if (pixels[(y * frame.width + x) * 4 + 3]! < 32) continue;
+        x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+      }
+      if (x1 >= x0) frame.content = { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
+      this.frameArt.set(key, frame);
+      return frame;
     };
     return { world: this.projectionWorld, revision: this.projectionRevision, agents, night: this.isNight, forestPending: !!this.forestQueue?.length,
       ground: this.topGround, art };

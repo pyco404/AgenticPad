@@ -1,6 +1,7 @@
 import type { ArtFrame, ArtRef, WorldObject } from "./model";
 import { depthOrder, footprint, project, type Projection } from "./projection";
 import type { Pt } from "./world";
+import { projectedObjectFaces } from "./object-geometry";
 type ProjectionCamera = { x: number; y: number; scale: number };
 
 export type WorldTarget = { kind: "agent" | "building"; id: string };
@@ -32,12 +33,28 @@ export function worldPicker(view: Projection, objects: readonly WorldObject[], c
     return Math.abs(at.x - width / 2) <= width / 2 + reach && Math.abs(at.y - height / 2) <= height / 2 + reach;
   });
   const areas = depthOrder(view, visible).map((o) => {
-    const ref = o.metadata?.art, frame = ref && art?.(ref);
-    const foot = screen(o.metadata?.topAnchor ?? o, o.elevation);
-    const box = { x: foot.x - o.width * camera.scale / 2, y: foot.y - o.height * camera.scale, width: o.width * camera.scale, height: o.height * camera.scale };
     const target: WorldTarget | null = o.id.startsWith("site:") && (o.type === "building" || o.type === "arena")
       ? { kind: "building", id: o.id.slice(5) } : null;
-    if (frame) return { target, hit: (p: Pt) => inside(p, box) && sample(frame, ref?.flipX ? 1 - (p.x - box.x) / box.width : (p.x - box.x) / box.width, (p.y - box.y) / box.height) };
+    if (o.type !== "arena" && o.type !== "bridge" && o.type !== "agent") {
+      const front = o.directionalAssets?.front ?? o.metadata?.art;
+      const faces = projectedObjectFaces(view, o, front ? art?.(front) ?? undefined : undefined).map(({ face, points }) => ({ face, frame: face.art && art?.(face.art),
+        points: points.map(p => ({ x: width / 2 + (p.x - camera.x) * camera.scale, y: height / 2 + (p.y - camera.y) * camera.scale })) }));
+      return { target, hit: (p: Pt) => [...faces].reverse().some(({ face, frame, points }) => {
+        if (!polygonContains(p, points)) return false;
+        if (!face.art) return true;
+        if (!frame) return false;
+        // Inverse of the same affine world-face texture transform used by the renderer.
+        const [bl, , tr, tl] = points;
+        const ax = tr!.x - tl!.x, ay = tr!.y - tl!.y, bx = bl!.x - tl!.x, by = bl!.y - tl!.y;
+        const determinant = ax * by - ay * bx;
+        if (Math.abs(determinant) < 1e-8) return false;
+        const dx = p.x - tl!.x, dy = p.y - tl!.y;
+        const u = (dx * by - dy * bx) / determinant, v = (ax * dy - ay * dx) / determinant;
+        const tx = face.art.flipX ? 1 - u : u, crop = face.crop;
+        return sample(frame, crop ? (crop.x + tx * crop.width) / frame.width : tx,
+          crop ? (crop.y + v * crop.height) / frame.height : v);
+      }) };
+    }
     // Procedural arena walls: test the projected ellipses at ground and roof and the wall between them.
     const ring = (z: number) => Array.from({ length: 32 }, (_, i) => {
       const a = i / 32 * Math.PI * 2;

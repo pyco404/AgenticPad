@@ -55,22 +55,22 @@ try {
     if (await enter.count()) await enter.click();
     await page.waitForFunction(n => window.__agentRenderDebug?.total === n, count, { timeout: 60000 });
     await page.addScriptTag({ path: helper });
-    // Verify actual pixels: a wall covers the head, its transparent doorway preserves the legs.
+    // Verify actual pixels: a sign panel covers the head, its open supports preserve the legs.
     // This catches regressions back to whole-actor occlusion or actors behind the terrain.
     const pixels = await page.evaluate(() => {
       const sprite = document.createElement('canvas'); sprite.width = 100; sprite.height = 100;
       const s = sprite.getContext('2d'); s.fillStyle = '#ff0000'; s.fillRect(0, 0, 100, 100); s.clearRect(40, 50, 20, 50);
       const canvas = document.createElement('canvas'); canvas.width = 300; canvas.height = 300;
       const ctx = canvas.getContext('2d'), camera = { x: 0, y: 0, scale: 1 }, parts = [];
-      const object = { id: 'wall', type: 'building', category: 'structure', x: 0, y: 10, width: 100, depth: 10, height: 100, elevation: 0,
+      const object = { id: 'wall', appearance: 'sign', orientation: 'south', type: 'building', category: 'structure', x: 0, y: 10, width: 100, depth: 10, height: 100, elevation: 0,
         metadata: { art: { key: 'wall', frame: 0 }, topAnchor: { x: 0, y: 10 } } };
-      WorldTest.renderProjectedWorld(ctx, { bounds: { x0: -150, y0: -150, x1: 150, y1: 150 }, slabDepth: 20, objects: [object] }, 'top', camera, 300, 300, undefined,
+      WorldTest.renderProjectedWorld(ctx, { bounds: { x0: -150, y0: -150, x1: 150, y1: 150 }, slabDepth: 20, objects: [object] }, { yaw: 0, tilt: Math.PI / 6 }, camera, 300, 300, undefined,
         { art: () => ({ image: sprite, x: 0, y: 0, width: 100, height: 100 }) }, part => parts.push(part));
       ctx.fillStyle = '#00ffff'; ctx.fillRect(145, 70, 10, 80);
       for (const part of parts) { ctx.save(); ctx.translate(150, 150); part.draw(); ctx.restore(); }
       return { head: [...ctx.getImageData(150, 80, 1, 1).data], legs: [...ctx.getImageData(150, 140, 1, 1).data], depth: parts[0].depth };
     });
-    assert.deepEqual(pixels.head, [255, 0, 0, 255]); assert.deepEqual(pixels.legs, [0, 255, 255, 255]); assert.equal(pixels.depth, 10);
+    assert.deepEqual(pixels.head, [255, 0, 0, 255]); assert.deepEqual(pixels.legs, [0, 255, 255, 255]); assert.equal(pixels.depth, 14);
     fields = await page.evaluate(fields => {
       const el = document.querySelector('canvas[aria-label^="Explore the AgenticPad"]');
       let f = el[Object.keys(el).find(k => k.startsWith('__reactFiber'))];

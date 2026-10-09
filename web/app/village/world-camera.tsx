@@ -1,5 +1,7 @@
 "use client";
 
+import { projectedObjectFaces } from "../../lib/world/object-geometry";
+
 import { useEffect, useRef, type RefObject } from "react";
 import { CloseIcon } from "@/app/icons";
 import type { VillageHandle } from "./game";
@@ -233,8 +235,8 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         // Bluff & Fold out in the village: the scene draws its rings in full nearest where this camera looks.
         handle.setViewCentre(focus);
-        const toScreen = (p: { x: number; y: number }) => {
-          const q = project(view, p, 0);
+        const toScreen = (p: { x: number; y: number }, z = 0) => {
+          const q = project(view, p, z);
           return { x: width / 2 + (q.x - camera!.x) * camera!.scale, y: height / 2 + (q.y - camera!.y) * camera!.scale };
         };
         {
@@ -281,7 +283,7 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
           while (ti < tables.length && tables[ti]!.depth <= depth) {
             const t = tables[ti++]!;
             while (at < scenery.length && scenery[at]!.depth <= t.depth) drawScenery(scenery[at++]!);
-            t.paint(ctx, t.sa, t.sb, k);
+            t.paint(ctx, t.sa, t.sb, k, toScreen);
           }
         };
         for (const { agent, x, y, depth } of shown) {
@@ -312,21 +314,14 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         const placed: { x: number; y: number; w: number }[] = [];
         labelHits = [];
         for (const o of labels) {
-          // A building drawn as Top's picture stands upright on its foot at its natural height, so its
-          // name sits at Top's own height for it (town.ts labelY: a natural height above its foot), or
-          // just above the picture. Anything else, the Arena included, above its own volume.
-          let x: number, y: number;
-          if (o.metadata?.art && !o.metadata.flat) {
-            const foot = project(view, o.metadata.topAnchor ?? o, o.elevation), labelY = snapshot.world.sites[o.id.slice(5)]?.labelY;
-            const at = foot.y - (labelY === undefined ? o.height + 12 : (o.metadata.topAnchor?.y ?? o.y) - labelY);
-            x = width / 2 + (foot.x - camera.x) * camera.scale;
-            y = height / 2 + (at - camera.y) * camera.scale;
-          } else {
-            // The Arena's name sits on its north rim, leaving the logo on its floor clear.
-            const p = project(view, o.type === "arena" ? { x: o.x, y: o.y - o.depth / 2 } : o, o.height + 12);
-            x = width / 2 + (p.x - camera.x) * camera.scale;
-            y = height / 2 + (p.y - camera.y) * camera.scale;
-          }
+          // Labels face the reader; their anchors follow the real roof, not an upright source sprite.
+          // The Arena's name stays on its north rim, leaving its faded floor logo clear.
+          const ref = o.directionalAssets?.front ?? o.metadata?.art;
+          const faces = o.type === "arena" ? [] : projectedObjectFaces(view, o, ref ? snapshot.art?.(ref) ?? undefined : undefined);
+          const p = o.type === "arena" ? project(view, { x: o.x, y: o.y - o.depth / 2 }, o.elevation + o.height + 12)
+            : { x: project(view, o).x, y: Math.min(...faces.flatMap(f => f.points.map(p => p.y))) - 12 };
+          const x = width / 2 + (p.x - camera.x) * camera.scale;
+          let y = height / 2 + (p.y - camera.y) * camera.scale;
           if (x < 20 || x > width - 20 || y < 16 || y > height - 30) continue;
           const text = o.metadata?.label ?? o.id, w = ctx.measureText(text).width;
           const anchor = y;
