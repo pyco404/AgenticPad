@@ -134,7 +134,7 @@ async function uploadMetadata(form: LaunchForm) {
  * for the wallet in AGP_MINT_LAUNCHER only. Every other launch, including
  * anyone else's "AGP" ticker, gets a fresh random mint.
  */
-function mintFor(form: LaunchForm): Keypair {
+async function mintFor(form: LaunchForm, connection: Connection): Promise<Keypair> {
   const secret = process.env.AGP_MINT_SECRET;
   if (form.ticker !== "AGP" || !secret) return Keypair.generate();
   let launcher: string, mint: Keypair;
@@ -144,9 +144,16 @@ function mintFor(form: LaunchForm): Keypair {
   } catch { throw new LaunchError("The $AGP mint is not configured correctly.", 503); }
   if (form.creator !== launcher) return Keypair.generate();
   if (!mint.publicKey.toBase58().endsWith("AGP")) throw new LaunchError("The configured $AGP mint does not end in AGP.", 503);
-  // A mint is used once. An earlier attempt holds it even if it expired, so a
-  // retry resumes that launch, or needs a newly ground key.
-  if (launchStore().getMint(mint.publicKey.toBase58())) throw new LaunchError("The configured $AGP mint has already been used. Resume that launch, or grind a new key.", 409);
+  // A mint is used once. An earlier attempt that expired without creating the token (its approval
+  // window has finally passed and the mint account does not exist) can never land, so it releases
+  // the mint; anything else still holds it, and is resumed rather than prepared again.
+  const earlier = launchStore().getMint(mint.publicKey.toBase58());
+  if (earlier) {
+    const lapsed = !earlier.confirmed && await connection.getBlockHeight("finalized") > earlier.lastValidBlockHeight
+      && !await connection.getAccountInfo(mint.publicKey, "finalized");
+    if (!lapsed) throw new LaunchError("The configured $AGP mint is in a launch that may still land. Check its status or resume it.", 409);
+    launchStore().release(earlier.id);
+  }
   return mint;
 }
 
@@ -170,7 +177,7 @@ export async function prepareLaunch(body: Record<string, unknown>, owner: string
   await mainnet(connection);
   const table = await connection.getAddressLookupTable(new PublicKey(process.env.PUMP_LOOKUP_TABLE!));
   if (!table.value?.isActive()) throw new LaunchError("The launch address lookup table has not been set up.", 503);
-  const mint = mintFor(form);
+  const mint = await mintFor(form, connection);
   launchStore().reserve(id, owner);
   const { uri, imageUrl } = await uploadMetadata(form);
   const online = new pump.OnlinePumpSdk(connection);

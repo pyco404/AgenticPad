@@ -48,6 +48,11 @@ export class LaunchStore {
   insert(launch: StoredLaunch): void {
     this.db.prepare("INSERT INTO launches (id, owner, created_at, mint, data) VALUES (?, ?, ?, ?, ?)").run(launch.id, launch.owner, launch.createdAt, launch.mint, JSON.stringify(launch));
   }
+  /** Drops a launch that can never land, so its reserved mint can be prepared again. */
+  release(id: string): void {
+    this.db.prepare("DELETE FROM launches WHERE id = ?").run(id);
+    this.db.prepare("DELETE FROM reservations WHERE id = ?").run(id);
+  }
   save(launch: StoredLaunch): void {
     this.db.prepare("UPDATE launches SET data = ? WHERE id = ?").run(JSON.stringify(launch), launch.id);
   }

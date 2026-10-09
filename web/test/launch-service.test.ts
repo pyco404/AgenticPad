@@ -130,10 +130,20 @@ describe("Launch service (RPC and IPFS stubbed; no transactions sent)", () => {
       vi.stubEnv("AGP_MINT_LAUNCHER", user.publicKey.toBase58());
       form = { ...form, ticker: "AGP" };
     });
-    it("uses the configured mint for the configured launcher's AGP launch, once", async () => {
+    it("uses the configured mint for the configured launcher's AGP launch, once while it may land", async () => {
       expect((await prepare()).mint).toBe(address);
+      const first = id;
       id = crypto.randomUUID();
-      await expect(prepare()).rejects.toThrow("already been used");
+      await expect(prepare()).rejects.toThrow("may still land");
+      // Its approval window has passed (finalized height 101 > 100) and no token was created: the mint is free again.
+      vi.mocked(connection.getBlockHeight).mockResolvedValue(101);
+      vi.spyOn(connection, "getAccountInfo").mockResolvedValue(null);
+      expect((await prepare()).mint).toBe(address);
+      expect(launchStore().get(first)).toBeNull();
+      // A token that does exist keeps it held.
+      id = crypto.randomUUID();
+      vi.mocked(connection.getAccountInfo).mockResolvedValue({ executable: false, lamports: 1, owner: PublicKey.default, data: Buffer.alloc(0), rentEpoch: 0 });
+      await expect(prepare()).rejects.toThrow("may still land");
     });
     it("gives anyone else's AGP launch, and the launcher's other tickers, a random mint", async () => {
       const other = Keypair.generate();
