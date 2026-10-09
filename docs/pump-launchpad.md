@@ -144,3 +144,20 @@ Validation: `npm exec vitest -- run --config web/vitest.config.ts` from the
 repository root, and `npm run typecheck` from `web/`. Tests stub RPC/IPFS and
 do not spend SOL. A real mainnet smoke launch remains necessary after operator
 configuration; it has not been performed by this implementation.
+
+## Paying out creator fees
+
+pump.fun does not send creator fees to a token's split on its own: they accumulate
+in its creator vault until a distribute transaction pays them to the locked
+shareholders (15% daily, 50% weekly, 35% platform). Anyone may send it; the signer
+pays only the network fee. pump.fun's program now sweeps the curve's creator bucket
+first, which only `@pump-fun/pump-sdk` 4 builds, so the script uses it under the
+alias `pump-sdk-v4` while launches stay on the SDK they were tested with. From `web/`:
+
+```sh
+npm run pump:distribute                                    # report and simulate
+npm run pump:distribute -- --keypair /path/to/wallet.json --send
+```
+
+It defaults to $AGP; `--mint <address>` pays out another launch. The first payout,
+1.495 SOL, was sent on 2026-10-09.
