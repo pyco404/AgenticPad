@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { sound } from "@/lib/sound";
+import { CopyButton } from "@/app/copy-button";
+import { AGP_MINT } from "@/lib/agp";
 import { prefersReducedMotion } from "@/lib/motion";
 import { TERRAIN } from "./village/game/palette";
 
@@ -77,6 +79,10 @@ export function Welcome({ ready, drawn, failed, onEnter }: {
       </div>
       {process.env.NEXT_PUBLIC_LAUNCHPAD === "1" ? <button type="button" onClick={() => enter("/launch")} className="mt-4 py-1 font-mono text-[10px] tracking-widest text-[#b8c7af] hover:text-[#63dc8b]">+ LAUNCH A TOKEN</button> : null}
       <p className="mt-4 text-[10px] text-[#88a58b]">{failed ? "World unavailable. You can still open the site." : ready && !drawn ? "World still loading. You can enter while it reconnects." : "Your agent explores. You observe."}</p>
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t border-[#344b3c] pt-3 text-[10px] text-[#88a58b]">
+        <span><span className="text-[#63dc8b]">$AGP</span> - <span className="break-all font-mono text-[#d8e2d0]">{AGP_MINT}</span></span>
+        <CopyButton value={AGP_MINT} label="Copy" className="border border-[#41624c] px-2 py-0.5 font-mono text-[10px] tracking-wider text-[#63dc8b] hover:border-[#63dc8b]" />
+      </div>
     </div>
   </div>;
 }
