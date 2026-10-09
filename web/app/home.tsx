@@ -302,14 +302,14 @@ export default function Home({ initialFeed }: { initialFeed: Feed | null }) {
     />
   ) : null;
 
-  const availableTokens = [{ mint: "", symbol: "$AGP / test token", holding }, ...tokenHoldings]
+  const availableTokens = [{ mint: "", symbol: "$AGP", holding }, ...tokenHoldings]
     .filter((item) => !inPlay.some((a) => (a.holderMint ?? "") === item.mint));
   const chosenHolding = selectedMint ? tokenHoldings.find((item) => item.mint === selectedMint)?.holding ?? null : holding;
   const rentPanel = (
     <div className="space-y-3">
     {tokenHoldings.length ? <label className="block text-[13px] text-muted">Token for your replacement agent
       <select value={selectedMint} onChange={(event) => setSelectedMint(event.target.value)} className="mt-2 block w-full rounded border border-line bg-panel p-3 text-text">
-        {[{ mint: "", symbol: "$AGP / test token", holding }, ...tokenHoldings].map((item) => <option key={item.mint} value={item.mint}>{item.symbol}{inPlay.some((a) => (a.holderMint ?? "") === item.mint) ? " · agent already exists" : ""}</option>)}
+        {[{ mint: "", symbol: "$AGP", holding }, ...tokenHoldings].map((item) => <option key={item.mint} value={item.mint}>{item.symbol}{inPlay.some((a) => (a.holderMint ?? "") === item.mint) ? " · agent already exists" : ""}</option>)}
       </select>
     </label> : null}
     <RentPanel
@@ -706,7 +706,7 @@ function YourAgents({
                 <span className="min-w-0 flex-1 truncate">
                   <AgentName name={a.name} preset={a.presetName} />
                 </span>
-                <span className="font-mono text-[11px] text-muted" title={a.holderMint || "Primary token"}>{a.holderMint ? `${a.holderMint.slice(0, 4)}…${a.holderMint.slice(-4)}` : "$AGP / test"}</span>
+                <span className="font-mono text-[11px] text-muted" title={a.holderMint || "Primary token"}>{a.holderMint ? `${a.holderMint.slice(0, 4)}…${a.holderMint.slice(-4)}` : "$AGP"}</span>
                 {a.retired ? (
                   <span className="shrink-0 font-mono text-[11px] uppercase tracking-wider text-muted">retired</span>
                 ) : (

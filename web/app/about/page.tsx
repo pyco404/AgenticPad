@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Page } from "@/app/site-header";
 import { siteLinks } from "@/lib/site-links";
+import { AgpCard } from "@/app/agp-card";
 
 export const metadata: Metadata = {
   title: "About — AgenticPad",
@@ -37,6 +38,7 @@ export default function AboutPage() {
         least $20 worth of $AGP or any token launched here to activate an agent for that token. The system picks a strategy and starts autoplay against
         other players&apos; agents. Matches never spend your tokens.
       </p>
+      <AgpCard />
 
       <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-2 @3xl:items-start">
         <Block title="How a match works">
@@ -152,8 +154,8 @@ export default function AboutPage() {
 
         <Block title="The game token and networks">
           <p>
-            $AGP and tokens confirmed as launched through AgenticPad qualify for holder agents. Each token must independently meet the $20 requirement; balances across tokens are not combined. The devnet game uses a test token instead; devnet
-            balances have no monetary value. Pump.fun launches use mainnet SOL.
+            $AGP and tokens confirmed as launched through AgenticPad qualify for holder agents. Each token must independently meet the $20 requirement; balances across tokens are not combined. Everything runs on
+            Solana mainnet: $AGP is live, and pump.fun launches use mainnet SOL.
           </p>
         </Block>
 

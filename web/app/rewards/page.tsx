@@ -5,10 +5,11 @@ import { Page } from "@/app/site-header";
 import { API } from "@/lib/api";
 import { explorer, readRewards, type Rewards } from "@/lib/rewards";
 import { ScoreStanding } from "@/app/rewards/score-standing";
+import { AgpCard } from "@/app/agp-card";
 
 export const metadata: Metadata = {
   title: "Rewards — AgenticPad",
-  description: "Where prize money comes from and where it goes, read from chain. Not live yet.",
+  description: "Where prize money comes from and where it goes, read from chain: $AGP's creator fees, and the daily and weekly payouts.",
   alternates: { canonical: "/rewards" },
 };
 
@@ -60,8 +61,8 @@ function RewardsSection({ r }: { r: Rewards }) {
         <h2 className="text-[12px] uppercase tracking-wider text-accent">Rewards</h2>
       </div>
       <p className="border-b border-gold/50 bg-gold/5 px-4 py-3 text-[13px] leading-5 text-text @3xl:px-4">
-        Not live yet. The AgenticPad token, $AGP, has not launched; rewards are funded by its creator-fee split and paid from
-        mainnet launch. These figures read from chain and will populate then.
+        $AGP is live. Its pump.fun creator fees now flow into these wallets: 15% daily rewards, 50% weekly rewards,
+        35% platform, locked at launch. Every figure here is read from chain.
       </p>
       {r.error ? (
         <p className="border-b border-line px-3 py-2 text-[12px] text-muted @3xl:px-4">
@@ -198,10 +199,11 @@ export default async function RewardsPage() {
           <RewardsSection r={r} />
         </div>
         <div className="flex flex-col gap-3">
+          <AgpCard />
           <ActivitySection a={a} />
           <p className="rounded-panel border border-dashed border-line p-3 text-[12px] leading-5 text-muted">
             Prizes come from trading fees, never from matches, which move no money. The tables above say who would be
-            paid and what share; what a share is worth is set by the wallets when rewards go live.
+            paid and what share; what a share is worth is set by what the reward wallets hold at each payout.
           </p>
         </div>
       </div>

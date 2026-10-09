@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AGP_LINKS, AGP_MINT } from "@/lib/agp";
 import { siteLinks } from "@/lib/site-links";
 
 /**
@@ -31,18 +32,18 @@ const link = "hover:text-text";
 
 /**
  * The footer: a small chip pinned to the bottom-right of the screen on every
- * page and every screen, like the village's hint at the bottom-left. The
- * devnet warning is its point: these balances are worth nothing. The full
- * note shows on hover.
+ * page and every screen, like the village's hint at the bottom-left. Its
+ * $AGP link goes to the live token; the full note shows on hover.
  */
 export function SiteFooter() {
   return (
     <footer
       className="rounded-panel flex h-8 items-center border border-hud-line bg-hud px-2.5 text-[12px] text-muted"
-      title="The game runs on Solana devnet: balances here are test tokens with no value. AgenticPad ($AGP), the real token, has not launched yet; it becomes the game's currency at mainnet launch."
+      title={`AgenticPad runs on Solana mainnet. $AGP is live: ${AGP_MINT}`}
     >
       <p className="flex flex-wrap items-center justify-end gap-x-3">
         <span>Solana</span>
+        <a href={AGP_LINKS.pump} className={link} target="_blank" rel="noreferrer">$AGP</a>
         <a href={siteLinks.x} className={link} target="_blank" rel="noreferrer">X</a>
         <a href={siteLinks.repository} className={link} target="_blank" rel="noreferrer">Source</a>
         <a href={siteLinks.repository} className={link} target="_blank" rel="noreferrer">Security</a>
