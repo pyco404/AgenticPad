@@ -9,6 +9,7 @@ import { verifyFeeSharing, verifySignedLaunch } from "./pump-verification";
 import { checkForm, checkImage, type LaunchForm, type LaunchQuery, type LaunchStatus, type TokenDetail } from "./launchpad";
 import { STAGES } from "./launchpad-stages";
 import { siteLinks } from "./site-links";
+import { tokenImage } from "./ipfs-image";
 
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 export class LaunchError extends Error {
@@ -253,7 +254,7 @@ function tokenOf(record: StoredLaunch): TokenDetail {
   const market = new MarketStore().get(record.mint);
   const fresh = market?.health === "ok" && Date.now() - market.observedAt! <= 15 * 60_000;
   return {
-    mint: record.mint, name: record.form.name, ticker: record.form.ticker, image: record.imageUrl,
+    mint: record.mint, name: record.form.name, ticker: record.form.ticker, image: tokenImage(record.imageUrl),
     description: record.form.description, links: record.form.links, launchedAt: new Date(record.createdAt).toISOString(),
     holders: null, agentsInPlay: 0, marketCapUsd: fresh ? market.marketCapUsd : null, volume24hUsd: fresh ? market.volume24hUsd : null, bondingProgress: null,
     verification: "verified", feeSplit: launchConfig.feeSplit, launcherShare: 0,
