@@ -66,3 +66,12 @@ describe("token inactivity", () => {
     store.db.close();
   });
 });
+
+describe("bonding-curve progress", () => {
+  it("is the share of the curve's sellable tokens bought, 100 once graduated", async () => {
+    const { curveProgress } = await import("../lib/token-market");
+    expect(curveProgress({ realTokenReserves: 793_100_000, complete: false }, 793_100_000)).toBe(0);
+    expect(curveProgress({ realTokenReserves: 348_964_000, complete: false }, 793_100_000)).toBe(56);
+    expect(curveProgress({ realTokenReserves: 0, complete: true }, 793_100_000)).toBe(100);
+  });
+});

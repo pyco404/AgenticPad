@@ -44,7 +44,8 @@ function Progress({ value }: { value: number | null }) {
 }
 
 const ORDERS: Order[] = [
-  { sort: "newest", title: "New launches", tab: "New", about: "Newest first, every launch.", figure: (t) => <span className="text-muted">{ago(t.launchedAt)}</span> },
+  { sort: "newest", title: "New launches", tab: "New", about: "Newest first, every launch.",
+    figure: (t) => <span className="flex flex-col items-end leading-tight"><span className="text-accent">{usd(t.marketCapUsd)}</span><span className="text-[11px] text-muted">{ago(t.launchedAt)}</span></span> },
   { sort: "volume", title: "Hot", tab: "Hot", about: "Most traded in the last 24 hours.", figure: (t) => <span className="text-teal">{usd(t.volume24hUsd)}</span> },
   { sort: "marketCap", title: "Top market cap", tab: "Market cap", about: "Largest first.", figure: (t) => <span className="text-accent">{usd(t.marketCapUsd)}</span> },
   {

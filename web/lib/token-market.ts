@@ -8,7 +8,17 @@ export type Market = {
   zeroSince: number | null; inactiveAt: number | null;
   marketCapUsd: number | null; volume24hUsd: number | null;
   priceUsd: number | null; health: "ok" | "unknown";
+  /** Wallets holding the token, how far along pump.fun's bonding curve it is (0–100), and agents in play. */
+  holders?: number | null; bondingProgress?: number | null; agentsInPlay?: number;
 };
+
+/** pump.fun's own progress: the share of the curve's sellable tokens already bought, 100 once graduated. */
+export function curveProgress(curve: { realTokenReserves: { toString(): string }; complete: boolean }, initialRealTokenReserves: { toString(): string }): number {
+  if (curve.complete) return 100;
+  const initial = Number(initialRealTokenReserves.toString()), left = Number(curve.realTokenReserves.toString());
+  if (!(initial > 0)) return 0;
+  return Math.max(0, Math.min(100, Math.round((1 - left / initial) * 100)));
+}
 export type Pair = {
   chainId: string; pairAddress: string; baseToken: { address: string }; quoteToken: { address: string };
   priceUsd?: string; marketCap?: number; liquidity?: { usd?: number };
@@ -41,24 +51,77 @@ export class MarketStore {
   save(market: Market) { this.store.db.prepare("INSERT INTO token_market(mint, data) VALUES (?, ?) ON CONFLICT(mint) DO UPDATE SET data = excluded.data").run(market.mint, JSON.stringify(market)); }
   visible(mint: string) { return !this.get(mint)?.inactiveAt; }
 }
+/**
+ * On-chain figures the market provider does not give: holders (owners with a balance, read through
+ * Helius's token-account index, so only when the launch RPC is Helius) and bonding-curve progress.
+ */
+export async function chainFigures(mint: string): Promise<{ holders: number | null; bondingProgress: number | null }> {
+  const rpc = process.env.PUMP_RPC_URL;
+  if (!rpc) return { holders: null, bondingProgress: null };
+  let bondingProgress: number | null = null, holders: number | null = null;
+  try {
+    const { pump } = await import("./pump-sdk");
+    const { Connection, PublicKey } = await import("@solana/web3.js");
+    const connection = new Connection(rpc, { commitment: "confirmed", disableRetryOnRateLimit: true });
+    const key = new PublicKey(mint);
+    const [curveAccount, global] = await Promise.all([connection.getAccountInfo(pump.bondingCurvePda(key)), new pump.OnlinePumpSdk(connection).fetchGlobal()]);
+    if (curveAccount) bondingProgress = curveProgress(pump.PUMP_SDK.decodeBondingCurve(curveAccount), global.initialRealTokenReserves);
+    // The curve's own token account is a pool, not a holder.
+    const pools = new Set([pump.bondingCurvePda(key).toBase58()]);
+    if (rpc.includes("helius")) {
+      const owners = new Set<string>();
+      let cursor: string | undefined;
+      for (let page = 0; page < 20; page++) {
+        const response = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(15_000),
+          body: JSON.stringify({ jsonrpc: "2.0", id: "holders", method: "getTokenAccounts", params: { mint, limit: 1000, ...(cursor ? { cursor } : {}) } }) });
+        const body = await response.json() as { result?: { token_accounts?: { owner: string; amount: number }[]; cursor?: string } };
+        const accounts = body.result?.token_accounts;
+        if (!response.ok || !accounts) throw new Error("holder index unavailable");
+        for (const a of accounts) if (a.amount > 0 && !pools.has(a.owner)) owners.add(a.owner);
+        cursor = body.result?.cursor;
+        if (!cursor || accounts.length < 1000) { holders = owners.size; break; }
+      }
+    }
+  } catch { /* leave what could not be read unknown */ }
+  return { holders, bondingProgress };
+}
+
+/** Agents in play per launch token, from the game server (src/http/server.ts /stats). */
+async function agentCounts(): Promise<Record<string, number> | null> {
+  const backend = process.env.LAUNCHPAD_AUTH_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+  try {
+    const response = await fetch(`${backend}/stats`, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) return null;
+    const body = await response.json() as { agentsByMint?: Record<string, number> };
+    return body.agentsByMint && typeof body.agentsByMint === "object" ? body.agentsByMint : null;
+  } catch { return null; }
+}
+
 let running = false;
 export async function refreshTokenMarkets(store = launchStore()) {
   if (running) return;
   running = true;
   try {
     const markets = new MarketStore(store);
+    const agents = await agentCounts();
     for (const launch of store.list().filter((l) => l.confirmed)) {
       const prev = markets.get(launch.mint);
       if (prev && Date.now() - prev.checkedAt < 5 * 60_000) continue;
+      let next: Market;
       try {
         const response = await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${launch.mint}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
         if (!response.ok) throw new Error("Market provider unavailable");
         const pairs = await response.json() as Pair[];
         if (!Array.isArray(pairs)) throw new Error("Invalid market response");
-        markets.save(observeMarket(launch.mint, launch.createdAt, pairs, prev));
+        next = observeMarket(launch.mint, launch.createdAt, pairs, prev);
       } catch {
-        markets.save(observeMarket(launch.mint, launch.createdAt, [], prev));
+        next = observeMarket(launch.mint, launch.createdAt, [], prev);
       }
+      const chain = await chainFigures(launch.mint);
+      markets.save({ ...next,
+        holders: chain.holders ?? prev?.holders ?? null,
+        bondingProgress: chain.bondingProgress ?? prev?.bondingProgress ?? null,
+        agentsInPlay: agents ? agents[launch.mint] ?? 0 : prev?.agentsInPlay ?? 0 });
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   } finally { running = false; }

@@ -256,7 +256,8 @@ function tokenOf(record: StoredLaunch): TokenDetail {
   return {
     mint: record.mint, name: record.form.name, ticker: record.form.ticker, image: tokenImage(record.imageUrl),
     description: record.form.description, links: record.form.links, launchedAt: new Date(record.createdAt).toISOString(),
-    holders: null, agentsInPlay: 0, marketCapUsd: fresh ? market.marketCapUsd : null, volume24hUsd: fresh ? market.volume24hUsd : null, bondingProgress: null,
+    holders: market?.holders ?? null, agentsInPlay: market?.agentsInPlay ?? 0,
+    marketCapUsd: fresh ? market.marketCapUsd : null, volume24hUsd: fresh ? market.volume24hUsd : null, bondingProgress: market?.bondingProgress ?? null,
     verification: "verified", feeSplit: launchConfig.feeSplit, launcherShare: 0,
     verifyUrl: `https://solscan.io/account/${pump.feeSharingConfigPda(new PublicKey(record.mint)).toBase58()}`,
     pumpUrl: `https://pump.fun/coin/${record.mint}`, removedReason: null, agents: [],
