@@ -2,7 +2,7 @@ import type { HolderCatalog } from "../db/holder-catalog.js";
 import { readWorldActivities } from "../db/world-activities.js";
 import { activateHolder, endHolder } from "../db/holder-activation.js";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql, isNotNull } from "drizzle-orm";
 import { elicitPolicy } from "../agents/llm.js";
 import { validatePolicy, type Policy } from "../agents/policy.js";
 import { headlineFor, renderTranscript } from "../transcript.js";
@@ -884,8 +884,13 @@ export function createApp(options: AppOptions): Server {
 
   /** Public: platform-wide match activity. */
   async function getStats() {
-    const [active] = await db.select({ n: sql<number>`count(*)::int` }).from(agents).where(and(isNull(agents.retiredAt), eq(agents.autoplay, true), inPlaySql()));
-    return { activity: await matchActivity(db), activeAgents: Number(active?.n ?? 0) };
+    const inPlay = and(isNull(agents.retiredAt), eq(agents.autoplay, true), inPlaySql());
+    const [active] = await db.select({ n: sql<number>`count(*)::int` }).from(agents).where(inPlay);
+    // Agents in play per qualifying launch token, for the launchpad's listings ("" is the primary token).
+    const byMint = await db.select({ mint: agents.holderMint, n: sql<number>`count(*)::int` }).from(agents)
+      .where(and(inPlay, isNotNull(agents.holderMint))).groupBy(agents.holderMint);
+    const agentsByMint = Object.fromEntries(byMint.filter((r) => r.mint).map((r) => [r.mint!, Number(r.n)]));
+    return { activity: await matchActivity(db), activeAgents: Number(active?.n ?? 0), agentsByMint };
   }
 
   /** This wallet's last holding reading against the minimum. 404 off the holder flow. */

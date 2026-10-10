@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
+import { Keypair } from "@solana/web3.js";
 import { createHash } from "node:crypto";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
@@ -130,6 +131,16 @@ beforeAll(async () => {
 afterAll(async () => {
   await closeServer();
   await closeDb();
+});
+
+describe("GET /stats", () => {
+  it("counts agents in play per launch token", async () => {
+    const launched = Keypair.generate().publicKey.toBase58(), other = Keypair.generate().publicKey.toBase58();
+    for (const mint of [launched, launched, other]) await createPlayer(db, { name: "Counted", presetName: PRESET_NAMES[0]!, holderMint: mint, autoplay: true });
+    const body = await (await api("/stats", { owner: null })).json() as { agentsByMint: Record<string, number> };
+    expect(body.agentsByMint[launched]).toBe(2);
+    expect(body.agentsByMint[other]).toBe(1);
+  });
 });
 
 describe("POST /agents", () => {
