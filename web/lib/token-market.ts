@@ -1,4 +1,5 @@
 import { launchStore, type LaunchStore } from "./launchpad-store";
+import { AGP_MINT } from "./agp";
 
 export const INACTIVITY_MS = 4 * 60 * 60_000;
 const HOUR = 60 * 60_000;
@@ -16,10 +17,13 @@ export type Pair = {
 const number = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 /** A complete hourly zero window can extend the prior window only while they overlap. */
 export function observeMarket(mint: string, createdAt: number, pairs: Pair[], prev: Market | null, now = Date.now()): Market {
+  // The platform token stays listed; exemption is by mint, never by ticker.
+  const exempt = mint === AGP_MINT;
+  if (exempt && prev) prev = { ...prev, zeroSince: null, inactiveAt: null };
   const relevant = [...new Map(pairs.filter((p) => p.chainId === "solana" && (p.baseToken?.address === mint || p.quoteToken?.address === mint)).map((p) => [p.pairAddress, p])).values()];
   const empty: Market = { mint, checkedAt: now, observedAt: prev?.observedAt ?? null, zeroSince: null, inactiveAt: prev?.inactiveAt ?? null, marketCapUsd: prev?.marketCapUsd ?? null, volume24hUsd: prev?.volume24hUsd ?? null, priceUsd: prev?.priceUsd ?? null, health: "unknown" };
   if (!relevant.length || relevant.some((p) => !number(p.volume?.h1) || !number(p.volume?.h24) || !number(p.txns?.h1?.buys) || !number(p.txns?.h1?.sells))) return empty;
-  const quiet = relevant.every((p) => p.volume!.h1 === 0 && p.txns!.h1!.buys === 0 && p.txns!.h1!.sells === 0);
+  const quiet = !exempt && relevant.every((p) => p.volume!.h1 === 0 && p.txns!.h1!.buys === 0 && p.txns!.h1!.sells === 0);
   const zeroSince = quiet ? prev?.health === "ok" && prev.zeroSince !== null && prev.observedAt !== null && now - prev.observedAt <= HOUR ? prev.zeroSince : Math.max(createdAt, now - HOUR) : null;
   const base = relevant.filter((p) => p.baseToken.address === mint).sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
   return { mint, checkedAt: now, observedAt: now, zeroSince, inactiveAt: prev?.inactiveAt ?? (zeroSince !== null && now - zeroSince >= INACTIVITY_MS ? now : null), marketCapUsd: number(base?.marketCap) ? base.marketCap : null, volume24hUsd: relevant.reduce((sum, p) => sum + p.volume!.h24!, 0), priceUsd: Number(base?.priceUsd) > 0 ? Number(base!.priceUsd) : null, health: "ok" };
@@ -30,7 +34,9 @@ export class MarketStore {
   }
   get(mint: string): Market | null {
     const row = this.store.db.prepare("SELECT data FROM token_market WHERE mint = ?").get(mint) as { data: string } | undefined;
-    return row ? JSON.parse(row.data) : null;
+    const market: Market | null = row ? JSON.parse(row.data) : null;
+    // Restore visibility immediately even before the next monitoring pass.
+    return market && mint === AGP_MINT ? { ...market, zeroSince: null, inactiveAt: null } : market;
   }
   save(market: Market) { this.store.db.prepare("INSERT INTO token_market(mint, data) VALUES (?, ?) ON CONFLICT(mint) DO UPDATE SET data = excluded.data").run(market.mint, JSON.stringify(market)); }
   visible(mint: string) { return !this.get(mint)?.inactiveAt; }

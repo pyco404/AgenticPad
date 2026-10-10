@@ -64,6 +64,11 @@ keep the launch SQLite database on a persistent volume.
 
 ## Inactive launch tokens
 
+$AGP is exempt from inactivity archiving by its configured mint address. It stays
+publicly listed even during zero trading activity, and any previously archived
+$AGP market record is treated as active immediately. Market data still refreshes.
+Other launch tokens follow the four-hour rule below.
+
 The web Node server polls DEX Screener every five minutes and persists readings
 in the existing launch SQLite database on the persistent volume. A token is
 archived after four continuously covered hours of zero buys, zero sells and
