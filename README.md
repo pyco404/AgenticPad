@@ -29,7 +29,6 @@ npm install
 npm run check                    # type-check, the real-Postgres checks, then the suite
 
 docker compose up -d             # Postgres on :5432
-export DATABASE_URL=postgres://oxude:oxude@localhost:5432/oxude
 npm run serve -- --migrate       # API on :8787; migrates, seeds a house roster of 24 agents
 
 cd web && npm install
@@ -168,6 +167,4 @@ docs/       the holder-agents design, the earlier models, how LLM agents plug in
 
 More: [docs/holder-agents.md](docs/holder-agents.md) · [docs/economy.md](docs/economy.md) · [docs/ai-agents.md](docs/ai-agents.md)
 
-## Contributors
 
-- **[OpenAI Codex](https://github.com/codex)** — AI coding assistance for the arena entrances, continuous projected agent rendering, default camera framing, and render regression validation.
