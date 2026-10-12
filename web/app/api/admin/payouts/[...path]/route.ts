@@ -68,7 +68,8 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       }
       // The API checks every winner's holding now ($20 at payout) and re-shares among those left.
       const range = periodEnd ? `from=${input.period}&to=${periodEnd}` : `${input.kind === "daily" ? "day" : "season"}=${encodeURIComponent(input.period)}`;
-      const frozen = await adminRead(request, `/admin/payout-recipients?${range}&minScore=${minScore}`) as { frozen: boolean; winners: PayoutWinner[]; dropped?: PayoutDropped[] };
+      // The reward wallets hold $AGP, so they have agents; they never pay themselves.
+      const frozen = await adminRead(request, `/admin/payout-recipients?${range}&minScore=${minScore}&exclude=${DAILY_REWARDS_WALLET},${WEEKLY_REWARDS_WALLET}`) as { frozen: boolean; winners: PayoutWinner[]; dropped?: PayoutDropped[] };
       if (!frozen.frozen) throw new LaunchError("Only frozen scores can be paid.", 409);
       // An API from before the payout-time holding check returns no `dropped`: it would pay wallets that sold.
       if (!Array.isArray(frozen.dropped)) throw new LaunchError("The payout API does not check holdings at payout yet. Deploy the api, then preview again.", 503);
