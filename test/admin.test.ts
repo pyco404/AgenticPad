@@ -11,7 +11,7 @@ import { health } from "../src/db/admin.js";
 import { HOLDINGS_INTERVAL_MS, readHolding } from "../src/db/holdings.js";
 import { freezeDay } from "../src/db/scores.js";
 import { baseUnits, DEVNET_CHIP_RATE } from "../src/chips.js";
-import { someWallet } from "./helpers.js";
+import { everyoneHolds, someWallet } from "./helpers.js";
 
 /** Deterministic keypairs, as http.test.ts does: nothing asserts an identity it has not signed for. */
 const keypairs = new Map<string, nacl.SignKeyPair>();
@@ -87,7 +87,7 @@ describe("who may read /admin", () => {
     await freezeDay(db, day);
     const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-01`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ frozen: true, winners: [] });
+    expect(await response.json()).toEqual({ frozen: true, minScore: 0, winners: [], dropped: [] });
   });
   it("resolves each frozen winner's actual receiving wallet and capped share", async () => {
     const owner = someWallet();
@@ -97,7 +97,7 @@ describe("who may read /admin", () => {
     await db.insert(dailyScores).values({ day, agentId: agent.id, rankedMatches: 3, points: 10, qualified: true, convictionDays: 0, shareOfSupply: 0, power: 0, weight: 1, score: 10 });
     const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-02`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ frozen: true, winners: [{ agentId: agent.id, name: "Payout winner", wallet: owner, mint: "", share: 0.1 }] });
+    expect(await response.json()).toEqual({ frozen: true, minScore: 0, winners: [{ agentId: agent.id, name: "Payout winner", wallet: owner, mint: "", share: 0.1 }], dropped: [] });
   });
   it("merges replacement agents into one capped payout wallet", async () => {
     const owner = someWallet();
@@ -209,5 +209,55 @@ describe("what it reports", () => {
     } finally {
       await close();
     }
+  });
+});
+
+describe("payout recipients are checked at payout", () => {
+  let checked: { url: string; close: () => Promise<void> };
+  const held = new Map<string, number>();
+  beforeAll(async () => {
+    checked = await listen({ db, adminWallets: [ADMIN], nonceRateLimit: { limit: 1000, windowMs: 60_000 }, holder: everyoneHolds(held) });
+  });
+  afterAll(async () => { await checked.close(); });
+  const recipients = async (day: string, query = "") => {
+    const session = url; url = checked.url;
+    try {
+      const response = await fetch(`${url}/admin/payout-recipients?day=${day}${query}`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
+      return { status: response.status, body: await response.json() as { winners: { wallet: string; share: number }[]; dropped: { wallet: string; reason: string }[] } };
+    } finally { url = session; }
+  };
+  async function winners(day: string, scores: number[]) {
+    const owners = scores.map(() => someWallet());
+    const d = Math.floor(Date.parse(`${day}T00:00:00Z`) / 86_400_000);
+    await freezeDay(db, d);
+    for (const [i, owner] of owners.entries()) {
+      const agent = await createAgent(db, { name: `Winner ${i}`, presetName: "Anchor", ownerId: owner });
+      await db.insert(dailyScores).values({ day: d, agentId: agent.id, rankedMatches: 3, points: scores[i]!, qualified: true, convictionDays: 0, shareOfSupply: 0, power: 0, weight: 1, score: scores[i]! });
+    }
+    return owners;
+  }
+
+  it("drops a winner who has sold, and re-shares among those still holding", async () => {
+    // Twenty winners of 50 points: 5% each as frozen. One sells; the other nineteen share its 5%.
+    const owners = await winners("2026-06-01", Array.from({ length: 20 }, () => 50));
+    held.set(owners[0]!, 0);
+    const { status, body } = await recipients("2026-06-01");
+    expect(status).toBe(200);
+    expect(body.dropped).toEqual([expect.objectContaining({ wallet: owners[0], reason: "holds under $20" })]);
+    expect(body.winners).toHaveLength(19);
+    expect(body.winners.every((w) => Math.abs(w.share - 1 / 19) < 1e-12)).toBe(true);
+  });
+  it("keeps the 10% cap after re-sharing: what it holds back stays in the wallet", async () => {
+    const owners = await winners("2026-06-02", [50, 50, 50]);
+    held.set(owners[2]!, 0);
+    const { body } = await recipients("2026-06-02");
+    expect(body.winners.map((w) => w.share)).toEqual([0.1, 0.1]);
+  });
+  it("drops scores under the minimum score before re-sharing", async () => {
+    const owners = await winners("2026-06-03", [400, 300, 15]);
+    const { body } = await recipients("2026-06-03", "&minScore=20");
+    expect(body.dropped).toEqual([expect.objectContaining({ wallet: owners[2], reason: "below minimum score" })]);
+    expect(body.winners.map((w) => w.wallet)).toEqual([owners[0], owners[1]]);
+    expect((await recipients("2026-06-03", "&minScore=-1")).status).toBe(400);
   });
 });
