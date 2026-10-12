@@ -1,7 +1,7 @@
 import bs58 from "bs58";
 import { PayoutStore } from "./payout-store";
 import { ExecutionStore } from "./payout-execution-store";
-import { advancePayout, awaitingSignature, executionView, type PayoutAdapter, type PayoutExecution } from "./payout-execution";
+import { advancePayout, awaitingSignature, executionView, splitOutput, type PayoutAdapter, type PayoutExecution } from "./payout-execution";
 import { executionConfig, walletPayoutAdapter } from "./payout-adapter";
 import { verifySignedLaunch } from "./pump-verification";
 
@@ -14,7 +14,10 @@ export async function startExecution(id: string, owner: string, adapter: PayoutA
   const run: PayoutExecution = { planId: id, source: plan.source, mint: plan.agpMint, decimals,
     status: "running", startedBy: owner, startedAt: new Date().toISOString(), completedAt: null,
     error: null, nextAt: 0, batch: 0,
-    batches: plan.batchLamports.map(() => ({ swap: null, output: null, payments: [], completedAt: null })) };
+    // $AGP already held needs no swap: its one batch is the allocation itself, split as approved.
+    batches: plan.funding === "held"
+      ? [{ swap: null, output: plan.allocatedLamports, payments: splitOutput(plan.allocatedLamports, plan.winners), completedAt: null }]
+      : plan.batchLamports.map(() => ({ swap: null, output: null, payments: [], completedAt: null })) };
   // Unique source and plan constraints prevent concurrent spending plans.
   try { store.insert(run); }
   catch { const same = store.get(id); if (same) return executionView(same); throw new Error("This reward wallet already has an unfinished payout. Finish or resume it first."); }
