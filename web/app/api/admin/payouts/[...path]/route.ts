@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { LAUNCH_FEE_RECIPIENT, DAILY_REWARDS_WALLET, WEEKLY_REWARDS_WALLET } from "@/lib/launchpad-fees";
 import { fromThisSite, LaunchError, ownerOf, readLaunchBody } from "@/lib/launchpad-server";
-import { buildHeldPayoutPlan, buildPayoutPlan, type HeldPayoutInput, type PayoutInput, type PayoutWinner } from "@/lib/payout-plan";
+import { buildHeldPayoutPlan, buildPayoutPlan, type HeldPayoutInput, type PayoutDropped, type PayoutInput, type PayoutWinner } from "@/lib/payout-plan";
 import { PayoutStore } from "@/lib/payout-store";
 import { ExecutionStore } from "@/lib/payout-execution-store";
 import { agpDecimals, executionConfig } from "@/lib/payout-adapter";
@@ -53,11 +53,16 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
           : !["budgetSol", "rewardPercent", "batchSol"].every((key) => typeof body[key] === "string") ||
             typeof body.delaySeconds !== "number" || typeof body.slippageBps !== "number")) throw new LaunchError("Invalid payout settings.");
       const input = body as unknown as PayoutInput | HeldPayoutInput;
+      const minScore = body.minScore === undefined || body.minScore === "" ? 0 : Number(body.minScore);
+      if (!Number.isFinite(minScore) || minScore < 0) throw new LaunchError("The minimum score must be a number, 0 or more.");
       const date = new Date(`${input.period}T00:00:00Z`);
       if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== input.period) throw new LaunchError("Choose a valid calendar date.");
       if (input.kind === "weekly" && date.getUTCDay() !== 1) throw new LaunchError("Choose the Monday that started a completed weekly season.");
-      const frozen = await adminRead(request, `/admin/payout-recipients?${input.kind === "daily" ? "day" : "season"}=${encodeURIComponent(input.period)}`) as { frozen: boolean; winners: PayoutWinner[] };
+      // The API checks every winner's holding now ($20 at payout) and re-shares among those left.
+      const frozen = await adminRead(request, `/admin/payout-recipients?${input.kind === "daily" ? "day" : "season"}=${encodeURIComponent(input.period)}&minScore=${minScore}`) as { frozen: boolean; winners: PayoutWinner[]; dropped?: PayoutDropped[] };
       if (!frozen.frozen) throw new LaunchError("Only frozen scores can be paid.", 409);
+      // An API from before the payout-time holding check returns no `dropped`: it would pay wallets that sold.
+      if (!Array.isArray(frozen.dropped)) throw new LaunchError("The payout API does not check holdings at payout yet. Deploy the api, then preview again.", 503);
       for (const winner of frozen.winners) {
         if (new PublicKey(winner.wallet).toBase58() === LAUNCH_FEE_RECIPIENT) throw new LaunchError("The platform wallet cannot be a reward winner.");
       }
@@ -74,6 +79,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       }
       catch (error) { throw new LaunchError((error as Error).message); }
       plan.agpMint = agpMint();
+      plan.minScore = minScore; plan.dropped = frozen.dropped;
       store.insert(plan);
       result = plan;
     } else if (request.method === "POST" && path.length === 2 && path[1] === "approve") {
