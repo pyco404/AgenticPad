@@ -25,15 +25,24 @@ describe("one Field camera's interactions", () => {
     expect(house).toEqual(before);
   });
 
-  it("lets opaque foreground foliage block a building while transparent gaps remain pickable", () => {
+  it("lets solid foreground foliage block a building while geometric gaps remain pickable", () => {
     const hall = pictureObject("site:hall", { key: "hall", frame: 0 }, { x: 0, y: 0 }, 100, 300);
     hall.type = "building";
-    const tree = pictureObject("tree", { key: "tree", frame: 0 }, { x: 0, y: 100 }, 100, 300);
+    const tree = pictureObject("tree", { key: "tree", frame: 0 }, { x: 0, y: 100 }, 192, 192);
     tree.type = "tree";
-    const angle = { yaw: 0, tilt: 0.5 }, at = { x: 100, y: 50 };
+    const angle = { yaw: 0, tilt: 0.5 };
     const resolve = (ref: { key: string }) => art(ref.key);
-    expect(worldPicker(angle, [tree, hall], camera, 200, 200, resolve, () => true)(at)).toBeNull();
-    expect(worldPicker(angle, [tree, hall], camera, 200, 200, resolve, (f) => f.image !== "resources-trees-tree")(at)).toEqual({ kind: "building", id: "hall" });
+    const sample = (f: ArtFrame) => { expect(f.image).not.toBe('resources-trees-tree'); return true; };
+    const background = worldPicker(angle, [hall], camera, 200, 200, resolve, sample);
+    const foreground = worldPicker(angle, [tree, hall], camera, 200, 200, resolve, sample);
+    let blocked = 0, gaps = 0;
+    for (let x = 55; x <= 145; x += 5) for (let y = 45; y <= 100; y += 5) {
+      const at = { x, y };
+      if (background(at)?.id !== 'hall') continue;
+      if (foreground(at) === null) blocked++; else gaps++;
+    }
+    expect(blocked).toBeGreaterThan(0);
+    expect(gaps).toBeGreaterThan(0);
   });
 
   it("uses flipped sprite pixels and keeps flat dressing non-interactive", () => {
