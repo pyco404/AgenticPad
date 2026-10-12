@@ -58,8 +58,17 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       const date = new Date(`${input.period}T00:00:00Z`);
       if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== input.period) throw new LaunchError("Choose a valid calendar date.");
       if (input.kind === "weekly" && date.getUTCDay() !== 1) throw new LaunchError("Choose the Monday that started a completed weekly season.");
+      // A daily catch-up: every frozen day from `period` through `periodEnd`, paid at once.
+      const periodEnd = typeof body.periodEnd === "string" && body.periodEnd && body.periodEnd !== input.period ? body.periodEnd : null;
+      if (periodEnd) {
+        const end = new Date(`${periodEnd}T00:00:00Z`);
+        if (input.kind !== "daily") throw new LaunchError("Only daily payouts can cover several days.");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !Number.isFinite(end.getTime()) || end.toISOString().slice(0, 10) !== periodEnd) throw new LaunchError("Choose a valid last day.");
+        if (end <= date || end.getTime() - date.getTime() > 30 * 86_400_000) throw new LaunchError("A catch-up covers 2 to 31 days, its last day after its first.");
+      }
       // The API checks every winner's holding now ($20 at payout) and re-shares among those left.
-      const frozen = await adminRead(request, `/admin/payout-recipients?${input.kind === "daily" ? "day" : "season"}=${encodeURIComponent(input.period)}&minScore=${minScore}`) as { frozen: boolean; winners: PayoutWinner[]; dropped?: PayoutDropped[] };
+      const range = periodEnd ? `from=${input.period}&to=${periodEnd}` : `${input.kind === "daily" ? "day" : "season"}=${encodeURIComponent(input.period)}`;
+      const frozen = await adminRead(request, `/admin/payout-recipients?${range}&minScore=${minScore}`) as { frozen: boolean; winners: PayoutWinner[]; dropped?: PayoutDropped[] };
       if (!frozen.frozen) throw new LaunchError("Only frozen scores can be paid.", 409);
       // An API from before the payout-time holding check returns no `dropped`: it would pay wallets that sold.
       if (!Array.isArray(frozen.dropped)) throw new LaunchError("The payout API does not check holdings at payout yet. Deploy the api, then preview again.", 503);
@@ -80,6 +89,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       catch (error) { throw new LaunchError((error as Error).message); }
       plan.agpMint = agpMint();
       plan.minScore = minScore; plan.dropped = frozen.dropped;
+      if (periodEnd) plan.periodEnd = periodEnd;
       store.insert(plan);
       result = plan;
     } else if (request.method === "POST" && path.length === 2 && path[1] === "approve") {
