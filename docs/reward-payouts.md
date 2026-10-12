@@ -4,6 +4,32 @@ Decided 2026-10-05: accumulate creator fees as SOL in the daily and weekly
 reward wallets. At payout, swap SOL into $AGP and distribute $AGP to
 winners in small batches, instead of buying the whole pool at once.
 
+Decided 2026-10-12: the operator buys $AGP into the reward wallet by hand, and
+the payout distributes what the wallet holds (**held $AGP**, the default). No
+Jupiter API key is needed. The SOL-swap mode below remains available, and needs
+`JUPITER_API_KEY` only when used.
+
+## Held $AGP (default)
+
+1. In the daily or weekly reward wallet itself (not another wallet), swap SOL for
+   $AGP, in several small buys if that limits price impact. Keep the swap
+   signatures: the dashboard does not record the purchase.
+2. In `/admin`, choose **$AGP already in the reward wallet**, the period, the $AGP
+   amount to pay and the payout percentage. Shares come from the frozen scores
+   with the same 10% per-winner cap; the plan shows each winner's $AGP.
+3. Approve the plan, start it, and approve each winner transfer in the reward
+   wallet. Before starting, the wallet must hold the allocated $AGP and the SOL fee
+   reserve (`PAYOUT_FEE_RESERVE_SOL`), which pays network fees and any winner's
+   new token account.
+
+Amounts are planned in the mint's base units, read from the chain at preview and
+checked again before any transfer. Whatever is capped, rounded or not allocated
+stays in the reward wallet as $AGP for a later payout. There is no swap step and
+no batch delay: one transfer per winner, each signed, saved before submission,
+and counted only after finalized confirmation, as below.
+
+## Swapping SOL during the payout
+
 The `/admin` dashboard now supports payout-plan previews, per-plan percentages,
 approval records and history. Its API checks signed wallet sessions and the
 backend's existing `ADMIN_WALLETS` permissions. Recipient wallets and shares
@@ -47,7 +73,7 @@ Set these on Railway's **web** service, or `web/.env.local` locally:
 - `PUMP_RPC_URL`: verified Solana mainnet RPC.
 - `PUMP_DAILY_REWARDS_WALLET`, `PUMP_WEEKLY_REWARDS_WALLET`: actual signing-wallet addresses.
 - `PAYOUT_AGP_MINT`: real mainnet $AGP mint; preview again after changing it.
-- `JUPITER_API_KEY`: server-only key from Jupiter's developer portal.
+- `JUPITER_API_KEY`: server-only key from Jupiter's developer portal. Needed only to swap SOL during a payout; held-$AGP payouts run without it.
 - `PUMP_LAUNCH_DB_PATH`: SQLite file on one persistent volume, retaining launches and payout journals.
 - `PAYOUT_EXECUTION_ENABLED=true`: enable preparation and confirmation processing.
 - `PAYOUT_FEE_RESERVE_SOL=0.05`: minimum SOL beyond the payout budget for costs.
