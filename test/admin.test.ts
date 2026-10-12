@@ -99,20 +99,32 @@ describe("who may read /admin", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ frozen: true, minScore: 0, winners: [{ agentId: agent.id, name: "Payout winner", wallet: owner, mint: "", share: 0.1 }], dropped: [] });
   });
-  it("merges replacement agents into one capped payout wallet", async () => {
+  it("pays only the agent still in play: an ended agent's scores are forfeit", async () => {
+    // The wallet sold to zero (ending its first agent) and bought back (a replacement).
     const owner = someWallet();
     const first = await createAgent(db, { name: "First agent", presetName: "Anchor", ownerId: owner });
-    await db.update(agents).set({ retiredAt: new Date(), retiredReason: "owner" }).where(eq(agents.id, first.id));
+    await db.update(agents).set({ retiredAt: new Date(), retiredReason: "no-holdings" }).where(eq(agents.id, first.id));
     const second = await createAgent(db, { name: "Replacement", presetName: "Mirage", ownerId: owner });
     const day = Math.floor(Date.parse("2026-05-03T00:00:00Z") / 86_400_000);
     await freezeDay(db, day);
     for (const agent of [first, second]) await db.insert(dailyScores).values({ day, agentId: agent.id, rankedMatches: 3, points: 10, qualified: true, convictionDays: 0, shareOfSupply: 0, power: 0, weight: 1, score: 10 });
     const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-03`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
-    const body = await response.json() as { winners: { wallet: string; share: number; agentIds: string[] }[] };
-    expect(body.winners).toHaveLength(1);
-    expect(body.winners[0]!.wallet).toBe(owner);
-    expect(body.winners[0]!.share).toBe(0.1);
-    expect(new Set(body.winners[0]!.agentIds)).toEqual(new Set([first.id, second.id]));
+    const body = await response.json() as { winners: { agentId: string; wallet: string; share: number }[]; dropped: { agentId: string; reason: string }[] };
+    expect(body.winners).toEqual([expect.objectContaining({ agentId: second.id, wallet: owner, share: 0.1 })]);
+    expect(body.dropped).toEqual([expect.objectContaining({ agentId: first.id, reason: "agent ended" })]);
+  });
+  it("never pays the reward wallets themselves", async () => {
+    const [reward, player] = [someWallet(), someWallet()];
+    const day = Math.floor(Date.parse("2026-05-05T00:00:00Z") / 86_400_000);
+    await freezeDay(db, day);
+    for (const owner of [reward, player]) {
+      const agent = await createAgent(db, { name: owner.slice(0, 4), presetName: "Anchor", ownerId: owner });
+      await db.insert(dailyScores).values({ day, agentId: agent.id, rankedMatches: 3, points: 10, qualified: true, convictionDays: 0, shareOfSupply: 0, power: 0, weight: 1, score: 10 });
+    }
+    const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-05&exclude=${reward}`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
+    const body = await response.json() as { winners: { wallet: string }[]; dropped: { wallet: string; reason: string }[] };
+    expect(body.winners.map((w) => w.wallet)).toEqual([player]);
+    expect(body.dropped).toEqual([expect.objectContaining({ wallet: reward, reason: "reward wallet" })]);
   });
   it("pays a wallet's agents for different tokens independently, each capped", async () => {
     const owner = someWallet();
