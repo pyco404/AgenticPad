@@ -32,6 +32,7 @@ export class PayoutStore {
       const plan = this.get(id);
       if (!plan) throw new Error("Payout plan not found.");
       if (BigInt(plan.platformLamports) !== 0n) throw new Error("This older plan includes a platform cut. Preview a new plan that retains unpaid SOL in the reward wallet.");
+      if (plan.status === "cancelled") throw new Error("This plan was cancelled. Preview a new plan for these days.");
       if (plan.status !== "approved") {
         const existing = this.db.prepare("SELECT id FROM payout_plans WHERE kind = ? AND period = ? AND status = 'approved'").get(plan.kind, plan.period);
         if (existing) throw new Error("A payout is already approved for this period.");
@@ -45,6 +46,25 @@ export class PayoutStore {
         plan.status = "approved"; plan.approvedBy = owner; plan.approvedAt = new Date().toISOString();
         this.db.prepare("UPDATE payout_plans SET status = ?, data = ? WHERE id = ?").run(plan.status, JSON.stringify(plan), id);
       }
+      this.db.exec("COMMIT");
+      return plan;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+  /**
+   * Withdraws an approval before anything was sent, freeing its days for another plan. Once a payout
+   * has started, transfers may already be on chain: pause it instead.
+   */
+  cancel(id: string, owner: string): PayoutPlan {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const plan = this.get(id);
+      if (!plan) throw new Error("Payout plan not found.");
+      if (plan.status !== "approved") throw new Error("Only an approved plan can be cancelled.");
+      const started = this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'payout_execution'").get()
+        && this.db.prepare("SELECT plan_id FROM payout_execution WHERE plan_id = ?").get(id);
+      if (started) throw new Error("This payout has already started, so it cannot be cancelled. Pause it instead.");
+      plan.status = "cancelled"; plan.cancelledBy = owner; plan.cancelledAt = new Date().toISOString();
+      this.db.prepare("UPDATE payout_plans SET status = ?, data = ? WHERE id = ?").run(plan.status, JSON.stringify(plan), id);
       this.db.exec("COMMIT");
       return plan;
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
