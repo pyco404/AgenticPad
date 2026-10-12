@@ -37,6 +37,8 @@ export function loadDressing(scene: Phaser.Scene): void {
     const url = ["ac-banner", "ac-banner-fame", "ac-banner-gold", "ac-flag"].includes(p.key) ? `${art}?v=agp-logo-1` : art;
     if (p.sheet) scene.load.spritesheet(p.key, url, { frameWidth: p.sheet.frameWidth, frameHeight: p.sheet.frameHeight });
     else scene.load.image(p.key, url);
+    // Its back and sides, where they have been made (directional-art.ts).
+    for (const view of directionalSources(p.key, p.image)) scene.load.image(view.key, view.url);
   }
 }
 
@@ -98,6 +100,7 @@ export function drawDressing(scene: Phaser.Scene, still: boolean, pieces: readon
  * drawn over the night's blue so it reads as light rather than as paint.
  */
 import { SOLAR_LIGHTS } from "../../../lib/world/landmarks";
+import { directionalSources } from "../../../lib/world/directional-art";
 export { SOLAR_LIGHTS } from "../../../lib/world/landmarks";
 
 /** The lamp, a row to a string, in art pixels: panel, lamp, cap, post, foot. */
