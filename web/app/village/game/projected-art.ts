@@ -7,6 +7,7 @@ import { ARENA_PALETTE as A } from "./arena-art";
 import { buildingMaterial, VILLAGE_MATERIAL as M, type ProjectedMaterials } from "./projected-materials";
 import type { Pt } from "../../../lib/world/world";
 import { fixedObjectLayer } from "./fixed-world-art";
+import { drawTerrainEdge } from './terrain-edge';
 
 export type ProjectionCamera = { x: number; y: number; scale: number };
 /**
@@ -415,21 +416,19 @@ function staticGroups(world:WorldModel):StaticGroups {
 }
 
 export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: WorldModel, view: Projection, camera: ProjectionCamera, width: number, height: number, materials?: ProjectedMaterials, top?: TopArt, capture?: CaptureLayer): void {
+  const deviceTransform = ctx.getTransform();
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, width, height);
   ctx.save();
   ctx.translate(width / 2, height / 2); ctx.scale(camera.scale, camera.scale); ctx.translate(-camera.x, -camera.y);
   const b = brush(ctx, view, camera.scale, materials), bounds = world.bounds;
   const corners = [{ x: bounds.x0, y: bounds.y0 }, { x: bounds.x1, y: bounds.y0 }, { x: bounds.x1, y: bounds.y1 }, { x: bounds.x0, y: bounds.y1 }];
-  const slab = { id: "terrain", type: "prop", category: "prop", orientation: "south", x: (bounds.x0 + bounds.x1) / 2, y: (bounds.y0 + bounds.y1) / 2,
-    width: bounds.x1 - bounds.x0, depth: bounds.y1 - bounds.y0, elevation: -world.slabDepth, height: world.slabDepth } as WorldObject;
-  prism(b, view, slab, COLOUR.earth, COLOUR.grass);
+  drawTerrainEdge(ctx, view, bounds, world.slabDepth, top?.ground);
+  b.polygon(corners, COLOUR.grass);
   // Top's own ground layer when it has been captured: the same terrain, roads, water and beds.
   const ground = top?.ground;
   if (ground) onGround(ctx, view, () => ctx.drawImage(ground.image as CanvasImageSource, ground.x0, ground.y0, ground.width, ground.height));
   else b.ground(corners, 0, materials?.grass);
-  // Strata follow the actual terrain block edges in every projection.
-  for (const z of [-35, -80, -115]) for (let i = 0; i < 4; i++) b.line([{ ...corners[i]!, z }, { ...corners[(i + 1) % 4]!, z }], z === -115 ? COLOUR.deep : "#c09958", 3);
   const cached=staticGroups(world),waterCells=cached.water;
   // Captured scenery is sorted once with live actors by WorldCamera. Sorting every
   // ground tile and offscreen tree here duplicated that work on every camera delta.
@@ -490,7 +489,10 @@ export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: World
       if (capture) capture(part); else part.draw();
     } else {
       const part = fixedObjectLayer(ctx, view, o, camera.scale, resolve);
-      if (capture) capture(part); else part.draw();
+      if (capture) capture(part);
+      else if (part.drawScreen) {
+        ctx.save(); ctx.setTransform(deviceTransform); part.drawScreen(camera, width, height); ctx.restore();
+      } else part.draw();
     }
   }
   ctx.globalAlpha = 1;
