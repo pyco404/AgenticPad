@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import imported from "../web/public/village/map.json";
 import type { VillageMap } from "../web/lib/world/map-data";
 import { createWorldModel, plotObjects, prepareWorldMap, treeObject, worldObject } from "../web/lib/world/model";
-import { CAMERA_ANGLES, dragCamera, easeCamera, yawDelta, depthOrder, DIRECTIONAL_TILT, FIELD_VIEWS, footprint, frameProjection, project, projectedBounds, unprojectGround } from "../web/lib/world/projection";
+import { CAMERA_ANGLES, MAX_TILT, dragCamera, easeCamera, yawDelta, depthOrder, DIRECTIONAL_TILT, FIELD_VIEWS, footprint, frameProjection, project, projectedBounds, unprojectGround } from "../web/lib/world/projection";
 import { directionalVisibility } from "../web/lib/world/visibility";
 import { COLOSSEUM } from "../web/lib/world/arena-geometry";
 import { chunkTrees } from "../web/lib/world/forest";
@@ -207,7 +207,8 @@ describe("continuous world camera", () => {
   });
   it("raises the camera on upward drag and clamps before the ground degenerates", () => {
     expect(dragCamera(CAMERA_ANGLES.front, 0, -20).tilt).toBeGreaterThan(DIRECTIONAL_TILT);
-    expect(dragCamera(CAMERA_ANGLES.front, 0, -10000).tilt).toBe(Math.PI / 2);
+    expect(dragCamera(CAMERA_ANGLES.front, 0, -10000).tilt).toBe(MAX_TILT);
+    expect(MAX_TILT).toBeLessThan(Math.PI / 3);
     expect(dragCamera(CAMERA_ANGLES.front, 0, 10000).tilt).toBeCloseTo(15 * Math.PI / 180);
   });
   it("eases across the yaw seam along the short arc, independently of frame rate", () => {
