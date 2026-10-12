@@ -1,10 +1,11 @@
 import { worldPerformance } from "../../../lib/world/render-performance";
 import type { ProjectedLayer, ProjectionCamera } from "./projected-art";
-import { solidLayer } from "./solid-renderer";
+import { solidLayer, solidVegetationLayer } from "./solid-renderer";
 import type { ArtFrame, ArtRef, WorldObject } from '../../../lib/world/model';
 import { fixedObjectGeometry, projectedObjectFaces, TREE_VARIATION_COUNT } from '../../../lib/world/object-geometry';
 import { cameraAngle, type Projection } from '../../../lib/world/projection';
 import { VILLAGE_MATERIAL as M } from '../../../lib/world/object-materials';
+import { applySolidAppearance } from '../../../lib/world/solid-appearance';
 
 export { fixedObjectGeometry, projectedObjectFaces } from '../../../lib/world/object-geometry';
 
@@ -30,7 +31,7 @@ function treeKey(o:WorldObject,ref:ArtRef):string {
   let key=treeKeys.get(o);
   if(key===undefined){
     const seed=[...o.id].reduce((n,char)=>(n*31+char.charCodeAt(0))>>>0,0);
-    key=[seed%TREE_VARIATION_COUNT,typeof ref.frame==='number'?ref.frame%2:ref.frame,o.orientation,(o.depth/o.width).toFixed(6),(o.height/o.width).toFixed(6)].join(':');
+    key=[o.solid??seed%TREE_VARIATION_COUNT,typeof ref.frame==='number'?ref.frame%2:ref.frame,o.orientation,(o.depth/o.width).toFixed(6),(o.height/o.width).toFixed(6)].join(':');
     treeKeys.set(o,key);
   }
   return key;
@@ -58,7 +59,9 @@ function faceBounds(faces:ReturnType<typeof projectedObjectFaces>) {
  * bounded set, so a rotation never grows a canvas per object.
  */
 export function fixedObjectLayer(ctx: CanvasRenderingContext2D, view: Projection, o: WorldObject, scale:number, art?: (ref:ArtRef)=>ArtFrame|null): FixedLayer {
-  const solid=o.solid ? solidLayer(ctx,view,o) : null;
+  applySolidAppearance(o);
+  const vegetation = o.solid?.startsWith('tree') || o.solid === 'shrub';
+  const solid=o.solid ? vegetation ? solidVegetationLayer(ctx,view,o) : solidLayer(ctx,view,o) : null;
   if(solid) return solid as FixedLayer;
   const angle=cameraAngle(view);
   const frontRef=o.directionalAssets?.front ?? o.metadata?.art;
@@ -69,7 +72,8 @@ export function fixedObjectLayer(ctx: CanvasRenderingContext2D, view: Projection
     let templates=forestTemplates.get(front.image as object);
     if(!templates){templates=new Map();forestTemplates.set(front.image as object,templates);}
     let template=templates.get(key);
-    if(!template){template={...o,x:0,y:0,elevation:0,width:192,depth:o.depth/factor,height:o.height/factor};templates.set(key,template);templateObjects.add(template);worldPerformance.count('treeTemplates');}
+    if(!template){template={...o,x:0,y:0,elevation:0,width:192,depth:o.depth/factor,height:o.height/factor,
+      metadata:{...o.metadata,topAnchor:{x:0,y:0}}};templates.set(key,template);templateObjects.add(template);worldPerformance.count('treeTemplates');}
     const part=fixedObjectLayer(ctx,view,template,1/Math.min(2,typeof window==='undefined'?1:window.devicePixelRatio||1),art);
     const originX=o.x*Math.cos(angle.yaw)-o.y*Math.sin(angle.yaw);
     const along=o.x*Math.sin(angle.yaw)+o.y*Math.cos(angle.yaw);
