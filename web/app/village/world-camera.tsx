@@ -7,12 +7,14 @@ import { useEffect, useRef, type RefObject } from "react";
 import { CloseIcon } from "@/app/icons";
 import type { VillageHandle } from "./game";
 import { renderProjectedWorld, type ProjectedLayer, type ProjectionCamera } from "./game/projected-art";
-import { dragCamera, easeCamera, frameProjection, project, unprojectGround, yawDelta } from "../../lib/world/projection";
+import { dragCamera, easeCamera, frameProjection, MAX_TILT, MIN_TILT, project, unprojectGround, yawDelta } from "../../lib/world/projection";
 import { VOID, nightOf } from "./game/palette";
 
 /** The village's monospace, as Top's labels use; game/text.ts imports Phaser, which cannot load here. */
 const MONO = 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace';
 import { loadProjectedMaterials } from "./game/projected-materials";
+import { solidRevision } from "./game/solid-renderer";
+import { createWater } from "./game/solid-water";
 import { canvasPainter } from "./game/projected-agents";
 import { agentBox, inside, worldPicker, type ScreenBox, type WorldTarget } from "./game/projected-picking";
 import type { WorldSnapshot } from "../../lib/world/model";
@@ -44,16 +46,23 @@ const homeScale = (width: number) => Math.max(0.3, Math.min(1.2, width / HOME.sp
 export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }: Props) {
   worldPerformance.count("reactRenders");
   const canvas = useRef<HTMLCanvasElement>(null);
+  // Stacked under and over the main canvas, composited by the browser with nothing read back:
+  // the baked ground, the live water on it, then (main) scenery and agents, the night's tint, and labels.
+  const groundCanvas = useRef<HTMLCanvasElement>(null), waterCanvas = useRef<HTMLCanvasElement>(null);
+  const nightLayer = useRef<HTMLDivElement>(null), labelCanvas = useRef<HTMLCanvasElement>(null);
   const options = useRef({ observing, scrolls, inset }); options.current = { observing, scrolls, inset };
   const fit = useRef<(whole?: boolean) => void>(() => {});
   const reset = useRef<() => void>(() => {});
 
   useEffect(() => {
-    const el = canvas.current, handle = village.current;
-    if (!el || !handle) return;
-    const ctx = el.getContext("2d");
-    if (!ctx) return;
-    const still = document.createElement("canvas"), layer = still.getContext("2d")!;
+    const el = canvas.current, handle = village.current, still = groundCanvas.current, labelsEl = labelCanvas.current;
+    if (!el || !handle || !still || !labelsEl) return;
+    const ctx = el.getContext("2d"), layer = still.getContext("2d"), lctx = labelsEl.getContext("2d");
+    if (!ctx || !layer || !lctx) return;
+    // The bake, in two: the ground (its own canvas, under the water's) and the upright scenery over a
+    // clear background, drawn onto the main canvas each frame under the agents.
+    const upright = document.createElement("canvas"), uprightLayer = upright.getContext("2d")!;
+    const water = waterCanvas.current ? createWater(waterCanvas.current) : null, waterOn = new URLSearchParams(window.location.search).get("water") !== "0";
     let snapshot: WorldSnapshot | null = null, camera: ProjectionCamera | null = null;
     let angle = { ...HOME.angle }, target = { ...angle };
     let focus: { x: number; y: number } | null = null, scaleTarget: number | null = null, following: string | null = null;
@@ -63,10 +72,16 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
     let lastRead = -Infinity, lastDraw = -Infinity, lastFrame = 0, revision = -1, dirty = true, raf = 0, width = 0, height = 0, ratio = 1;
     let artwork: ReturnType<typeof loadProjectedMaterials> | null = null;
     let scenery: ProjectedLayer[] = [], retained = new Set<string>();
+    // Scenery is baked into `still` once per camera change. Between changes only the layers whose
+    // screen boxes meet a live actor are drawn again, over it, in painter order with the actors.
+    // `baked` is the camera they were baked at; `cells` indexes their boxes; `always` have none.
+    let solids = -1;
+    let baked: ProjectionCamera | null = null, cells = new Map<number, number[]>(), always: number[] = [], boxes: ScreenBox[] = [];
+    const CELL = 96, cellKey = (cx: number, cy: number) => cx * 65536 + cy;
     const debug = new URLSearchParams(window.location.search).has("debugAgents");
     worldPerformance.enabled = new URLSearchParams(window.location.search).has("debugWorldPerf");
     if (worldPerformance.enabled) Object.assign(window,{__worldRenderPerf:worldPerformance,
-      __worldPerfCamera:(yaw:number,tilt=angle.tilt)=>{target={yaw,tilt};dirty=true;}});
+      __worldPerfCamera:(yaw:number,tilt=angle.tilt)=>{target={yaw,tilt:Math.max(MIN_TILT,Math.min(MAX_TILT,tilt))};dirty=true;}});
     let pickWorld: (p: { x: number; y: number }) => WorldTarget | null = () => null;
     let agentHits: Hit[] = [], labelHits: Hit[] = [];
     const pick = (point: { x: number; y: number }) => {
@@ -81,8 +96,8 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
     const resize = () => {
       const rect = el.getBoundingClientRect();
       width = rect.width; height = rect.height; ratio = Math.min(window.devicePixelRatio || 1, 2);
-      el.width = still.width = Math.max(1, Math.round(width * ratio));
-      el.height = still.height = Math.max(1, Math.round(height * ratio)); dirty = true;
+      el.width = still.width = upright.width = labelsEl.width = Math.max(1, Math.round(width * ratio));
+      el.height = still.height = upright.height = labelsEl.height = Math.max(1, Math.round(height * ratio)); dirty = true;
     };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
     const changeZoom = (factor: number, x = width / 2, y = height / 2) => {
@@ -230,11 +245,17 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         const toward = { x: Math.min(covered.right, width * 0.6) / 2, y: Math.min(covered.bottom, height * 0.7) / 2 };
         if (Math.abs(toward.x - shift.x) + Math.abs(toward.y - shift.y) > 0.5) {
           shift.x += (toward.x - shift.x) * ease; shift.y += (toward.y - shift.y) * ease; dirty = true;
-        } else { shift.x = toward.x; shift.y = toward.y; }
+        } else if (shift.x !== toward.x || shift.y !== toward.y) { shift.x = toward.x; shift.y = toward.y; dirty = true; }
         const zoomed = camera ? camera.scale + (scale - camera.scale) * (1 - Math.exp(-seconds * 14)) : scale;
         camera = { x: centre.x + shift.x / zoomed, y: centre.y + shift.y / zoomed, scale: zoomed };
         const view = angle;
-        if (dirty || revision !== snapshot.revision) {
+        const drawScenery = (part: ProjectedLayer, at: ProjectionCamera = baked ?? camera!) => {
+          if(part.drawScreen){part.drawScreen(at,width,height);return;}
+          ctx.save(); ctx.translate(width / 2, height / 2); ctx.scale(at.scale, at.scale); ctx.translate(-at.x, -at.y);
+          part.draw(); ctx.restore();
+        };
+        if (dirty || revision !== snapshot.revision || solids !== solidRevision()) {
+          solids = solidRevision();
           ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
           artwork ??= loadProjectedMaterials(snapshot.world, () => { dirty = true; });
           scenery = [];
@@ -245,7 +266,28 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
           const scenerySortStarted=worldPerformance.start();
           scenery.sort((a, b) => a.depth - b.depth);
           worldPerformance.endStage("scenerySort",scenerySortStarted);
+          const bakeStarted=worldPerformance.start();
+          baked = { ...camera };
           layer.setTransform(1, 0, 0, 1, 0, 0); layer.clearRect(0, 0, still.width, still.height); layer.drawImage(el, 0, 0);
+          ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, el.width, el.height); ctx.restore();
+          ctx.imageSmoothingEnabled = false;
+          for (const part of scenery) drawScenery(part, baked);
+          uprightLayer.setTransform(1, 0, 0, 1, 0, 0); uprightLayer.clearRect(0, 0, upright.width, upright.height); uprightLayer.drawImage(el, 0, 0);
+          cells = new Map(); always = []; boxes = [];
+          for (const [i, part] of scenery.entries()) {
+            const b = part.bounds;
+            if (!b) { always.push(i); boxes.push({ x: 0, y: 0, width: 0, height: 0 }); continue; }
+            const box = { x: width / 2 + (b.x0 - baked.x) * baked.scale, y: height / 2 + (b.y0 - baked.y) * baked.scale,
+              width: (b.x1 - b.x0) * baked.scale, height: (b.y1 - b.y0) * baked.scale };
+            boxes.push(box);
+            if (box.x > width || box.y > height || box.x + box.width < 0 || box.y + box.height < 0) continue;
+            for (let cx = Math.floor(Math.max(0, box.x) / CELL); cx <= Math.floor(Math.min(width, box.x + box.width) / CELL); cx++)
+              for (let cy = Math.floor(Math.max(0, box.y) / CELL); cy <= Math.floor(Math.min(height, box.y + box.height) / CELL); cy++) {
+                const key = cellKey(cx, cy), list = cells.get(key);
+                if (list) list.push(i); else cells.set(key, [i]);
+              }
+          }
+          worldPerformance.endStage("bake",bakeStarted);
           // Keep a frozen pose for hit testing. Only a click/gesture start needs the
           // projected hit polygons; dragging must not rebuild them every paint.
           const pickView={...view},pickCamera={...camera},pickSnapshot=snapshot,pickWidth=width,pickHeight=height;
@@ -259,8 +301,10 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         worldPerformance.count("visibleObjects",scenery.length);
         const compositeStarted=worldPerformance.start();
         lastDraw = now;
-        ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, el.width, el.height); ctx.drawImage(still, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, el.width, el.height);
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        // Water moves every frame, on its own canvas between the ground's and this one.
+        if (water) { if (waterOn && snapshot.ground && baked) water.draw(snapshot.ground, view, baked, width, height, ratio, now / 1000); else water.clear(); }
         // Bluff & Fold out in the village: the scene draws its rings in full nearest where this camera looks.
         handle.setViewCentre(focus);
         const toScreen = (p: { x: number; y: number }, z = 0) => {
@@ -281,6 +325,7 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
             ctx.restore();
           }
         }
+        ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(upright, 0, 0); ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         // Live agents as their own Top characters, standing on their projected feet, back to front.
         const k = agentScale(camera.scale), nextRetained = new Set<string>();
         const diagnostics: Record<string, unknown>[] = [];
@@ -298,69 +343,80 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
         retained = nextRetained; handle.setVisibleAgents(retained);
         shown.sort((a, b) => a.depth - b.depth || a.agent.id.localeCompare(b.agent.id));
         agentHits = shown.map(({ agent, x, y }) => ({ target: { kind: "agent" as const, id: agent.id }, box: agentBox({ x, y }, camera!.scale) }));
-        const drawScenery = (part: ProjectedLayer) => {
-          if(part.drawScreen){part.drawScreen(camera!,width,height);return;}
-          ctx.save(); ctx.translate(width / 2, height / 2); ctx.scale(camera!.scale, camera!.scale); ctx.translate(-camera!.x, -camera!.y);
-          part.draw(); ctx.restore();
-        };
         // Card tables stand between their players, drawn just after the nearer of the two.
         const tables = handle.matchTables().map((t) => ({ ...t, sa: toScreen(t.a), sb: toScreen(t.b),
           depth: Math.max(project(view, t.a).depth, project(view, t.b).depth) + 0.5 }));
         let at = 0, fallbacks = 0, ti = 0;
         tables.sort((a, b) => a.depth - b.depth);
+        // The scenery to draw again over this frame's actors: every layer whose box meets an agent
+        // or a table and could stand in front of it. The rest is already right in `still`.
+        const chosen = new Set<number>(always);
+        const meet = (box: ScreenBox, depth: number) => {
+          for (let cx = Math.floor(Math.max(0, box.x) / CELL); cx <= Math.floor(Math.min(width, box.x + box.width) / CELL); cx++)
+            for (let cy = Math.floor(Math.max(0, box.y) / CELL); cy <= Math.floor(Math.min(height, box.y + box.height) / CELL); cy++)
+              for (const i of cells.get(cellKey(cx, cy)) ?? []) {
+                if (chosen.has(i) || scenery[i]!.depth <= depth) continue;
+                const b = boxes[i]!;
+                if (b.x < box.x + box.width && box.x < b.x + b.width && b.y < box.y + box.height && box.y < b.y + b.height) chosen.add(i);
+              }
+        };
+        for (const t of tables) meet({ x: Math.min(t.sa.x, t.sb.x) - 48 * k, y: Math.min(t.sa.y, t.sb.y) - 60 * k, width: Math.abs(t.sa.x - t.sb.x) + 96 * k, height: Math.abs(t.sa.y - t.sb.y) + 72 * k }, t.depth);
+        // As wide as anything an agent paints: weapon, lunge, shadow and the ring round your own.
+        for (const { x, y, depth } of shown) meet({ x: x - 34 * k, y: y - 104 * k, width: 68 * k, height: 112 * k }, depth);
+        const occluders = [...chosen].sort((a, b) => a - b).map((i) => scenery[i]!);
+        worldPerformance.count("occluders", occluders.length);
         const drawTablesTo = (depth: number) => {
           while (ti < tables.length && tables[ti]!.depth <= depth) {
             const t = tables[ti++]!;
-            while (at < scenery.length && scenery[at]!.depth <= t.depth) drawScenery(scenery[at++]!);
+            while (at < occluders.length && occluders[at]!.depth <= t.depth) drawScenery(occluders[at++]!);
             t.paint(ctx, t.sa, t.sb, k, toScreen);
           }
         };
         for (const { agent, x, y, depth } of shown) {
           drawTablesTo(depth);
-          while (at < scenery.length && scenery[at]!.depth <= depth) drawScenery(scenery[at++]!);
+          while (at < occluders.length && occluders[at]!.depth <= depth) drawScenery(occluders[at++]!);
           if (agent.metadata?.mine) {
             ctx.strokeStyle = "#f3cf70"; ctx.lineWidth = 1.5;
             ctx.beginPath(); ctx.ellipse(x, y, 18 * k, 6 * k, 0, 0, Math.PI * 2); ctx.stroke();
           }
-          if (!handle.paintAgent(agent.id, ctx, x, y, k, canvasPainter)) {
+          if (!handle.paintAgent(agent.id, ctx, x, y, k, canvasPainter, view.yaw)) {
             fallbacks++;
             ctx.fillStyle = agent.metadata?.mine ? "#f3cf70" : "#c9e7d5"; ctx.strokeStyle = "#243e35"; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.arc(x, y - 6, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
           }
         }
         drawTablesTo(Infinity);
-        while (at < scenery.length) drawScenery(scenery[at++]!);
+        while (at < occluders.length) drawScenery(occluders[at++]!);
         if (debug) {
           Object.assign(window, { __agentRenderDebug: { at: now, agents: diagnostics, painted: shown.length, total: snapshot.agents.length, fallbacks,
             camera: { ...camera, ...view }, order: "ground, scenery and agents by camera depth, labels" } });
         }
-        if (snapshot.night) {
-          ctx.save(); ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = nightOf("#ffffff"); ctx.fillRect(0, 0, width, height); ctx.restore();
-        }
+        if (nightLayer.current) nightLayer.current.style.opacity = snapshot.night ? "1" : "0";
         worldPerformance.endStage("composite",compositeStarted);
         const labelStarted=worldPerformance.start();
+        lctx.setTransform(1, 0, 0, 1, 0, 0); lctx.clearRect(0, 0, labelsEl.width, labelsEl.height); lctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         // Agents' names over their heads, as Top shows them: your own (gold) and players' always, house
         // agents while walking or hovered. Yours and the selected one first; none overlaps another.
         {
-          ctx.save();
-          ctx.font = `bold 12px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom"; ctx.lineJoin = "round";
+          lctx.save();
+          lctx.font = `bold 12px ${MONO}`; lctx.textAlign = "center"; lctx.textBaseline = "bottom"; lctx.lineJoin = "round";
           const tags = shown.flatMap(({ agent, x, y }) => {
             const tag = handle.nameTag(agent.id);
             return tag && tag.shown && tag.text ? [{ ...tag, x, y: y - 42 * k - 3 }] : [];
           }).sort((a, b) => Number(b.mine) - Number(a.mine) || Number(b.selected) - Number(a.selected) || a.y - b.y);
           const taken: { x0: number; x1: number; y0: number; y1: number }[] = [];
           for (const t of tags) {
-            const w = ctx.measureText(t.text).width, box = { x0: t.x - w / 2 - 3, x1: t.x + w / 2 + 3, y0: t.y - 14, y1: t.y + 1 };
+            const w = lctx.measureText(t.text).width, box = { x0: t.x - w / 2 - 3, x1: t.x + w / 2 + 3, y0: t.y - 14, y1: t.y + 1 };
             if (!t.mine && taken.some((b) => b.x0 < box.x1 && box.x0 < b.x1 && b.y0 < box.y1 && box.y0 < b.y1)) continue;
             taken.push(box);
-            ctx.lineWidth = t.selected ? 5 : 3; ctx.strokeStyle = t.selected ? "#5c4a22" : "#000";
-            ctx.strokeText(t.text, t.x, t.y); ctx.fillStyle = t.colour; ctx.fillText(t.text, t.x, t.y);
+            lctx.lineWidth = t.selected ? 5 : 3; lctx.strokeStyle = t.selected ? "#5c4a22" : "#000";
+            lctx.strokeText(t.text, t.x, t.y); lctx.fillStyle = t.colour; lctx.fillText(t.text, t.x, t.y);
           }
-          ctx.restore();
+          lctx.restore();
         }
         // Labels are bounded to landmarks and avoid DOM nodes for objects/agents.
         const labels = snapshot.world.objects.filter((o) => o.id.startsWith("site:") || o.type === "mountain" || o.metadata?.landmark).sort((a, b) => Number(b.type === "arena") - Number(a.type === "arena"));
-        ctx.font = "11px monospace"; ctx.textAlign = "center";
+        lctx.font = "11px monospace"; lctx.textAlign = "center";
         const placed: { x: number; y: number; w: number }[] = [];
         labelHits = [];
         for (const o of labels) {
@@ -373,26 +429,26 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
           const x = width / 2 + (p.x - camera.x) * camera.scale;
           let y = height / 2 + (p.y - camera.y) * camera.scale;
           if (x < 20 || x > width - 20 || y < 16 || y > height - 30) continue;
-          const text = o.metadata?.label ?? o.id, w = ctx.measureText(text).width;
+          const text = o.metadata?.label ?? o.id, w = lctx.measureText(text).width;
           const anchor = y;
           for (let row = 0; row < 6 && placed.some((p) => Math.abs(p.x - x) < (p.w + w) / 2 + 8 && Math.abs(p.y - y) < 20); row++) y -= 21;
           if (y < 16 || placed.some((p) => Math.abs(p.x - x) < (p.w + w) / 2 + 8 && Math.abs(p.y - y) < 20)) continue;
           placed.push({ x, y, w });
-          if (y !== anchor) { ctx.strokeStyle = "#d7c78b88"; ctx.beginPath(); ctx.moveTo(x, anchor); ctx.lineTo(x, y); ctx.stroke(); }
+          if (y !== anchor) { lctx.strokeStyle = "#d7c78b88"; lctx.beginPath(); lctx.moveTo(x, anchor); lctx.lineTo(x, y); lctx.stroke(); }
           if (o.id.startsWith("site:") && (o.type === "arena" || o.type === "building")) {
             labelHits.push({ target: { kind: "building", id: o.id.slice(5) }, box: { x: x - w / 2 - 5, y: y - 12, width: w + 10, height: 17 } });
           }
-          ctx.fillStyle = "#182c24e8"; ctx.fillRect(x - w / 2 - 5, y - 12, w + 10, 17);
-          ctx.fillStyle = "#e8d89d"; ctx.fillText(text, x, y);
+          lctx.fillStyle = "#182c24e8"; lctx.fillRect(x - w / 2 - 5, y - 12, w + 10, 17);
+          lctx.fillStyle = "#e8d89d"; lctx.fillText(text, x, y);
         }
-        if (snapshot.forestPending) { ctx.fillStyle = "#e8d89d"; ctx.fillText("Preparing woodland…", width / 2, height - 18); }
+        if (snapshot.forestPending) { lctx.fillStyle = "#e8d89d"; lctx.fillText("Preparing woodland…", width / 2, height - 18); }
         if (debug) {
-          ctx.save(); ctx.font = "10px monospace"; ctx.textAlign = "left";
-          ctx.fillStyle = "#102019ee"; ctx.fillRect(12, height - 175, Math.min(width - 24, 650), 145);
-          ctx.fillStyle = "#e8d89d";
-          ctx.fillText(`Agents ${shown.length}/${snapshot.agents.length}, fallback ${fallbacks}; depth compositing, padded viewport`, 20, height - 157);
-          diagnostics.filter((d) => d.state === "composited").slice(0, 6).forEach((d, i) => ctx.fillText(`${d.id} world ${Math.round(d.worldX as number)},${Math.round(d.worldY as number)} screen ${Math.round(d.screenX as number)},${Math.round(d.screenY as number)} depth ${Math.round(d.depth as number)} ${d.state}`, 20, height - 139 + i * 18));
-          ctx.restore();
+          lctx.save(); lctx.font = "10px monospace"; lctx.textAlign = "left";
+          lctx.fillStyle = "#102019ee"; lctx.fillRect(12, height - 175, Math.min(width - 24, 650), 145);
+          lctx.fillStyle = "#e8d89d";
+          lctx.fillText(`Agents ${shown.length}/${snapshot.agents.length}, fallback ${fallbacks}; depth compositing, padded viewport`, 20, height - 157);
+          diagnostics.filter((d) => d.state === "composited").slice(0, 6).forEach((d, i) => lctx.fillText(`${d.id} world ${Math.round(d.worldX as number)},${Math.round(d.worldY as number)} screen ${Math.round(d.screenX as number)},${Math.round(d.screenY as number)} depth ${Math.round(d.depth as number)} ${d.state}`, 20, height - 139 + i * 18));
+          lctx.restore();
         }
         worldPerformance.endStage("labels",labelStarted);
         el.dataset.focusX = String(focus.x); el.dataset.focusY = String(focus.y); el.dataset.following = following ?? "";
@@ -415,9 +471,13 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
   }, [village]);
 
   return <>
+    <canvas ref={groundCanvas} aria-hidden className="pointer-events-none absolute left-0 top-14" style={{ backgroundColor: VOID, width: "100%", height: "calc(100% - 56px)" }} />
+    <canvas ref={waterCanvas} aria-hidden className="pointer-events-none absolute left-0 top-14" style={{ width: "100%", height: "calc(100% - 56px)", imageRendering: "pixelated" }} />
     <canvas ref={canvas} tabIndex={0} aria-label="Explore the AgenticPad world. Drag empty ground to rotate, Shift-drag or arrow keys to pan, scroll or pinch to zoom. Tap agents or buildings to open them."
       className="absolute left-0 top-14 cursor-grab touch-none active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-accent"
-      style={{ backgroundColor: VOID, width: "100%", height: "calc(100% - 56px)" }} />
+      style={{ width: "100%", height: "calc(100% - 56px)" }} />
+    <div ref={nightLayer} aria-hidden className="pointer-events-none absolute left-0 top-14" style={{ width: "100%", height: "calc(100% - 56px)", backgroundColor: nightOf("#ffffff"), mixBlendMode: "multiply", opacity: 0 }} />
+    <canvas ref={labelCanvas} aria-hidden className="pointer-events-none absolute left-0 top-14" style={{ width: "100%", height: "calc(100% - 56px)" }} />
     {!scrolls && !observing && help ? <aside className="absolute left-3 z-10 max-w-[min(310px,calc(100%-6rem))] rounded-panel border border-hud-line bg-hud p-3 pr-8 text-[11px] text-text" style={{ bottom: 100 }} aria-label="World camera controls">
       <button type="button" onClick={() => onHelp(false)} aria-label="Close camera help" className="absolute right-1.5 top-1.5 rounded p-1 text-muted hover:text-accent">
         <CloseIcon className="h-3.5 w-3.5" />
