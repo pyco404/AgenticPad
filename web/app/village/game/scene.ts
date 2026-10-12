@@ -30,6 +30,7 @@ import { drawMap, loadMap, type VillageMap } from "./map";
 import { canopy, NEW_TOWN, openPlots, overlaps, PIECE_ART, plotClearing, type Box, type Plot } from "./growth";
 import { Roads, type Point } from "./roads";
 import { referenceArt } from "./reference-art";
+import { directionalSet, directionalSources } from "../../../lib/world/directional-art";
 import { byRiver, RIVER_BANKS } from "./river";
 import { drawRiver } from "./river-scenery";
 import { crispText, MONO } from "./text";
@@ -227,6 +228,7 @@ export class VillageScene extends Phaser.Scene {
       const art = referenceArt(site.art);
       if (site.sheet) this.load.spritesheet(`building-${b.id}`, art, { frameWidth: site.sheet.width, frameHeight: site.sheet.height });
       else this.load.image(`building-${b.id}`, art);
+      for (const view of directionalSources(`building-${b.id}`, art)) this.load.image(view.key, view.url);
     }
     loadDressing(this);
     // What the village grows with: New Town's buildings, lamps and planters (growth.ts).
@@ -368,6 +370,11 @@ export class VillageScene extends Phaser.Scene {
       const foot = { x: obj.x + obj.displayWidth * (0.5 - obj.originX), y: obj.y + obj.displayHeight * (1 - obj.originY) };
       const site = /^building-(.+)$/.exec(key)?.[1];
       const o = pictureObject(site ? `site:${site}` : `top:${i}:${key}`, { key, frame: obj.frame.name, flipX: obj.flipX }, foot, width, height, flatKey.test(key));
+      if (o.directionalAssets) {
+        const { assets, structure } = directionalSet(o.directionalAssets.front!, (k) => this.textures.exists(k));
+        o.directionalAssets = assets;
+        if (structure) o.structure = structure;
+      }
       if (site) { o.type = "building"; o.metadata!.label = labels.get(`site:${site}`) ?? site; }
       if (key === "wild-mountain") { o.metadata!.label = "Mountain"; o.metadata!.landmark = true; }
       this.topPictures.push(o);
