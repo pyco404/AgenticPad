@@ -26,7 +26,17 @@ export type PayoutPlan = {
   /** Checked at preview: winners under this score, or holding under $20 now, were dropped and their shares re-shared. */
   minScore?: number;
   dropped?: PayoutDropped[];
+  /** A daily catch-up's last day: the plan pays every frozen day from `period` through this one. */
+  periodEnd?: string;
 };
+/** Every UTC day a daily plan pays, as YYYY-MM-DD: its one day, or each day of a catch-up. */
+export function planDays(plan: Pick<PayoutPlan, "period" | "periodEnd">): string[] {
+  const days: string[] = [];
+  for (let t = Date.parse(`${plan.period}T00:00:00Z`); t <= Date.parse(`${plan.periodEnd ?? plan.period}T00:00:00Z`); t += 86_400_000) days.push(new Date(t).toISOString().slice(0, 10));
+  return days;
+}
+/** "2026-10-09" or "2026-10-09 to 2026-10-11". */
+export const planPeriod = (plan: Pick<PayoutPlan, "period" | "periodEnd">) => plan.periodEnd && plan.periodEnd !== plan.period ? `${plan.period} to ${plan.periodEnd}` : plan.period;
 export type PayoutDropped = { agentId: string; name: string; wallet: string; mint: string; score: number; reason: "below minimum score" | "holds under $20" };
 
 export function percentBps(value: string): number {
