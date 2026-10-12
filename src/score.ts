@@ -87,3 +87,24 @@ export function shares<T extends { score: number }>(rows: readonly T[], cap: num
   const total = rows.reduce((sum, r) => sum + Math.max(0, r.score), 0);
   return rows.map((r) => (total > 0 ? Math.min(cap, Math.max(0, r.score) / total) : 0));
 }
+
+/**
+ * Each agent's fraction of a payout that pays out in full: proportional to
+ * score, none above `cap`, and what the cap holds back handed on to the rest,
+ * by score, until everything is paid or everyone is at the cap. Payouts use
+ * this (src/http/server.ts, getPayoutRecipients); frozen days keep `shares`.
+ * The fractions sum to 1 whenever rows × cap reaches 1.
+ */
+export function filledShares<T extends { score: number }>(rows: readonly T[], cap: number = SHARE_CAP): number[] {
+  const out = rows.map(() => 0);
+  let left = 1;
+  let open = rows.map((_, i) => i).filter((i) => rows[i]!.score > 0);
+  while (open.length && left > 1e-12) {
+    const total = open.reduce((sum, i) => sum + rows[i]!.score, 0);
+    const over = open.filter((i) => (left * rows[i]!.score) / total > cap);
+    if (!over.length) { for (const i of open) out[i] = (left * rows[i]!.score) / total; break; }
+    for (const i of over) { out[i] = cap; left -= cap; }
+    open = open.filter((i) => !over.includes(i));
+  }
+  return out;
+}
