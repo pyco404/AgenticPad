@@ -39,7 +39,7 @@ import { LiveStream, resumeFrom, type LiveOptions } from "./live.js";
 import { rateOf, seasonRate, type Funding } from "../chips.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../db/faucet.js";
 import { holdingMinimum, holdingOf, holdingView, keeps, readHolding, type Holding, type HoldingsChain } from "../db/holdings.js";
-import { conviction, CONVICTION_CAP_DAYS, position, power, weight } from "../score.js";
+import { conviction, CONVICTION_CAP_DAYS, position, power, shares, weight } from "../score.js";
 import { chips as toChips } from "../chips.js";
 import { AuthError, isPublicKey, issueNonce, ownerForToken, revokeSession, verifySignIn } from "../auth/wallet.js";
 
@@ -713,35 +713,70 @@ export function createApp(options: AppOptions): Server {
     return options.health();
   }
 
+  /**
+   * Who a frozen period pays, checked at payout. Scores are frozen with the day,
+   * but a wallet is paid only if it still holds the agent's token worth $20 now
+   * (docs/holder-agents.md, decision 3): each winner's wallet is read fresh on
+   * chain at the verified price. `minScore` drops lower scores too. Shares are
+   * then worked out again over the winners left, the same way as when frozen -
+   * proportional to score, none above 10% - so a dropped winner's share goes to
+   * those still holding, and what the cap holds back stays in the wallet.
+   * Who was dropped, and why, is returned beside the winners.
+   */
   async function getPayoutRecipients(ctx: Ctx) {
     if (!adminWallets.has(ctx.requireOwner())) throw new HttpError(404, "not found");
+    const minScore = Number(ctx.query.get("minScore") ?? 0);
+    if (!Number.isFinite(minScore) || minScore < 0) throw new HttpError(400, "minScore must be a number, 0 or more");
     const tables = await getScores(ctx);
     const table = "day" in tables ? tables.day : tables.season;
     if (!table || !table.frozen) throw new HttpError(409, "payouts require frozen scores");
-    const eligible = table.rows.filter((row) => row.qualified && row.share > 0);
-    const owners = eligible.length ? await db.select({ id: agents.id, wallet: agents.ownerId, mint: agents.holderMint }).from(agents)
-      .where(inArray(agents.id, eligible.map((row) => row.agentId))) : [];
+    const scored = table.rows.filter((row) => row.qualified && row.share > 0);
+    const owners = scored.length ? await db.select({ id: agents.id, wallet: agents.ownerId, mint: agents.holderMint }).from(agents)
+      .where(inArray(agents.id, scored.map((row) => row.agentId))) : [];
     const recipients = new Map(owners.map((row) => [row.id, row]));
-    const winners = eligible.map((row) => {
+    const rows = scored.map((row) => {
       const owner = recipients.get(row.agentId);
       if (!owner?.wallet || !isPublicKey(owner.wallet)) throw new HttpError(409, "a winner has no valid receiving wallet");
-      const mint = owner.mint || options.holder?.primaryMint || "";
-      return { agentId: row.agentId, name: row.name, share: row.share, wallet: owner.wallet, mint };
+      return { agentId: row.agentId, name: row.name, score: row.score, wallet: owner.wallet, mint: owner.mint || options.holder?.primaryMint || "", scope: owner.mint ?? "" };
     });
+    const dropped: { agentId: string; name: string; wallet: string; mint: string; score: number; reason: "below minimum score" | "holds under $20" }[] = [];
+    const eligible: typeof rows = [];
+    // One fresh read per wallet and token, however many of its agents won.
+    const holds = new Map<string, Promise<boolean>>();
+    const holdsNow = (wallet: string, scope: string) => {
+      const key = `${wallet}:${scope}`;
+      if (!holds.has(key)) holds.set(key, (async () => {
+        const holder = options.holder;
+        if (!holder) return true; // A server that reads no wallets (tests, local play) cannot check, and pays as frozen.
+        const chain = scope && scope !== holder.primaryMint ? await holder.catalog?.chain(scope) : holder.chain;
+        if (!chain) throw new HttpError(503, "a winner's token can't be read; try again shortly");
+        try { return keeps(await readHolding(db, chain, wallet)); }
+        catch { throw new HttpError(503, "a winner's holding couldn't be read; try again shortly"); }
+      })());
+      return holds.get(key)!;
+    };
+    for (const row of rows) {
+      if (row.score < minScore) dropped.push({ ...row, reason: "below minimum score" });
+      else if (!await holdsNow(row.wallet, row.scope)) dropped.push({ ...row, reason: "holds under $20" });
+      else eligible.push(row);
+    }
+    const fractions = shares(eligible);
     // The cap is per agent, and an agent is one wallet holding one token: a
     // wallet with agents for several tokens takes a capped share for each.
     // Only a replacement for the same token merges, so ending an agent and
     // creating another never opens a second slot or bypasses the 10% cap.
-    const grouped = new Map<string, typeof winners[number] & { agentIds?: string[] }>();
-    for (const winner of winners) {
+    const grouped = new Map<string, { agentId: string; name: string; share: number; wallet: string; mint: string; agentIds?: string[] }>();
+    eligible.forEach((row, i) => {
+      const winner = { agentId: row.agentId, name: row.name, share: fractions[i]!, wallet: row.wallet, mint: row.mint };
       const key = `${winner.wallet}:${winner.mint}`;
       const previous = grouped.get(key);
       if (previous) {
         previous.share = Math.min(0.1, previous.share + winner.share);
         previous.agentIds = [...(previous.agentIds ?? [previous.agentId]), winner.agentId];
-      } else grouped.set(key, { ...winner });
-    }
-    return { frozen: true, winners: [...grouped.values()] };
+      } else grouped.set(key, winner);
+    });
+    return { frozen: true, minScore, winners: [...grouped.values()].filter((w) => w.share > 0),
+      dropped: dropped.map(({ agentId, name, wallet, mint, score, reason }) => ({ agentId, name, wallet, mint, score, reason })) };
   }
 
   /**
