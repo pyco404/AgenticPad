@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { HeldPayoutInput, PayoutInput, PayoutPlan } from "@/lib/payout-plan";
+import { planPeriod, type HeldPayoutInput, type PayoutInput, type PayoutPlan } from "@/lib/payout-plan";
 import type { PayoutExecutionView } from "@/lib/payout-execution";
 import { useWallet } from "@/app/wallet-context";
 import { signTransactionWith, type WalletName } from "@/lib/wallet";
@@ -24,6 +24,7 @@ export function PayoutPanel({ token }: { token: string }) {
   const [funding, setFunding] = useState<"held" | "swap">("held");
   const [budgetAgp, setBudgetAgp] = useState("");
   const [minScore, setMinScore] = useState("0");
+  const [periodEnd, setPeriodEnd] = useState("");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [plan, setPlan] = useState<PayoutPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +65,7 @@ export function PayoutPanel({ token }: { token: string }) {
     setBusy(true); setError(null);
     try {
       const held: HeldPayoutInput & { funding: "held" } = { funding: "held", kind: input.kind, period: input.period, budgetAgp, rewardPercent: input.rewardPercent };
-      const result = approve && plan ? await call<PayoutPlan>(`${plan.id}/approve`, {}) : await call<PayoutPlan>("preview", { ...(funding === "held" ? held : input), minScore });
+      const result = approve && plan ? await call<PayoutPlan>(`${plan.id}/approve`, {}) : await call<PayoutPlan>("preview", { ...(funding === "held" ? held : input), minScore, ...(input.kind === "daily" && periodEnd ? { periodEnd } : {}) });
       setPlan(result); await load();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -82,6 +83,7 @@ export function PayoutPanel({ token }: { token: string }) {
       </select>{funding === "held" ? <span className="text-muted">Swap SOL for $AGP in the reward wallet first and keep the swap signature. Unallocated $AGP stays in the wallet.</span> : null}</label>
       <label>Reward wallet<select className={control} value={input.kind} onChange={(e) => change("kind", e.target.value as PayoutInput["kind"])}><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label>
       <label>{input.kind === "daily" ? "Completed UTC day" : "Completed season (Monday UTC)"}<input type="date" className={control} value={input.period} onChange={(e) => change("period", e.target.value)} />{input.kind === "weekly" ? <span className="text-muted">Select the Monday that started the completed week.</span> : null}</label>
+      {input.kind === "daily" ? <label>Through (optional, for a catch-up)<input type="date" className={control} value={periodEnd} onChange={(e) => { setPeriodEnd(e.target.value); setPlan(null); }} /><span className="text-muted">Pays every frozen day from the first date through this one at once, on each agent&apos;s summed score. Leave empty for one day.</span></label> : null}
       {funding === "held"
         ? <label>$AGP to pay out<input className={control} inputMode="decimal" value={budgetAgp} onChange={(e) => { setBudgetAgp(e.target.value); setPlan(null); }} placeholder="1000000" /><span className="text-muted">At most what the reward wallet holds; checked again before any transfer.</span></label>
         : <label>SOL budget (excluding network fees)<input className={control} inputMode="decimal" value={input.budgetSol} onChange={(e) => change("budgetSol", e.target.value)} placeholder="10" /></label>}
@@ -96,7 +98,7 @@ export function PayoutPanel({ token }: { token: string }) {
     {error ? <p className="mt-3 text-loss" role="alert">{error}</p> : null}
     <button disabled={busy} onClick={() => void act()} className="mt-4 rounded border border-line px-4 py-2 text-accent disabled:opacity-50">{busy ? "Working…" : "Preview payout plan"}</button>
     {plan ? <div className="mt-4 border-t border-line pt-4">
-      <p>{plan.kind} · {plan.period} · {plan.status}</p>
+      <p>{plan.kind} · {planPeriod(plan)} · {plan.status}</p>
       <p className="mt-2">{plan.funding === "held" ? "Paid to winners" : "Swap allocation"}: {amount(plan, plan.allocatedLamports)} · Retained in reward wallet: {amount(plan, plan.carryoverLamports)}</p>
       {plan.dropped?.length ? <details className="mt-2 text-muted"><summary>{plan.dropped.length} winners not paid ({plan.dropped.filter(d => d.reason === "holds under $20").length} hold under $20 now{plan.minScore ? `, ${plan.dropped.filter(d => d.reason === "below minimum score").length} scored under ${plan.minScore}` : ""}); their shares were re-shared.</summary>
         <ul className="mt-1">{plan.dropped.map(d => <li key={d.agentId} className="font-mono">{d.wallet.slice(0, 6)}…{d.wallet.slice(-4)} · score {Math.round(d.score)} · {d.reason}</li>)}</ul></details> : null}
@@ -125,6 +127,6 @@ export function PayoutPanel({ token }: { token: string }) {
         {execution.failedAttempts?.length ? <div className="mt-3 text-muted"><p>Previous failed or expired attempts:</p>{execution.failedAttempts.map((attempt, index) => <p key={index}>{attempt.signature ? <a className="text-accent" href={`https://solscan.io/tx/${attempt.signature}`} target="_blank" rel="noreferrer">Batch {attempt.batch + 1} · {attempt.outcome}</a> : attempt.outcome}</p>)}</div> : null}
       </div> : null}
     </div> : null}
-    {overview?.plans.length ? <div className="mt-4 border-t border-line pt-3"><h3>Payout plan history</h3>{overview.plans.map((item) => <button key={item.id} onClick={() => setPlan(item)} className="block w-full border-b border-line py-2 text-left text-muted">{item.kind} · {item.period} · {item.status} · {amount(item, item.budgetLamports)} {item.funding === "held" ? "held" : "budget"}</button>)}</div> : null}
+    {overview?.plans.length ? <div className="mt-4 border-t border-line pt-3"><h3>Payout plan history</h3>{overview.plans.map((item) => <button key={item.id} onClick={() => setPlan(item)} className="block w-full border-b border-line py-2 text-left text-muted">{item.kind} · {planPeriod(item)} · {item.status} · {amount(item, item.budgetLamports)} {item.funding === "held" ? "held" : "budget"}</button>)}</div> : null}
   </section>;
 }
