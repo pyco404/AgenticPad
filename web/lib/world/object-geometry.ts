@@ -18,7 +18,11 @@ export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalF
   // keeping the model footprint and south/front threshold in the original world location.
   const w = size.width * (bounds ? bounds.width / frame!.width : 1);
   const h = size.height * (bounds ? bounds.height / frame!.height : 1);
-  const d = Math.min(size.depth, w * .65), faces: PhysicalFace[] = [];
+  // A structure with all four views stands as its manifest says (directional-art.ts): a body or a cross
+  // as deep as its end picture is wide, so no picture stretches; a board its own thickness.
+  const structure = o.structure && (['back','left','right'] as const).every(side=>o.directionalAssets?.[side]) ? o.structure : undefined;
+  const sourcePixel = frame ? size.width / frame.width : 1;
+  const d = structure ? (structure.form === 'board' ? (structure.thickness ?? 2) * sourcePixel : w * structure.depth) : Math.min(size.depth, w * .65), faces: PhysicalFace[] = [];
   const offset = (size.depth - d) / 2;
   const horizontal = bounds ? ((bounds.x + bounds.width / 2) / frame!.width - .5) * size.width * ((o.directionalAssets?.front ?? o.metadata?.art)?.flipX ? -1 : 1) : 0;
   const yaw = ORIENTATION_YAW[o.orientation], c = Math.cos(yaw), s = Math.sin(yaw);
@@ -56,7 +60,34 @@ export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalF
     if(side==='left') face([[-w/2-inset,-d/2,0],[-w/2-inset,d/2,0],[-w/2-inset,d/2,h],[-w/2-inset,-d/2,h]],M.plaster,[-1,0,0],side,art);
     if(side==='right') face([[w/2+inset,d/2,0],[w/2+inset,-d/2,0],[w/2+inset,-d/2,h],[w/2+inset,d/2,h]],M.plaster,[1,0,0],side,art);
   };
-  if(kind==='house' || kind==='major-building' || kind==='shop') {
+  if(structure) {
+    const art=(side: ObjectSide)=>directionalArt(o,side)!;
+    if(structure.form==='cross') {
+      // A plane each way through its middle, a face either side; only the one facing the camera most
+      // is drawn (projectedObjectFaces), so a round base never shows edge-on through another view.
+      face([[-w/2,0,0],[w/2,0,0],[w/2,0,h],[-w/2,0,h]],M.crest,[0,1,0],'front',art('front'));
+      face([[w/2,0,0],[-w/2,0,0],[-w/2,0,h],[w/2,0,h]],M.crest,[0,-1,0],'back',art('back'));
+      face([[0,d/2,0],[0,-d/2,0],[0,-d/2,h],[0,d/2,h]],M.crest,[1,0,0],'right',art('right'));
+      face([[0,-d/2,0],[0,d/2,0],[0,d/2,h],[0,-d/2,h]],M.crest,[-1,0,0],'left',art('left'));
+    } else {
+      // Its top is closed by a cap inside the painted silhouette, in its own roof and wall colours,
+      // so no generic roof, beams or windows show past the pictures from any side.
+      const cap=structure.cap;
+      if(structure.form==='body' && cap) {
+        // The core stands clear of the ground, so the gaps between the plants, steps and barrels at
+        // a picture's foot show the ground beyond rather than a band of wall colour.
+        const eave=h*cap.eave, peak=h*cap.peak, slope=(peak-eave)/(d/2);
+        box(-w/2,-d/2,Math.min(h*.14,eave*.5),w/2,d/2,eave,cap.wall,cap.roof);
+        if(peak>eave) {
+          face([[-w/2,d/2,eave],[w/2,d/2,eave],[w/2,0,peak],[-w/2,0,peak]],cap.roof,[0,slope,1]);
+          face([[w/2,-d/2,eave],[-w/2,-d/2,eave],[-w/2,0,peak],[w/2,0,peak]],darker(cap.roof,.16),[0,-slope,1]);
+          face([[-w/2,-d/2,eave],[-w/2,d/2,eave],[-w/2,0,peak]],darker(cap.wall,.3),[-1,0,0]);
+          face([[w/2,d/2,eave],[w/2,-d/2,eave],[w/2,0,peak]],darker(cap.wall,.1),[1,0,0]);
+        }
+      }
+      for(const side of ['front','back','left','right'] as const) facade(side,structure.form==='body' ? Math.min(1,d*.05) : 0);
+    }
+  } else if(kind==='house' || kind==='major-building' || kind==='shop') {
     const modern=/modern-/.test(key), eave=h*(modern ? .88 : .67);
     box(-w/2,-d/2,0,w/2,d/2,eave,material.wall,material.roof);
     if(modern) box(-w/2-2,-d/2-2,eave,w/2+2,d/2+2,h,material.roof,material.roofLight);
@@ -215,7 +246,13 @@ export function projectedObjectFaces(view: Projection, o: WorldObject, frame?: A
   const c=Math.cos(angle.yaw),s=Math.sin(angle.yaw),st=Math.sin(angle.tilt),ct=Math.cos(angle.tilt);
   const depthScale=view==='isometric'?Math.SQRT2:1;
   const transform=(p:Vertex)=>{ const along=p.x*s+p.y*c;return {x:p.x*c-p.y*s,y:along*st-p.z*ct,depth:along*depthScale}; };
-  return fixedObjectGeometry(o,frame).filter(f=>f.normal.x*vector.x+f.normal.y*vector.y+f.normal.z*vector.z>1e-6).map(face=>{
+  let faces=fixedObjectGeometry(o,frame).filter(f=>f.normal.x*vector.x+f.normal.y*vector.y+f.normal.z*vector.z>1e-6);
+  if(o.structure?.form==='cross' && faces.length) {
+    const facing=(f:PhysicalFace)=>f.normal.x*vector.x+f.normal.y*vector.y;
+    const best=faces.reduce((a,b)=>facing(b)>facing(a)?b:a);
+    faces=faces.filter(f=>f===best || !f.side);
+  }
+  return faces.map(face=>{
     const points=face.vertices.map(transform);
     return { face, points, depth:points.reduce((sum,p)=>sum+p.depth,0)/points.length+(face.art ? .001 : 0) };
   }).sort((a,b)=>a.depth-b.depth);
