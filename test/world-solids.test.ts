@@ -3,9 +3,9 @@ import { SOLID_DECALS, SOLID_MATERIALS, solidMesh, type SolidKind } from "../web
 import { shownSide } from "../web/lib/world/facing";
 import { MAX_TILT } from "../web/lib/world/projection";
 
-const KINDS: SolidKind[] = ["cottage", "hall", "stall", "board"];
+const KINDS: SolidKind[] = ["cottage", "redCottage", "townhouse", "workshop", "stall", "redStall", "hall", "board"];
 
-describe("solid prototype models", () => {
+describe("solid building models", () => {
   it("are built once and shared, so turning the camera never rebuilds them", () => {
     for (const kind of KINDS) expect(solidMesh(kind)).toBe(solidMesh(kind));
   });
@@ -38,6 +38,37 @@ describe("solid prototype models", () => {
     expect(materialsFacing(1).has("boardDisplay")).toBe(true);
     expect(materialsFacing(-1).has("boardDisplay")).toBe(false);
     expect(m.max[1] - m.min[1]).toBeGreaterThan(5);
+  });
+  it("scales and mirrors each family without changing its material pixel size or outward normals", () => {
+    for (const kind of KINDS) {
+      const plain = solidMesh(kind), variant = { size: 1.5, mirror: true, tone: 0 as const, plants: 0 as const };
+      const mirrored = solidMesh(kind, variant);
+      expect(mirrored).toBe(solidMesh(kind, { ...variant }));
+      expect(mirrored).not.toBe(plain);
+      expect(mirrored.texel).toBeCloseTo(plain.texel);
+      expect(mirrored.min[0]).toBeCloseTo(-plain.max[0] * 1.5, 4);
+      expect(mirrored.max[0]).toBeCloseTo(-plain.min[0] * 1.5, 4);
+      expect(mirrored.max[2]).toBeCloseTo(plain.max[2] * 1.5, 4);
+      // Mirroring swaps corners 1 and 2 to retain the renderer's outward winding convention.
+      for (let i = 0; i < mirrored.positions.length; i += 9) {
+        const p = mirrored.positions, n = mirrored.normals;
+        const b = [0, 1, 2].map((k) => p[i + 3 + k]! - p[i + k]!);
+        const c = [0, 1, 2].map((k) => p[i + 6 + k]! - p[i + k]!);
+        const cross = [c[1]! * b[2]! - c[2]! * b[1]!, c[2]! * b[0]! - c[0]! * b[2]!, c[0]! * b[1]! - c[1]! * b[0]!];
+        expect(cross.reduce((sum, value, k) => sum + value * n[i + k]!, 0)).toBeGreaterThan(0);
+      }
+    }
+  });
+  it("uses distinct roof and produce materials for the red families", () => {
+    const materials = (kind: SolidKind) => new Set(Array.from(solidMesh(kind).materials, (i) => SOLID_MATERIALS[i]));
+    expect(materials("cottage").has("thatch")).toBe(true);
+    expect(materials("redCottage").has("tiles")).toBe(true);
+    expect(materials("townhouse").has("shutterGreen")).toBe(true);
+    expect(materials("workshop").has("slate")).toBe(true);
+    expect(materials("redStall").has("canopyRed")).toBe(true);
+    expect(materials("redStall").has("canopyRedEdge")).toBe(true);
+    expect(materials("redStall").has("canopyEdge")).toBe(false);
+    expect(materials("redStall").has("cheese")).toBe(true);
   });
 });
 
