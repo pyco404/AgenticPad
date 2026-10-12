@@ -33,6 +33,14 @@ against an API too old to make this check. A wallet that sells between preview
 and payment is still paid: preview close to paying. If a holding cannot be read,
 the preview fails rather than guessing; try again.
 
+**Catch-up: several days at once.** A daily plan can cover a run of frozen days
+(**Through** on the form, up to 31 days): each agent's score is the sum of its
+scores on the days in the run where it qualified, and the holding check, minimum
+score, shares and 10% cap apply to that total. A day is paid once: approval refuses
+any daily plan, single or catch-up, that overlaps one already approved. Used first
+for the days from $AGP's launch (2026-10-09) to the first regular payout; after
+that, one plan per frozen day, and weekly plans from the weekly wallet.
+
 **Eight per transaction.** Eight transfers, each creating the recipient's token
 account if it is missing, measure 1,024 of Solana's 1,232 bytes. A transaction
 lands whole or not at all, so its eight are paid together; a failed one pauses
