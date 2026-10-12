@@ -74,16 +74,17 @@ export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalF
       // so no generic roof, beams or windows show past the pictures from any side.
       const cap=structure.cap;
       if(structure.form==='body' && cap) {
-        // The core stands clear of the ground, so the gaps between the plants, steps and barrels at
-        // a picture's foot show the ground beyond rather than a band of wall colour.
-        const eave=h*cap.eave, peak=h*cap.peak, slope=(peak-eave)/(d/2);
-        box(-w/2,-d/2,Math.min(h*.14,eave*.5),w/2,d/2,eave,cap.wall,cap.roof);
+        // A lid that closes the top for a camera looking down, and nothing more: the four pictures are
+        // the walls. It is hipped and set in from them, so it stays inside every painted roof and
+        // gable and never shows as a box beside the walls or past the roof's outline.
+        const eave=h*cap.eave, peak=Math.max(eave,h*cap.peak), x=w*.4, y=d*.4, ridge=w*.16;
         if(peak>eave) {
-          face([[-w/2,d/2,eave],[w/2,d/2,eave],[w/2,0,peak],[-w/2,0,peak]],cap.roof,[0,slope,1]);
-          face([[w/2,-d/2,eave],[-w/2,-d/2,eave],[-w/2,0,peak],[w/2,0,peak]],darker(cap.roof,.16),[0,-slope,1]);
-          face([[-w/2,-d/2,eave],[-w/2,d/2,eave],[-w/2,0,peak]],darker(cap.wall,.3),[-1,0,0]);
-          face([[w/2,d/2,eave],[w/2,-d/2,eave],[w/2,0,peak]],darker(cap.wall,.1),[1,0,0]);
-        }
+          const rise=(peak-eave)/y, hip=(peak-eave)/Math.max(1,x-ridge);
+          face([[-x,y,eave],[x,y,eave],[ridge,0,peak],[-ridge,0,peak]],cap.roof,[0,rise,1]);
+          face([[x,-y,eave],[-x,-y,eave],[-ridge,0,peak],[ridge,0,peak]],darker(cap.roof,.16),[0,-rise,1]);
+          face([[-x,-y,eave],[-x,y,eave],[-ridge,0,peak]],darker(cap.roof,.24),[-hip,0,1]);
+          face([[x,y,eave],[x,-y,eave],[ridge,0,peak]],darker(cap.roof,.08),[hip,0,1]);
+        } else face([[-x,y,eave],[x,y,eave],[x,-y,eave],[-x,-y,eave]],cap.roof,[0,0,1]);
       }
       for(const side of ['front','back','left','right'] as const) facade(side,structure.form==='body' ? Math.min(1,d*.05) : 0);
     }
