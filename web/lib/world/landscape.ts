@@ -47,10 +47,39 @@ export function roughWavePosition(index: number, seconds: number): Pt {
   return { x: ROUGH_SEA.x - span + travel, y: ROUGH_SEA.y + dy + Math.sin(seconds * 1.3 + index) * 5 };
 }
 
-/** Each animal follows an ellipse entirely within the water, never over land. */
-export function seaAnimalPosition(index: number, seconds: number): Pt & { heading: number } {
-  const phase = seconds * (0.055 + index * 0.006) + index * 2.4;
-  const radius = 0.27 + (index % 4) * 0.12;
-  const dx = -Math.sin(phase) * OCEAN.rx * radius, dy = Math.cos(phase) * OCEAN.ry * radius;
-  return { x: OCEAN.x + Math.cos(phase) * OCEAN.rx * radius, y: OCEAN.y + Math.sin(phase) * OCEAN.ry * radius, heading: Math.atan2(dy, dx) };
+/** The lake's animals in turn: fish, turtle, ray, fish, ... */
+export const SEA_KINDS = ["fish", "turtle", "ray"] as const;
+export type SeaKind = (typeof SEA_KINDS)[number];
+export const SEA_ANIMALS = 12;
+const SEA_PACE: Record<SeaKind, { speed: number; burst: number; rate: number; stroke: number }> = {
+  // A fish darts and coasts, a turtle paddles slowly, a ray glides in long even sweeps.
+  fish: { speed: 1.6, burst: 0.8, rate: 1.3, stroke: 7 },
+  turtle: { speed: 0.45, burst: 0.5, rate: 0.4, stroke: 2.4 },
+  ray: { speed: 0.7, burst: 0.35, rate: 0.6, stroke: 2.2 },
+};
+
+/**
+ * Where a lake animal is and how it moves. Each wanders a loop that drifts on a slower,
+ * non-repeating second loop, so no two laps match, and stays within 0.63 of the lake's radii -
+ * entirely over water. Its pace surges and eases (a fish's most), never stopping or reversing.
+ * `stroke` is the tail/flipper/wing beat's phase, quicker while it hurries; `submerged` runs
+ * from 0 at the surface to 1 deep, so turtles come up and dive and rays keep low.
+ */
+export function seaAnimalPosition(index: number, seconds: number): Pt & { heading: number; kind: SeaKind; stroke: number; submerged: number } {
+  const kind = SEA_KINDS[index % 3]!, pace = SEA_PACE[kind];
+  const w = (0.07 + (index % 4) * 0.012) * pace.speed, amp = pace.burst * w / pace.rate;
+  const dir = index % 2 ? 1 : -1, lane = index * 2.4;
+  const local = seconds * w + amp * Math.sin(seconds * pace.rate + index * 1.7);
+  const t = dir * local + lane;
+  const a1 = 0.28 + (index % 4) * 0.07, a2 = 0.575 - a1, a3 = 0.025;
+  const k = 0.37 + (index % 3) * 0.11, psi = index * 1.3;
+  const u = a1 * Math.cos(t) + a2 * Math.cos(k * t + psi) + a3 * Math.sin(2.7 * t);
+  const v = a1 * Math.sin(t) + a2 * Math.sin(k * t + psi) + a3 * Math.cos(2.7 * t);
+  // a1 > a2·k + a3·2.7, so the path never cusps and the heading turns smoothly.
+  const du = -a1 * Math.sin(t) - a2 * k * Math.sin(k * t + psi) + a3 * 2.7 * Math.cos(2.7 * t);
+  const dv = a1 * Math.cos(t) + a2 * k * Math.cos(k * t + psi) - a3 * 2.7 * Math.sin(2.7 * t);
+  const submerged = kind === "fish" ? 0.15 + 0.3 * Math.max(0, Math.sin(seconds * 0.3 + index * 2))
+    : kind === "turtle" ? 0.5 + 0.5 * Math.sin(seconds * 0.17 + index) : 0.45 + 0.2 * Math.sin(seconds * 0.23 + index);
+  return { x: OCEAN.x + u * OCEAN.rx, y: OCEAN.y + v * OCEAN.ry, heading: Math.atan2(dir * dv * OCEAN.ry, dir * du * OCEAN.rx),
+    kind, stroke: pace.stroke * local / w, submerged };
 }
