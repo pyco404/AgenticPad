@@ -101,6 +101,12 @@ and bridges, piers, banks and trees stay over it.
 - **Elevation-ready:** a stretch is identified in the shader by region; a stream or a fall with its
   own surface height and flow is another region, not a new system.
 
+**The lake's animals swim** (`game/sea-life.ts`, paths in `lib/world/landscape.ts`). Twelve fish,
+turtles and rays are kept out of the baked ground and drawn every frame flat on the water, on the
+main canvas under the scenery. Each wanders its own non-repeating loop within the lake, surging and
+easing: fish dart with a swishing tail and a faint wake, turtles paddle and rise and dive, rays beat
+their wings. Deeper animals draw fainter. `?water=0` holds them still.
+
 ## Terrain edge
 
 The world block's sides are no longer a flat prism with painted strata lines. `lib/world/terrain-edge.ts`
