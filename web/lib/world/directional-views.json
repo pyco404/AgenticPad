@@ -1,0 +1,281 @@
+{
+  "/village/reference/cottage-gold.png": {
+    "name": "cottage-gold",
+    "form": "body",
+    "depth": 0.5156,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.48,
+      "roof": "#6d3803",
+      "wall": "#f1d7ab"
+    }
+  },
+  "/village/reference/cottage-red.png": {
+    "name": "cottage-red",
+    "form": "body",
+    "depth": 0.5156,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.48,
+      "roof": "#6d220e",
+      "wall": "#fae0b7"
+    }
+  },
+  "/village/reference/cottage-green.png": {
+    "name": "cottage-green",
+    "form": "body",
+    "depth": 0.3438,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.5,
+      "roof": "#cc7a0b",
+      "wall": "#fbdcaa"
+    }
+  },
+  "/village/reference/rulebook-house.png": {
+    "name": "rulebook-house",
+    "form": "body",
+    "depth": 0.3438,
+    "cap": {
+      "eave": 0.32,
+      "peak": 0.5,
+      "roof": "#dd9c35",
+      "wall": "#ddc09c"
+    }
+  },
+  "/village/reference/hall-of-fame.png": {
+    "name": "hall-of-fame",
+    "form": "body",
+    "depth": 0.375,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.46,
+      "roof": "#c34b2a",
+      "wall": "#dfbf9f"
+    }
+  },
+  "/village/reference/treasury.png": {
+    "name": "treasury",
+    "form": "body",
+    "depth": 0.375,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.46,
+      "roof": "#d49125",
+      "wall": "#7b6862"
+    }
+  },
+  "/village/reference/strategy-lab.png": {
+    "name": "strategy-lab",
+    "form": "body",
+    "depth": 0.375,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.46,
+      "roof": "#b66e14",
+      "wall": "#f1d8b1"
+    }
+  },
+  "/village/reference/hiring-hall.png": {
+    "name": "hiring-hall",
+    "form": "body",
+    "depth": 0.375,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.46,
+      "roof": "#edae31",
+      "wall": "#e6c597"
+    }
+  },
+  "/village/reference/game-hall.png": {
+    "name": "game-hall",
+    "form": "body",
+    "depth": 0.375,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.46,
+      "roof": "#812914",
+      "wall": "#926d4c"
+    }
+  },
+  "/village/reference/lookout.png": {
+    "name": "lookout",
+    "form": "cross",
+    "depth": 1
+  },
+  "/village/reference/market-blue.png": {
+    "name": "market-blue",
+    "form": "body",
+    "depth": 0.2969,
+    "cap": {
+      "eave": 0.32,
+      "peak": 0.32,
+      "roof": "#3c5074",
+      "wall": "#3c5074"
+    }
+  },
+  "/village/reference/market-red.png": {
+    "name": "market-red",
+    "form": "body",
+    "depth": 0.2969,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.3,
+      "roof": "#c02c1a",
+      "wall": "#c02c1a"
+    }
+  },
+  "/village/agenticpad/bazaar.png": {
+    "name": "bazaar",
+    "form": "body",
+    "depth": 0.2887
+  },
+  "/village/reference/smithy.png": {
+    "name": "smithy",
+    "form": "body",
+    "depth": 0.375,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.46,
+      "roof": "#656267",
+      "wall": "#ab7642"
+    }
+  },
+  "/village/agenticpad/launch-pad.png": {
+    "name": "launch-pad",
+    "form": "cross",
+    "depth": 1
+  },
+  "/village/agenticpad/leaderboard.png": {
+    "name": "leaderboard",
+    "form": "board",
+    "depth": 0.05,
+    "thickness": 6
+  },
+  "/village/agenticpad/scoreboard.png": {
+    "name": "scoreboard",
+    "form": "board",
+    "depth": 0.0645,
+    "thickness": 4
+  },
+  "/village/agenticpad/hiring-board.png": {
+    "name": "hiring-board",
+    "form": "board",
+    "depth": 0.0741,
+    "thickness": 4
+  },
+  "/village/agenticpad/strategy-board.png": {
+    "name": "strategy-board",
+    "form": "board",
+    "depth": 0.0833,
+    "thickness": 3
+  },
+  "/village/agenticpad/banner.png": {
+    "name": "banner",
+    "form": "board",
+    "depth": 0.2,
+    "thickness": 2
+  },
+  "/village/agenticpad/banner-fame.png": {
+    "name": "banner-fame",
+    "form": "board",
+    "depth": 0.2,
+    "thickness": 2
+  },
+  "/village/agenticpad/banner-gold.png": {
+    "name": "banner-gold",
+    "form": "board",
+    "depth": 0.2,
+    "thickness": 2
+  },
+  "/village/agenticpad/flag.png": {
+    "name": "flag",
+    "form": "board",
+    "depth": 0.1538,
+    "thickness": 2
+  },
+  "/fixtures/Fence.png": {
+    "name": "fence",
+    "form": "board",
+    "depth": 0.0625,
+    "thickness": 4
+  },
+  "/village/agenticpad/tent.png": {
+    "name": "tent",
+    "form": "cross",
+    "depth": 1
+  },
+  "/village/agenticpad/chest.png": {
+    "name": "chest",
+    "form": "body",
+    "depth": 0.25,
+    "cap": {
+      "eave": 0.5,
+      "peak": 0.5,
+      "roof": "#e8b84b",
+      "wall": "#e8b84b"
+    }
+  },
+  "/village/agenticpad/war-table.png": {
+    "name": "war-table",
+    "form": "body",
+    "depth": 0.1739,
+    "cap": {
+      "eave": 0.6,
+      "peak": 0.6,
+      "roof": "#2f6b5a",
+      "wall": "#2f6b5a"
+    }
+  },
+  "/village/agenticpad/bench.png": {
+    "name": "bench",
+    "form": "body",
+    "depth": 0.2,
+    "cap": {
+      "eave": 0.45,
+      "peak": 0.45,
+      "roof": "#b68357",
+      "wall": "#b68357"
+    }
+  },
+  "/village/agenticpad/dummy.png": {
+    "name": "dummy",
+    "form": "cross",
+    "depth": 1
+  },
+  "/village/agenticpad/statue.png": {
+    "name": "statue",
+    "form": "cross",
+    "depth": 1
+  },
+  "/village/agenticpad/trophy.png": {
+    "name": "trophy",
+    "form": "cross",
+    "depth": 1
+  },
+  "/fixtures/Fountain.png": {
+    "name": "fountain",
+    "form": "cross",
+    "depth": 1
+  },
+  "/fixtures/Pumpkin.png": {
+    "name": "pumpkin",
+    "form": "cross",
+    "depth": 1
+  },
+  "/fixtures/Gold.png": {
+    "name": "gold",
+    "form": "cross",
+    "depth": 1
+  },
+  "/village/agenticpad/coins.png": {
+    "name": "coins",
+    "form": "cross",
+    "depth": 1
+  },
+  "/village/agenticpad/log.png": {
+    "name": "log",
+    "form": "body",
+    "depth": 0.25
+  }
+}
