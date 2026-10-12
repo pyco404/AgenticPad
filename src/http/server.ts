@@ -783,6 +783,9 @@ export function createApp(options: AppOptions): Server {
       })());
       return holds.get(key)!;
     };
+    // Read the remaining wallets four at a time rather than one by one: a catch-up can name dozens.
+    const toRead = rows.filter((row) => !excluded.has(row.wallet) && !row.ended && row.score >= minScore);
+    for (let i = 0; i < toRead.length; i += 4) await Promise.all(toRead.slice(i, i + 4).map((row) => holdsNow(row.wallet, row.scope)));
     for (const row of rows) {
       if (excluded.has(row.wallet)) dropped.push({ ...row, reason: "reward wallet" });
       else if (row.ended) dropped.push({ ...row, reason: "agent ended" });
