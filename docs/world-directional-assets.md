@@ -30,9 +30,13 @@ A structure with a derived set no longer gets its kind's generic box, beams, gla
 Sprite sheets (Launch Pad, leaderboard, scoreboard, flag) take their first frame for the other sides.
 The fountain and pumpkin are built from their recoloured copies, as the scene loads them.
 
-Still front-only, on their own fixed geometry: the growth buildings (`growth-*`, built from the
-`modern-*` and villa pictures, none placed in today's world), the green cottage piece (art derived, not
-placed), the campfire and torches, the solar lamps, stumps, the pier, and the mountain. Trees and shrubs
+The growth buildings (`modern-office`, `-house-a`, `-house-b`, `-shop`, `-apartments`, `-kiosk`) are
+their source pictures trimmed and shrunk, so their views are the source's own views shrunk the same
+way (`scaled` entries in the script). A solid body's top is closed by a hipped lid set inside its
+walls, in the roof's own colour sampled as a 9-pixel mean, so it never shows beside the pictures.
+
+Still front-only, on their own fixed geometry: the modern villas (`growth-House_*`), the green cottage
+piece (art derived, not placed), the campfire and torches, the solar lamps, stumps, the pier, and the mountain. Trees and shrubs
 keep their own crossed-plane foliage. The derived views reuse each front's pixels; they are not
 newly painted orthographic facades, so a back is close to a mirrored front.
 
