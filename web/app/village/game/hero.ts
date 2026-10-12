@@ -10,6 +10,7 @@ import { sound } from "@/lib/sound";
 import { WEAPONS, weaponTexture, type WeaponName } from "./weapons";
 import type { ActivityState } from "./activities";
 import { motionPosition, type WorldActivity } from "../../../lib/world/simulation";
+import { shownSide, type Side } from "../../../lib/world/facing";
 
 /** The few drawing calls the body and its props use: Phaser's Graphics, or a 2D canvas adapter (projected-agents.ts). */
 export type Painter = {
@@ -95,6 +96,8 @@ export type HeroOptions = {
   /** Whether a point is open water: standing in it, the hero swims. */
   inWater?: (p: Point) => boolean;
 };
+
+type View = Side;
 
 /** How big an agent's head is, in world pixels: with its body and legs, about a knight's height. */
 const HEAD = 30;
@@ -200,7 +203,13 @@ export class Hero {
   private stepFrom = 0;
   /** Its three views - facing us, from the side (facing right), from behind - and which one shows. */
   private views: { front: string; side: string; back: string } | null = null;
-  private view: "front" | "back" | "left" | "right" = "front";
+  /**
+   * Which way it faces in the world, named as Top sees it: front is south, back north, left west,
+   * right east. A world camera turns this into the side it sees (shownTo); the camera never turns it.
+   */
+  private view: View = "front";
+  /** The side the world camera last saw, kept through a few degrees past each diagonal. */
+  private shown: View = "front";
   /** In the water: cut off at the chest, bobbing, with a ripple round it. */
   private swimming = false;
   private ripple: Phaser.GameObjects.Ellipse | null = null;
@@ -759,7 +768,8 @@ export class Hero {
 
   renderState() {
     return { instance: this.instance, sourceVisible: this.rendered, active: this.sprite.active,
-      texture: (this.portrait ?? this.sprite).texture.key, frame: (this.portrait ?? this.sprite).frame.name };
+      texture: (this.portrait ?? this.sprite).texture.key, frame: (this.portrait ?? this.sprite).frame.name,
+      walking: this.walking, heading: this.view, shown: this.shown };
   }
 
   /**
@@ -768,7 +778,22 @@ export class Hero {
    * `x, y` is where its feet stand on screen and `k` is screen pixels per world unit. Upright and
    * without Top's floor compression, like a standee. Reads state only; changes nothing in Top.
    */
-  paintTo(ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter): boolean {
+  paintTo(ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter, yaw = 0): boolean {
+    // The body, head and weapon are drawn as this camera sees them; the heading itself is unchanged.
+    const own = this.view;
+    this.view = this.shownTo(yaw);
+    try { return this.paintSide(ctx, x, y, k, paint); } finally { this.view = own; }
+  }
+
+  /**
+   * The side of itself this character shows a camera turned `yaw` about the world: its own heading
+   * in that camera's frame. Moving the camera changes what is seen, never which way it faces.
+   */
+  private shownTo(yaw: number): View {
+    return (this.shown = shownSide(this.view, yaw, this.shown));
+  }
+
+  private paintSide(ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter): boolean {
     const ready = (f: Phaser.Textures.Frame) => {
       const image = f?.source?.image as HTMLImageElement | HTMLCanvasElement | undefined;
       return !!image && image.width > 0 && image.height > 0 && (!(image instanceof HTMLImageElement) || image.complete && image.naturalWidth > 0);
@@ -808,7 +833,9 @@ export class Hero {
       const neck = this.swimming ? HEAD * (1 - ABOVE_WATER) : this.chest(0, hop) + NECK;
       ctx.save(); ctx.translate(0, neck); ctx.rotate(Math.sin(phase) * SWAY + effort * 0.1);
       if (this.view === "left") ctx.scale(-1, 1);
-      const f = portrait.frame;
+      const v = this.views, key = v && (this.view === "front" ? v.front : this.view === "back" ? v.back : v.side);
+      const turned = key && key !== portrait.texture.key && this.scene.textures.exists(key) ? this.scene.textures.getFrame(key) : null;
+      const f = turned && ready(turned) ? turned : portrait.frame;
       if (this.swimming) { ctx.beginPath(); ctx.rect(-HEAD, -HEAD, HEAD * 2, HEAD * ABOVE_WATER + HEAD * (1 - ABOVE_WATER)); ctx.clip(); }
       frame(f, -HEAD / 2, -HEAD, HEAD, HEAD);
       ctx.restore();
@@ -817,7 +844,7 @@ export class Hero {
       const f = this.sprite.frame;
       const w = this.sprite.displayWidth, h = this.sprite.displayHeight * FLOOR_RATIO;
       ctx.save(); ctx.translate(0, -this.footOffset);
-      if (this.sprite.flipX) ctx.scale(-1, 1);
+      if (this.view === "left" || (this.view !== "right" && this.sprite.flipX)) ctx.scale(-1, 1);
       frame(f, -w / 2, -h / 2, w, h);
       ctx.restore();
     }
@@ -972,8 +999,8 @@ export class Hero {
     this.place();
     this.sprite.play(this.anims.idle, true);
     if (this.opts.still) this.sprite.anims.pause();
+    // Without a facing it keeps the way it last turned: stopping is not turning to the viewer.
     if (facing) this.face(facing);
-    else this.turn("front");
   }
 
   /**
@@ -1013,7 +1040,6 @@ export class Hero {
         this.sprite.anims.timeScale = 1;
         this.setWalking(false);
         if (facing) this.face(facing);
-        else this.turn("front");
         this.place();
         how.then?.();
         return;
