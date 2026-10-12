@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildHeldPayoutPlan, buildPayoutPlan, percentBps, tokenUnits, type PayoutInput } from "../lib/payout-plan";
+import { buildHeldPayoutPlan, buildPayoutPlan, percentBps, planDays, planPeriod, tokenUnits, type PayoutInput } from "../lib/payout-plan";
 import { PayoutStore } from "../lib/payout-store";
 import { LaunchStore } from "../lib/launchpad-store";
 
@@ -104,5 +104,26 @@ describe("held $AGP payout planning (no swap)", () => {
     const { funding: _, ...old } = plan();
     expect(old.batchLamports.length).toBeGreaterThan(1);
     expect((old as { funding?: string }).funding).toBeUndefined();
+  });
+});
+
+describe("daily catch-up payouts", () => {
+  const daily = (period: string, periodEnd?: string) => ({ ...buildHeldPayoutPlan({ kind: "daily", period, budgetAgp: "1000", rewardPercent: "100" }, 6, winners, "daily", "platform", "admin"), ...(periodEnd ? { periodEnd } : {}) });
+  it("covers every day from its first through its last", () => {
+    expect(planDays(daily("2026-10-09", "2026-10-11"))).toEqual(["2026-10-09", "2026-10-10", "2026-10-11"]);
+    expect(planDays(daily("2026-10-12"))).toEqual(["2026-10-12"]);
+    expect(planPeriod(daily("2026-10-09", "2026-10-11"))).toBe("2026-10-09 to 2026-10-11");
+  });
+  it("pays each day once: a catch-up and a single day may not both be approved for it", () => {
+    const launches = new LaunchStore(":memory:");
+    const store = new PayoutStore(launches.db);
+    const catchUp = daily("2026-10-09", "2026-10-11"), inside = daily("2026-10-10"), after = daily("2026-10-12");
+    for (const p of [catchUp, inside, after]) store.insert(p);
+    store.approve(catchUp.id, "operator");
+    expect(() => store.approve(inside.id, "operator")).toThrow("2026-10-09 to 2026-10-11");
+    expect(store.approve(after.id, "operator").status).toBe("approved");
+    const overlapping = daily("2026-10-11", "2026-10-13"); store.insert(overlapping);
+    expect(() => store.approve(overlapping.id, "operator")).toThrow("overlaps");
+    launches.db.close();
   });
 });
