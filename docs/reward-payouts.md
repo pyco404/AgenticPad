@@ -21,8 +21,17 @@ Jupiter API key is needed. The SOL-swap mode below remains available, and needs
    winners × cap reaches 100% (ten winners at 10%, five at 20%). Shares
    come from the frozen scores with the same 10% per-winner cap; the plan shows
    each winner's $AGP and lists who was not paid, and why.
-3. Approve the plan, start it, and approve each transaction in the reward wallet:
-   up to eight winners are paid per transaction, so 40 winners are five approvals.
+3. **Approve this plan**, then **Start payout**. In Phantom (or Solflare), select the
+   reward wallet; the admin sign-in stays on the operator's wallet. Press **Approve
+   transfer 1 of N in Phantom** and approve it there; when it shows **Waiting … to
+   confirm**, it updates by itself, then offers the next transfer. Up to eight winners
+   are paid per transaction, so 40 winners are five approvals.
+
+   An approved plan that has not started can be withdrawn with **Cancel approval**,
+   which frees its days for a new plan; once started, it can only be paused. The
+   panel opens any approved plan still to pay in a **Ready to pay** box at the top,
+   shows the reward wallet's $AGP and SOL (red below 0.06 SOL), and starts the form
+   at the next unpaid day.
    Before starting, the wallet must hold the allocated $AGP and the SOL fee
    reserve (`PAYOUT_FEE_RESERVE_SOL`), which pays network fees and any winner's
    new token account.
