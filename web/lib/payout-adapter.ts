@@ -150,6 +150,23 @@ export function walletPayoutAdapter(): PayoutAdapter & { connection: Connection 
       await simulate(tx, plan.source, undefined, undefined, undefined, payments.length);
       return prepared(tx, block.lastValidBlockHeight);
     },
+    async verifyTransfer(plan, tx, payments) {
+      const info = await mintInfo(plan); const source = new PublicKey(plan.source);
+      const from = getAssociatedTokenAddressSync(info.mint, source, false, info.program);
+      const to = payments.map(({ wallet }) => getAssociatedTokenAddressSync(info.mint, new PublicKey(wallet), false, info.program));
+      const addresses = [source, from, ...to];
+      const before = await connection.getMultipleAccountsInfo(addresses);
+      const result = await connection.simulateTransaction(tx, { sigVerify: false, commitment: "confirmed", accounts: { encoding: "base64", addresses: addresses.map(a => a.toBase58()) } });
+      if (result.value.err || !result.value.accounts) throw new Error("Payout transfer failed simulation. Approve it again.");
+      const after = result.value.accounts;
+      const tokens = (i: number, data: Buffer | null | undefined) => data ? AccountLayout.decode(data).amount : 0n;
+      const paid = (i: number) => tokens(i, after[i] ? Buffer.from(after[i]!.data[0], "base64") : null) - tokens(i, before[i]?.data);
+      // Exactly the planned amounts move: out of the reward wallet, into each winner's account, and nowhere else.
+      const total = payments.reduce((sum, p) => sum + BigInt(p.amount), 0n);
+      if (-paid(1) !== total || payments.some((p, i) => paid(i + 2) !== BigInt(p.amount))) throw new Error("Payout transfer does not pay exactly the planned winners. Approve it again.");
+      const cost = BigInt(before[0]?.lamports ?? 0) - BigInt(after[0]?.lamports ?? 0);
+      if (cost < 0n || cost > maxFee * BigInt(payments.length)) throw new Error("Payout transfer costs more SOL than the payout limit.");
+    },
     async inspect(plan, tx, swap): Promise<TransactionResult> {
       await network();
       if (!tx.signature) return { status: "pending" };
