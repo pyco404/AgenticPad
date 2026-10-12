@@ -15,6 +15,7 @@ const MONO = 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace';
 import { loadProjectedMaterials } from "./game/projected-materials";
 import { solidRevision } from "./game/solid-renderer";
 import { createWater } from "./game/solid-water";
+import { drawSeaLife } from "./game/sea-life";
 import { canvasPainter } from "./game/projected-agents";
 import { agentBox, inside, worldPicker, type ScreenBox, type WorldTarget } from "./game/projected-picking";
 import type { WorldSnapshot } from "../../lib/world/model";
@@ -81,7 +82,8 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
     const debug = new URLSearchParams(window.location.search).has("debugAgents");
     worldPerformance.enabled = new URLSearchParams(window.location.search).has("debugWorldPerf");
     if (worldPerformance.enabled) Object.assign(window,{__worldRenderPerf:worldPerformance,
-      __worldPerfCamera:(yaw:number,tilt=angle.tilt)=>{target={yaw,tilt:Math.max(MIN_TILT,Math.min(MAX_TILT,tilt))};dirty=true;}});
+      __worldPerfCamera:(yaw:number,tilt=angle.tilt)=>{target={yaw,tilt:Math.max(MIN_TILT,Math.min(MAX_TILT,tilt))};dirty=true;},
+      __worldPerfFocus:(x:number,y:number,scale?:number)=>{following=null;focus={x,y};if(scale)scaleTarget=scale;dirty=true;}});
     let pickWorld: (p: { x: number; y: number }) => WorldTarget | null = () => null;
     let agentHits: Hit[] = [], labelHits: Hit[] = [];
     const pick = (point: { x: number; y: number }) => {
@@ -311,6 +313,8 @@ export function WorldCamera({ village, observing, scrolls, inset, help, onHelp }
           const q = project(view, p, z);
           return { x: width / 2 + (q.x - camera!.x) * camera!.scale, y: height / 2 + (q.y - camera!.y) * camera!.scale };
         };
+        // The lake's fish, turtles and rays swim on the water, under the scenery and the agents.
+        drawSeaLife(ctx, toScreen, waterOn ? now / 1000 : 0, width, height);
         {
           // Each match's ring, flat on the ground under its players, as Top draws it.
           const o = toScreen({ x: 0, y: 0 }), ex = toScreen({ x: 1, y: 0 }), ey = toScreen({ x: 0, y: 1 });
