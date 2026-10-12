@@ -15,8 +15,14 @@ export const CAMERA_ANGLES: Record<FieldView, CameraAngle> = {
 };
 export const cameraAngle = (view: Projection): CameraAngle => typeof view === "string" ? CAMERA_ANGLES[view] : view;
 export const yawDelta = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
+/**
+ * The highest the world camera rises. Upright scenery is built as walls, boards and crossed planes:
+ * looked down on from much above this, signs shrink to bars and crossed foliage shows its seams.
+ */
+export const MAX_TILT = 55 * Math.PI / 180;
+export const MIN_TILT = 15 * Math.PI / 180;
 export const dragCamera = (angle: CameraAngle, dx: number, dy: number): CameraAngle => ({
-  yaw: angle.yaw - dx * 0.006, tilt: Math.max(15 * Math.PI / 180, Math.min(Math.PI / 2, angle.tilt - dy * 0.005)),
+  yaw: angle.yaw - dx * 0.006, tilt: Math.max(MIN_TILT, Math.min(MAX_TILT, angle.tilt - dy * 0.005)),
 });
 export const easeCamera = (angle: CameraAngle, target: CameraAngle, seconds: number): CameraAngle => {
   const alpha = 1 - Math.exp(-Math.max(0, seconds) * 14);
