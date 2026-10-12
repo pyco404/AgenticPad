@@ -15,18 +15,35 @@ Jupiter API key is needed. The SOL-swap mode below remains available, and needs
    $AGP, in several small buys if that limits price impact. Keep the swap
    signatures: the dashboard does not record the purchase.
 2. In `/admin`, choose **$AGP already in the reward wallet**, the period, the $AGP
-   amount to pay and the payout percentage. Shares come from the frozen scores
-   with the same 10% per-winner cap; the plan shows each winner's $AGP.
-3. Approve the plan, start it, and approve each winner transfer in the reward
-   wallet. Before starting, the wallet must hold the allocated $AGP and the SOL fee
+   amount to pay, a minimum score (0 for none) and the payout percentage. Shares
+   come from the frozen scores with the same 10% per-winner cap; the plan shows
+   each winner's $AGP and lists who was not paid, and why.
+3. Approve the plan, start it, and approve each transaction in the reward wallet:
+   up to eight winners are paid per transaction, so 40 winners are five approvals.
+   Before starting, the wallet must hold the allocated $AGP and the SOL fee
    reserve (`PAYOUT_FEE_RESERVE_SOL`), which pays network fees and any winner's
    new token account.
+
+**Checked at payout, not at freeze.** At preview the API reads every winner's
+wallet on chain, at the verified price, and drops anyone holding under $20 of
+their agent's token, as well as anyone under the minimum score. Shares are then
+worked out again over the winners left (proportional to score, capped at 10%), so
+the dropped shares go to the holders who stayed. The web refuses to preview
+against an API too old to make this check. A wallet that sells between preview
+and payment is still paid: preview close to paying. If a holding cannot be read,
+the preview fails rather than guessing; try again.
+
+**Eight per transaction.** Eight transfers, each creating the recipient's token
+account if it is missing, measure 1,024 of Solana's 1,232 bytes. A transaction
+lands whole or not at all, so its eight are paid together; a failed one pauses
+the payout and is retried as a whole. The SOL cost limit (`PAYOUT_MAX_TX_COST_SOL`)
+applies per transfer.
 
 Amounts are planned in the mint's base units, read from the chain at preview and
 checked again before any transfer. Whatever is capped, rounded or not allocated
 stays in the reward wallet as $AGP for a later payout. There is no swap step and
-no batch delay: one transfer per winner, each signed, saved before submission,
-and counted only after finalized confirmation, as below.
+no batch delay: winner transfers in transactions of eight, each signed, saved
+before submission, and counted only after finalized confirmation, as below.
 
 ## Swapping SOL during the payout
 
