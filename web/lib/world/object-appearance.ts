@@ -12,6 +12,9 @@ export function physicalKind(o: WorldObject): PhysicalKind {
   const key = (o.metadata?.art?.key ?? o.metadata?.texture ?? o.id).toLowerCase();
   if (o.type === 'arena' || o.type === 'tree' || o.type === 'bridge' || o.type === 'mountain') return o.type;
   if (o.category === 'surface' || o.metadata?.flat) return 'terrain';
+  if (/^deco-(09|11|08)$/.test(key)) return 'shrub';
+  if (/^deco-(16|17)$/.test(key)) return 'sign';
+  if (/^deco-(05|06)$/.test(key)) return 'rock';
   if (/launchpad|launch-pad/.test(key)) return 'launch-pad';
   if (/lookout|tower/.test(key)) return 'tower';
   if (/scoreboard|notice|board|sign/.test(key)) return 'sign';
@@ -67,8 +70,9 @@ export function directionalAssetAudit(objects: readonly WorldObject[]) {
   return objects.filter(o => o.category !== 'agent' && o.category !== 'movement' && physicalKind(o) !== 'terrain').map(o => ({
     id: o.id, label: o.metadata?.label, texture: o.metadata?.art?.key ?? o.metadata?.texture,
     kind: physicalKind(o), orientation: o.orientation,
-    available: (['front', 'back', 'left', 'right'] as ObjectSide[]).filter(side => directionalArt(o, side)),
-    missing: (['front', 'back', 'left', 'right'] as ObjectSide[]).filter(side => !directionalArt(o, side)),
-    fallback: physicalKind(o) === 'miscellaneous' && !/stump|dummy/.test(o.metadata?.art?.key ?? o.metadata?.texture ?? o.id) ? 'fixed front plane and neutral support; needs a bespoke volume' : 'object-specific fixed geometry',
+    model: o.solid,
+    available: (['front', 'back', 'left', 'right'] as ObjectSide[]).filter(side => o.solid || directionalArt(o, side)),
+    missing: (['front', 'back', 'left', 'right'] as ObjectSide[]).filter(side => !o.solid && !directionalArt(o, side)),
+    fallback: o.solid ? 'shared solid geometry' : physicalKind(o) === 'miscellaneous' && !/stump|dummy/.test(o.metadata?.art?.key ?? o.metadata?.texture ?? o.id) ? 'fixed front plane and neutral support; needs a bespoke volume' : 'object-specific fixed geometry',
   }));
 }
