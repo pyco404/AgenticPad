@@ -1,5 +1,5 @@
 import { launchStore } from "./launchpad-store";
-import type { PayoutPlan } from "./payout-plan";
+import { planDays, planPeriod, type PayoutPlan } from "./payout-plan";
 
 function decodePlan(data: string): PayoutPlan {
   const plan = JSON.parse(data) as PayoutPlan & { clashMint?: string | null };
@@ -35,6 +35,13 @@ export class PayoutStore {
       if (plan.status !== "approved") {
         const existing = this.db.prepare("SELECT id FROM payout_plans WHERE kind = ? AND period = ? AND status = 'approved'").get(plan.kind, plan.period);
         if (existing) throw new Error("A payout is already approved for this period.");
+        // A day is paid once: a catch-up and a single day's plan may not both cover it.
+        if (plan.kind === "daily") {
+          const days = new Set(planDays(plan));
+          const approved = (this.db.prepare("SELECT data FROM payout_plans WHERE kind = 'daily' AND status = 'approved'").all() as { data: string }[]).map(({ data }) => decodePlan(data));
+          const overlap = approved.find((other) => planDays(other).some((day) => days.has(day)));
+          if (overlap) throw new Error(`A payout is already approved for ${planPeriod(overlap)}, which overlaps these days.`);
+        }
         plan.status = "approved"; plan.approvedBy = owner; plan.approvedAt = new Date().toISOString();
         this.db.prepare("UPDATE payout_plans SET status = ?, data = ? WHERE id = ?").run(plan.status, JSON.stringify(plan), id);
       }
