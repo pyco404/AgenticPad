@@ -11,6 +11,7 @@ import { ACTIVITY_DESTINATIONS } from "./activity-destinations";
 import { PIECE_ART, type Plot } from "./growth";
 import type { Tree } from "./forest";
 import type { ObjectSide, PhysicalKind } from "./object-appearance";
+import type { SolidKind } from "./solid-models";
 
 export type WorldType = "arena" | "building" | "tree" | "road" | "water" | "bridge" | "mountain" | "stall" | "pond" | "plaza" | "prop" | "movement" | "agent";
 export type WorldObject = {
@@ -24,6 +25,8 @@ export type WorldObject = {
   directionalAssets?: Partial<Record<ObjectSide, ArtRef>>;
   /** How a structure with all four views stands (directional-art.ts); without one, its kind's own geometry. */
   structure?: Structure;
+  /** Drawn as this true 3D model (solid-models.ts) where WebGL2 allows, in place of its pictures. */
+  solid?: SolidKind;
   category: "surface" | "structure" | "vegetation" | "prop" | "movement" | "agent";
   shape?: "ellipse";
   points?: readonly Pt[];
