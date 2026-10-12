@@ -23,7 +23,7 @@ export type PayoutPlan = {
    */
   funding?: "swap" | "held";
   decimals?: number;
-  /** Checked at preview: winners under this score, or holding under $20 now, were dropped and their shares re-shared. */
+  /** Checked at preview: winners whose agent ended (sold to zero), under this score, or holding under $20 now were dropped and their shares re-shared. */
   minScore?: number;
   dropped?: PayoutDropped[];
   /** A daily catch-up's last day: the plan pays every frozen day from `period` through this one. */
@@ -37,7 +37,7 @@ export function planDays(plan: Pick<PayoutPlan, "period" | "periodEnd">): string
 }
 /** "2026-10-09" or "2026-10-09 to 2026-10-11". */
 export const planPeriod = (plan: Pick<PayoutPlan, "period" | "periodEnd">) => plan.periodEnd && plan.periodEnd !== plan.period ? `${plan.period} to ${plan.periodEnd}` : plan.period;
-export type PayoutDropped = { agentId: string; name: string; wallet: string; mint: string; score: number; reason: "below minimum score" | "holds under $20" };
+export type PayoutDropped = { agentId: string; name: string; wallet: string; mint: string; score: number; reason: "reward wallet" | "agent ended" | "below minimum score" | "holds under $20" };
 
 export function percentBps(value: string): number {
   if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(value)) throw new Error("Reward percentage must be between 0 and 100, with up to two decimal places.");
