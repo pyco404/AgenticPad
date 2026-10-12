@@ -15,7 +15,10 @@ Jupiter API key is needed. The SOL-swap mode below remains available, and needs
    $AGP, in several small buys if that limits price impact. Keep the swap
    signatures: the dashboard does not record the purchase.
 2. In `/admin`, choose **$AGP already in the reward wallet**, the period, the $AGP
-   amount to pay, a minimum score (0 for none) and the payout percentage. Shares
+   amount to pay, a minimum score (0 for none), the maximum share per winner
+   (default 10%) and the payout percentage. What the cap holds back from a top
+   scorer goes to the other winners by score, so the whole amount is paid when
+   winners × cap reaches 100% (ten winners at 10%, five at 20%). Shares
    come from the frozen scores with the same 10% per-winner cap; the plan shows
    each winner's $AGP and lists who was not paid, and why.
 3. Approve the plan, start it, and approve each transaction in the reward wallet:
