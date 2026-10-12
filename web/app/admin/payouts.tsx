@@ -23,6 +23,7 @@ export function PayoutPanel({ token }: { token: string }) {
   const [input, setInput] = useState<PayoutInput>({ kind: "daily", period: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10), budgetSol: "", rewardPercent: "90", batchSol: "0.25", delaySeconds: 60, slippageBps: 50 });
   const [funding, setFunding] = useState<"held" | "swap">("held");
   const [budgetAgp, setBudgetAgp] = useState("");
+  const [minScore, setMinScore] = useState("0");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [plan, setPlan] = useState<PayoutPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +64,7 @@ export function PayoutPanel({ token }: { token: string }) {
     setBusy(true); setError(null);
     try {
       const held: HeldPayoutInput & { funding: "held" } = { funding: "held", kind: input.kind, period: input.period, budgetAgp, rewardPercent: input.rewardPercent };
-      const result = approve && plan ? await call<PayoutPlan>(`${plan.id}/approve`, {}) : await call<PayoutPlan>("preview", funding === "held" ? held : input);
+      const result = approve && plan ? await call<PayoutPlan>(`${plan.id}/approve`, {}) : await call<PayoutPlan>("preview", { ...(funding === "held" ? held : input), minScore });
       setPlan(result); await load();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -84,6 +85,7 @@ export function PayoutPanel({ token }: { token: string }) {
       {funding === "held"
         ? <label>$AGP to pay out<input className={control} inputMode="decimal" value={budgetAgp} onChange={(e) => { setBudgetAgp(e.target.value); setPlan(null); }} placeholder="1000000" /><span className="text-muted">At most what the reward wallet holds; checked again before any transfer.</span></label>
         : <label>SOL budget (excluding network fees)<input className={control} inputMode="decimal" value={input.budgetSol} onChange={(e) => change("budgetSol", e.target.value)} placeholder="10" /></label>}
+      <label>Minimum score<input className={control} inputMode="decimal" value={minScore} onChange={(e) => { setMinScore(e.target.value); setPlan(null); }} /><span className="text-muted">Winners scoring less are not paid. Every winner must also hold $20 of their token now; their shares are re-shared among the rest.</span></label>
       <label>Payout percentage<input className={control} inputMode="decimal" value={input.rewardPercent} onChange={(e) => change("rewardPercent", e.target.value)} /><span className="text-muted">The rest stays in this reward wallet for future payouts. The platform takes no cut.</span></label>
       {funding === "swap" ? <>
       <label>Maximum SOL per swap batch<input className={control} inputMode="decimal" value={input.batchSol} onChange={(e) => change("batchSol", e.target.value)} /></label>
@@ -96,8 +98,10 @@ export function PayoutPanel({ token }: { token: string }) {
     {plan ? <div className="mt-4 border-t border-line pt-4">
       <p>{plan.kind} · {plan.period} · {plan.status}</p>
       <p className="mt-2">{plan.funding === "held" ? "Paid to winners" : "Swap allocation"}: {amount(plan, plan.allocatedLamports)} · Retained in reward wallet: {amount(plan, plan.carryoverLamports)}</p>
+      {plan.dropped?.length ? <details className="mt-2 text-muted"><summary>{plan.dropped.length} winners not paid ({plan.dropped.filter(d => d.reason === "holds under $20").length} hold under $20 now{plan.minScore ? `, ${plan.dropped.filter(d => d.reason === "below minimum score").length} scored under ${plan.minScore}` : ""}); their shares were re-shared.</summary>
+        <ul className="mt-1">{plan.dropped.map(d => <li key={d.agentId} className="font-mono">{d.wallet.slice(0, 6)}…{d.wallet.slice(-4)} · score {Math.round(d.score)} · {d.reason}</li>)}</ul></details> : null}
       {BigInt(plan.platformLamports) > 0n ? <p className="mt-2 text-gold">This older plan includes a platform cut. Preview a new plan before approval.</p> : null}
-      <p className="mt-2 text-muted">{plan.funding === "held" ? "One transfer per winner, from the $AGP in the reward wallet. " : `${plan.batchLamports.length} batches, waiting at least ${plan.delaySeconds} seconds between them. Final $AGP amounts depend on each confirmed swap. `}Each winner keeps the existing 10% cap; unallocated rewards remain in the reward wallet.</p>
+      <p className="mt-2 text-muted">{plan.funding === "held" ? `Paid from the $AGP in the reward wallet, up to 8 winners per wallet approval (${Math.ceil(plan.winners.length / 8)} approvals). ` : `${plan.batchLamports.length} batches, waiting at least ${plan.delaySeconds} seconds between them. Final $AGP amounts depend on each confirmed swap. `}Each winner keeps the existing 10% cap; unallocated rewards remain in the reward wallet.</p>
       <div className="mt-3 overflow-x-auto"><table className="w-full text-left"><thead><tr><th>Winner</th><th>Token</th><th>Wallet</th><th>{plan.funding === "held" ? "$AGP" : "SOL allocation"}</th></tr></thead><tbody>{plan.winners.map((winner) => <tr key={winner.agentId} className="border-t border-line"><td className="py-2">{winner.name}</td><td className="font-mono">{winner.mint ? `${winner.mint.slice(0, 4)}…${winner.mint.slice(-4)}` : "-"}</td><td className="font-mono">{winner.wallet.slice(0, 6)}…{winner.wallet.slice(-4)} <CopyButton value={winner.wallet} label="Copy wallet" /></td><td>{amount(plan, winner.lamports)}</td></tr>)}</tbody></table></div>
       <button disabled={busy || !plan.agpMint || BigInt(plan.platformLamports) > 0n || plan.status === "approved"} onClick={() => void act(true)} className="mt-3 rounded border border-line px-4 py-2 text-accent disabled:opacity-50">{plan.status === "approved" ? "Plan approved" : "Approve plan"}</button>
       {plan.status === "approved" && !execution ? <button disabled={busy || !overview?.executionConnected || (plan.funding !== "held" && !overview?.swapsConnected)} onClick={() => void execute("start")} className="ml-3 mt-3 rounded border border-line px-4 py-2 text-accent disabled:opacity-50">Start wallet-approved payout</button> : null}
@@ -115,7 +119,8 @@ export function PayoutPanel({ token }: { token: string }) {
         <div className="mt-3 space-y-2 text-muted">{execution.batches.map((batch, index) => <div key={index}>
           <p>{execution.batches.length > 1 ? `Batch ${index + 1}: ` : ""}{batch.completedAt ? "complete" : batch.output ? "distributing" : batch.swap?.signature ? "swap pending" : "awaiting wallet approval"}</p>
           {batch.swap?.signature ? <a target="_blank" rel="noreferrer" className="text-accent" href={`https://solscan.io/tx/${batch.swap.signature}`}>Swap transaction</a> : null}
-          {batch.payments.filter(p => p.tx?.signature).map(payment => <p key={payment.wallet}><a target="_blank" rel="noreferrer" className="text-accent" href={`https://solscan.io/tx/${payment.tx!.signature}`}>{payment.wallet.slice(0, 6)}… · {payment.confirmed ? "paid" : "pending"}</a></p>)}
+          {batch.transfers.length ? <p>{batch.transfers.filter(t => t.confirmed).length} of {batch.transfers.length} transfer transactions paid ({batch.payments.filter(p => p.confirmed).length} of {batch.payments.length} winners)</p> : null}
+          {batch.transfers.filter(t => t.tx?.signature).map((transfer, i) => <p key={transfer.tx!.signature}><a target="_blank" rel="noreferrer" className="text-accent" href={`https://solscan.io/tx/${transfer.tx!.signature}`}>Transfer {i + 1} · {transfer.payments.length} winners · {transfer.confirmed ? "paid" : "pending"}</a></p>)}
         </div>)}</div>
         {execution.failedAttempts?.length ? <div className="mt-3 text-muted"><p>Previous failed or expired attempts:</p>{execution.failedAttempts.map((attempt, index) => <p key={index}>{attempt.signature ? <a className="text-accent" href={`https://solscan.io/tx/${attempt.signature}`} target="_blank" rel="noreferrer">Batch {attempt.batch + 1} · {attempt.outcome}</a> : attempt.outcome}</p>)}</div> : null}
       </div> : null}
