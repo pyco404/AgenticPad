@@ -14,7 +14,9 @@ export type PayoutPlan = {
   allocatedLamports: string; carryoverLamports: string; batchLamports: string[];
   delaySeconds: number; slippageBps: number; createdBy: string; createdAt: string;
   approvedBy: string | null; approvedAt: string | null;
-  status: "draft" | "approved"; winners: (PayoutWinner & { lamports: string })[];
+  /** A cancelled plan was approved and then withdrawn before anything was sent; it can never be approved again. */
+  status: "draft" | "approved" | "cancelled"; winners: (PayoutWinner & { lamports: string })[];
+  cancelledBy?: string; cancelledAt?: string;
   agpMint: string | null;
   /**
    * "swap" (the default, and every older plan) spends SOL: amounts are lamports, swapped into $AGP
