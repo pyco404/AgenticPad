@@ -57,6 +57,10 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       const input = body as unknown as PayoutInput | HeldPayoutInput;
       const minScore = body.minScore === undefined || body.minScore === "" ? 0 : Number(body.minScore);
       if (!Number.isFinite(minScore) || minScore < 0) throw new LaunchError("The minimum score must be a number, 0 or more.");
+      // The most one winner may take, as a percentage; what it holds back goes to the others by score.
+      const capPercent = body.capPercent === undefined || body.capPercent === "" ? 10 : Number(body.capPercent);
+      if (!Number.isFinite(capPercent) || capPercent < 1 || capPercent > 100 || Math.round(capPercent * 100) !== capPercent * 100) throw new LaunchError("The maximum share per winner must be from 1% to 100%.");
+      const capBps = Math.round(capPercent * 100);
       const date = new Date(`${input.period}T00:00:00Z`);
       if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== input.period) throw new LaunchError("Choose a valid calendar date.");
       if (input.kind === "weekly" && date.getUTCDay() !== 1) throw new LaunchError("Choose the Monday that started a completed weekly season.");
@@ -72,7 +76,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       const range = periodEnd ? `from=${input.period}&to=${periodEnd}` : `${input.kind === "daily" ? "day" : "season"}=${encodeURIComponent(input.period)}`;
       // The reward wallets hold $AGP, so they have agents; they never pay themselves.
       // Every winner's wallet is read on chain: allow a minute rather than the usual ten seconds.
-      const frozen = await adminRead(request, `/admin/payout-recipients?${range}&minScore=${minScore}&exclude=${DAILY_REWARDS_WALLET},${WEEKLY_REWARDS_WALLET}`, 60_000) as { frozen: boolean; winners: PayoutWinner[]; dropped?: PayoutDropped[] };
+      const frozen = await adminRead(request, `/admin/payout-recipients?${range}&minScore=${minScore}&cap=${capBps / 10_000}&exclude=${DAILY_REWARDS_WALLET},${WEEKLY_REWARDS_WALLET}`, 60_000) as { frozen: boolean; winners: PayoutWinner[]; dropped?: PayoutDropped[] };
       if (!frozen.frozen) throw new LaunchError("Only frozen scores can be paid.", 409);
       // An API from before the payout-time holding check returns no `dropped`: it would pay wallets that sold.
       if (!Array.isArray(frozen.dropped)) throw new LaunchError("The payout API does not check holdings at payout yet. Deploy the api, then preview again.", 503);
@@ -87,8 +91,8 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       }
       let plan;
       try {
-        plan = held ? buildHeldPayoutPlan(input as HeldPayoutInput, decimals, frozen.winners, source, LAUNCH_FEE_RECIPIENT, owner)
-          : buildPayoutPlan(input as PayoutInput, frozen.winners, source, LAUNCH_FEE_RECIPIENT, owner);
+        plan = held ? buildHeldPayoutPlan(input as HeldPayoutInput, decimals, frozen.winners, source, LAUNCH_FEE_RECIPIENT, owner, capBps)
+          : buildPayoutPlan(input as PayoutInput, frozen.winners, source, LAUNCH_FEE_RECIPIENT, owner, capBps);
       }
       catch (error) { throw new LaunchError((error as Error).message); }
       plan.agpMint = agpMint();
