@@ -1,5 +1,10 @@
 # Fixed world objects and missing directional artwork
 
+**Historical directional-art approach.** Houses, village structures and vegetation now use the
+shared solid meshes described in [world-solids.md](world-solids.md). The full house pictures and
+crossed tree planes described below are retired from visible rendering. Source art remains useful
+for material crops and capture/layout inputs; physically flat objects such as flags retain their cloth faces.
+
 Physical scenery now uses fixed local x/right, y/front and z/up axes tied to each object's world orientation. Camera yaw only changes projection and visible faces. Front artwork is attached to the front plane; it is never mirrored onto the back or substituted with another object's art. An optional `directionalAssets` map accepts correct front/back/left/right frames. Existing source-frame flips remain local to their original front artwork.
 
 Geometry is continuous through diagonal angles; only cross-form structures switch plane at the diagonal (below). A five-degree dead band is available for future discrete directional sets. Scene source sprites remain hidden capture inputs. Agents keep their independent animation, facing, sprite instances and shared simulation. UI labels and speech remain readable camera-facing UI. Match tables, cards and chips now project from fixed world axes too.
