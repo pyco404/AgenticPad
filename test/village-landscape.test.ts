@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MOUNTAINS, MOUNTAIN_BOXES, OCEAN, ROUGH_SEA, oceanTerrain, roughWavePosition, seaAnimalPosition } from "../web/app/village/game/landscape.js";
+import { MOUNTAINS, MOUNTAIN_BOXES, OCEAN, ROUGH_SEA, oceanTerrain, roughWavePosition, SEA_ANIMALS, seaAnimalPosition } from "../web/app/village/game/landscape.js";
 import { CENTRE, lakeTerrain, OUTER, SPOKES, WORLD } from "../web/app/village/game/world.js";
 import { Ground } from "../web/app/village/game/ground.js";
 import type { VillageMap } from "../web/app/village/game/map.js";
@@ -93,10 +93,27 @@ describe("village ocean and mountains", () => {
     }
   });
   it("keeps all animal paths over navigational water throughout their cycles", () => {
-    for (let i = 0; i < 9; i++) for (let seconds = 0; seconds < 500; seconds += 0.7) {
+    for (let i = 0; i < SEA_ANIMALS; i++) for (let seconds = 0; seconds < 500; seconds += 0.7) {
       const p = seaAnimalPosition(i, seconds);
       expect(wet.has(`${Math.floor(p.x / 64)},${Math.floor(p.y / 64)}`)).toBe(true);
       expect(Number.isFinite(p.heading)).toBe(true);
+    }
+  });
+  it("keeps every animal swimming forward, turning smoothly, at its own changing pace", () => {
+    for (let i = 0; i < SEA_ANIMALS; i++) {
+      const speeds: number[] = [];
+      for (let seconds = 0; seconds < 200; seconds += 0.2) {
+        const a = seaAnimalPosition(i, seconds), b = seaAnimalPosition(i, seconds + 0.1);
+        const speed = Math.hypot(b.x - a.x, b.y - a.y) / 0.1;
+        speeds.push(speed);
+        expect(speed).toBeGreaterThan(0.5);
+        // Head first: it faces the way it moves, and never spins round between frames.
+        const moving = Math.atan2(b.y - a.y, b.x - a.x), facing = Math.abs(Math.atan2(Math.sin(moving - a.heading), Math.cos(moving - a.heading)));
+        expect(facing).toBeLessThan(0.5);
+        expect(Math.abs(Math.atan2(Math.sin(b.heading - a.heading), Math.cos(b.heading - a.heading)))).toBeLessThan(0.25);
+        expect(a.submerged).toBeGreaterThanOrEqual(0); expect(a.submerged).toBeLessThanOrEqual(1);
+      }
+      expect(Math.max(...speeds) / Math.min(...speeds)).toBeGreaterThan(1.5);
     }
   });
   it("keeps mountain footprints within the world and away from roads", () => {
