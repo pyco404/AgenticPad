@@ -126,9 +126,28 @@ export function PayoutPanel({ token }: { token: string }) {
   const notOver = input.kind === "daily" && (input.period >= today() || (!!periodEnd && periodEnd >= today()));
   const wanted = Number(budgetAgp.replaceAll(",", ""));
   const overBalance = funding === "held" && kindBalance?.agp != null && wanted > kindBalance.agp;
-  // An approved plan already paying any of these days: a day is paid once (payout-store.ts).
-  const clash = plan && plan.status === "draft" ? (overview?.plans ?? []).find((other) => other.id !== plan.id && other.status === "approved" && other.kind === plan.kind
-    && (plan.kind === "daily" ? planDays(other).some((day) => planDays(plan).includes(day)) : other.period === plan.period)) : undefined;
+  // An approved plan already paying any of a draft's days: a day is paid once (payout-store.ts), so that draft can never be approved.
+  const clashOf = (draft: PayoutPlan) => draft.status !== "draft" ? undefined : (overview?.plans ?? []).find((other) => other.id !== draft.id && other.status === "approved" && other.kind === draft.kind
+    && (draft.kind === "daily" ? planDays(other).some((day) => planDays(draft).includes(day)) : other.period === draft.period));
+  const clash = plan ? clashOf(plan) : undefined;
+  const stale = (overview?.plans ?? []).filter((item) => clashOf(item));
+  const listed = (overview?.plans ?? []).filter((item) => !clashOf(item));
+  async function remove(ids: string[]) {
+    if (!confirm(ids.length > 1 ? `Delete these ${ids.length} drafts? They were never paid.` : "Delete this draft? It was never paid.")) return;
+    setBusy(true); setPlanError(null);
+    try {
+      for (const id of ids) await call(`${id}/delete`, {});
+      if (planId && ids.includes(planId)) setPlanId(null);
+      await load();
+    } catch (e) { setPlanError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  const row = (item: PayoutPlan) => <li key={item.id} className={`flex flex-wrap items-center justify-between gap-2 rounded-panel border px-3 py-2 ${item.id === planId ? "border-accent bg-panel-2" : "border-line bg-panel-2/60"}`}>
+    <button type="button" onClick={() => open(item.id)} className="text-left hover:text-accent"><span className="text-text">{item.kind} · {planPeriod(item)}</span> <span className="text-muted">· {amount(item, item.allocatedLamports)} to {item.winners.length} winners · {new Date(item.createdAt).toLocaleString()}</span></button>
+    <span className="flex items-center gap-2"><Badge plan={item} run={runOf(item.id)} />
+      <button type="button" onClick={() => open(item.id)} className={`${secondary} px-3 py-1`}>Open →</button>
+      {item.status === "draft" ? <button type="button" disabled={busy} onClick={() => void remove([item.id])} className={`${danger} px-3 py-1`}>Delete</button> : null}</span>
+  </li>;
 
   return <section className="rounded-panel border border-line bg-panel p-4 text-[13px]">
     <h2 className="text-accent uppercase tracking-wider">Reward payouts</h2>
@@ -192,7 +211,10 @@ export function PayoutPanel({ token }: { token: string }) {
 
       {plan.status === "draft" ? <div className="mt-4">
         {clash ? <p className="mb-2 text-gold">{planPeriod(clash)} is already approved, so these days cannot be approved again. <button type="button" className={link} onClick={() => open(clash.id)}>Open the approved plan</button>{runOf(clash.id) ? null : " (you can cancel it there if it has not started)"}.</p> : null}
-        <button disabled={busy || !plan.agpMint || BigInt(plan.platformLamports) > 0n || !!clash} onClick={() => void planAction("approve")} className={primary}>Approve this plan</button>
+        <span className="flex flex-wrap gap-3">
+          <button disabled={busy || !plan.agpMint || BigInt(plan.platformLamports) > 0n || !!clash} onClick={() => void planAction("approve")} className={primary}>Approve this plan</button>
+          <button disabled={busy} onClick={() => void remove([plan.id])} className={danger}>Delete draft</button>
+        </span>
         <p className="mt-2 text-muted">Approving sends nothing. Drafts you do not approve are never paid.</p>
       </div> : null}
       {plan.status === "cancelled" ? <p className="mt-4 text-muted">This approval was cancelled before anything was sent. Preview a new plan to pay these days.</p> : null}
@@ -207,12 +229,14 @@ export function PayoutPanel({ token }: { token: string }) {
 
     {overview?.plans.length ? <div className="mt-6 border-t border-line pt-3">
       <h3 className="text-[14px] font-medium text-text">All plans</h3>
-      <p className="text-muted">Press a plan to open it. Drafts are never paid.</p>
-      <ul className="mt-2 space-y-2">{overview.plans.map((item) => <li key={item.id}>
-        <button onClick={() => open(item.id)} className={`flex w-full flex-wrap items-center justify-between gap-2 rounded-panel border px-3 py-2 text-left hover:border-accent ${item.id === planId ? "border-accent bg-panel-2" : "border-line bg-panel-2/60"}`}>
-          <span><span className="text-text">{item.kind} · {planPeriod(item)}</span> <span className="text-muted">· {amount(item, item.allocatedLamports)} to {item.winners.length} winners · {new Date(item.createdAt).toLocaleString()}</span></span>
-          <span className="flex items-center gap-2"><Badge plan={item} run={runOf(item.id)} /><span className="text-accent">Open →</span></span>
-        </button></li>)}</ul>
+      <p className="text-muted">Open a plan to see its winners. Drafts are never paid; delete the ones you don&apos;t need.</p>
+      <ul className="mt-2 space-y-2">{listed.map(row)}</ul>
+      {stale.length ? <details className="mt-3">
+        <summary className={`cursor-pointer ${link}`}>Show {stale.length} old draft{stale.length > 1 ? "s" : ""} (their days are already paid or approved)</summary>
+        <ul className="mt-2 space-y-2">{stale.map(row)}</ul>
+        <button type="button" disabled={busy} onClick={() => void remove(stale.map((item) => item.id))} className={`mt-2 ${danger}`}>Delete all {stale.length} old drafts</button>
+      </details> : null}
+      {planError && !plan ? <p className="mt-3 rounded border border-loss/60 px-3 py-2 text-loss" role="alert">{planError}</p> : null}
     </div> : null}
   </section>;
 }
