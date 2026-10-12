@@ -1,7 +1,7 @@
 import bs58 from "bs58";
 import { PayoutStore } from "./payout-store";
 import { ExecutionStore } from "./payout-execution-store";
-import { advancePayout, awaitingSignature, executionView, splitOutput, type PayoutAdapter, type PayoutExecution } from "./payout-execution";
+import { advancePayout, awaitingSignature, executionView, groupTransfers, splitOutput, type PayoutAdapter, type PayoutExecution } from "./payout-execution";
 import { executionConfig, walletPayoutAdapter } from "./payout-adapter";
 import { verifySignedLaunch } from "./pump-verification";
 
@@ -16,8 +16,8 @@ export async function startExecution(id: string, owner: string, adapter: PayoutA
     error: null, nextAt: 0, batch: 0,
     // $AGP already held needs no swap: its one batch is the allocation itself, split as approved.
     batches: plan.funding === "held"
-      ? [{ swap: null, output: plan.allocatedLamports, payments: splitOutput(plan.allocatedLamports, plan.winners), completedAt: null }]
-      : plan.batchLamports.map(() => ({ swap: null, output: null, payments: [], completedAt: null })) };
+      ? [(() => { const payments = splitOutput(plan.allocatedLamports, plan.winners); return { swap: null, output: plan.allocatedLamports, payments, transfers: groupTransfers(payments), completedAt: null }; })()]
+      : plan.batchLamports.map(() => ({ swap: null, output: null, payments: [], transfers: [], completedAt: null })) };
   // Unique source and plan constraints prevent concurrent spending plans.
   try { store.insert(run); }
   catch { const same = store.get(id); if (same) return executionView(same); throw new Error("This reward wallet already has an unfinished payout. Finish or resume it first."); }
@@ -49,7 +49,7 @@ export async function payoutStep(id: string, allowPrepare = false, signed?: stri
         if (await rpc.connection.getBlockHeight("confirmed") > pending.tx.lastValidBlockHeight) {
           const batch = run.batches[run.batch]!;
           if (pending.swap) batch.swap = null;
-          else batch.payments.find(p => p.tx === pending.tx)!.tx = null;
+          else batch.transfers.find(t => t.tx === pending.tx)!.tx = null;
           store.save(run, lease);
         }
       }
