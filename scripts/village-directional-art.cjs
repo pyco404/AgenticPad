@@ -143,6 +143,14 @@ const STRUCTURES = [
   { name: "gold", src: "fixtures/Gold.png", form: "cross", right: "front", back: {} },
   { name: "coins", src: "village/agenticpad/coins.png", form: "cross", right: "front", back: {} },
   { name: "log", src: "village/agenticpad/log.png", form: "body", right: [0, 5], back: {} },
+  // New Town's growth buildings are their source pictures trimmed and shrunk
+  // (village-reference-assets.cjs), so their views are the source's own views shrunk the same way.
+  { name: "modern-office", src: "village/reference/modern-office.png", scaled: "smithy" },
+  { name: "modern-house-a", src: "village/reference/modern-house-a.png", scaled: "cottage-gold" },
+  { name: "modern-house-b", src: "village/reference/modern-house-b.png", scaled: "cottage-red" },
+  { name: "modern-shop", src: "village/reference/modern-shop.png", scaled: "market-blue" },
+  { name: "modern-apartments", src: "village/reference/modern-apartments.png", scaled: "cottage-green" },
+  { name: "modern-kiosk", src: "village/reference/modern-kiosk.png", scaled: "market-red" },
 ];
 
 const read = (file) => PNG.sync.read(fs.readFileSync(file));
@@ -190,13 +198,47 @@ function content(png) {
   }
   return [x0, y0, x1, y1];
 }
-const colour = (png, [x, y]) => { const i = at(png, x, y); return "#" + [0, 1, 2].map((c) => png.data[i + c].toString(16).padStart(2, "0")).join(""); };
+/** Nearest-neighbour resize, as the shrunk pictures themselves were made. */
+function resize(png, width, height) {
+  const out = blank(Math.max(1, width), Math.max(1, height));
+  for (let y = 0; y < out.height; y++) for (let x = 0; x < out.width; x++) {
+    const sx = Math.min(png.width - 1, Math.floor((x + 0.5) * png.width / out.width)), sy = Math.min(png.height - 1, Math.floor((y + 0.5) * png.height / out.height));
+    png.data.copy(out.data, at(out, x, y), at(png, sx, sy), at(png, sx, sy) + 4);
+  }
+  return out;
+}
+/** The material round a point: the mean of the visible pixels within 4 of it, so one shadow pixel does not set a roof's colour. */
+const colour = (png, [x, y]) => {
+  const sum = [0, 0, 0]; let n = 0;
+  for (let j = Math.max(0, y - 4); j <= Math.min(png.height - 1, y + 4); j++) for (let i = Math.max(0, x - 4); i <= Math.min(png.width - 1, x + 4); i++) {
+    const k = at(png, i, j); if (png.data[k + 3] < VISIBLE) continue;
+    for (let c = 0; c < 3; c++) sum[c] += png.data[k + c]; n++;
+  }
+  return "#" + sum.map((v) => Math.round(v / Math.max(1, n)).toString(16).padStart(2, "0")).join("");
+};
 
 fs.mkdirSync(OUT, { recursive: true });
 const manifest = fs.existsSync(MANIFEST) ? JSON.parse(fs.readFileSync(MANIFEST, "utf8")) : {};
 const only = process.argv[2];
 for (const s of STRUCTURES) {
   if (only && s.name !== only) continue;
+  if (s.scaled) {
+    // The source's views, scaled by exactly what took its front to this one's: same walls, roof and trim.
+    const from = STRUCTURES.find((t) => t.name === s.scaled), source = manifest[`/${from.as ?? from.src}`];
+    let original = read(path.join(WEB, from.src));
+    if (from.frame) original = crop(original, 0, 0, from.frame, original.height);
+    const [a0, b0, a1, b1] = content(original), [x0, y0, x1, y1] = content(read(path.join(WEB, s.src)));
+    const fx = (x1 - x0) / (a1 - a0), fy = (y1 - y0) / (b1 - b0);
+    const views = {};
+    for (const side of ["back", "right", "left"]) {
+      const view = read(path.join(OUT, `${s.scaled}-${side}.png`));
+      views[side] = side === "back" ? resize(view, x1 - x0, y1 - y0) : resize(view, Math.round(view.width * fx), y1 - y0);
+      fs.writeFileSync(path.join(OUT, `${s.name}-${side}.png`), PNG.sync.write(views[side]));
+    }
+    manifest[`/${s.src}`] = { ...source, name: s.name, depth: +(views.right.width / (x1 - x0)).toFixed(4) };
+    console.log(s.name.padEnd(16), source.form.padEnd(6), `front ${x1 - x0}x${y1 - y0}`, `right ${views.right.width}`, `from ${s.scaled}`);
+    continue;
+  }
   let src = read(path.join(WEB, s.src));
   if (s.frame) src = crop(src, 0, 0, s.frame, src.height);
   // Stray pixels from a neighbour in the source sheet are not part of the structure.
