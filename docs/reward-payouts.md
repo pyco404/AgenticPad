@@ -46,6 +46,15 @@ any daily plan, single or catch-up, that overlaps one already approved. Used fir
 for the days from $AGP's launch (2026-10-09) to the first regular payout; after
 that, one plan per frozen day, and weekly plans from the weekly wallet.
 
+**What the wallet may add.** Phantom adds its own instructions to a transaction before
+signing it (a priority fee, balance assertions). A signed winner transfer is accepted
+with additions only if it keeps the prepared signer and blockhash (expiry is counted
+from it, so a payment is never prepared twice) and every prepared instruction,
+unchanged and in order; and only after simulating exactly what was signed shows the
+reward wallet's $AGP falling by the planned total, each winner's rising by their
+amount, and the SOL spent within the fee limit. A swap must come back byte for byte,
+as Jupiter executes only what it built.
+
 **Eight per transaction.** Eight transfers, each creating the recipient's token
 account if it is missing, measure 1,024 of Solana's 1,232 bytes. A transaction
 lands whole or not at all, so its eight are paid together; a failed one pauses
