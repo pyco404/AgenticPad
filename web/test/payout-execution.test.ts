@@ -4,7 +4,7 @@ import { LaunchStore } from "../lib/launchpad-store";
 import { PayoutStore } from "../lib/payout-store";
 import { buildHeldPayoutPlan, buildPayoutPlan } from "../lib/payout-plan";
 import { ExecutionStore } from "../lib/payout-execution-store";
-import { advancePayout, awaitingSignature, resumeExecution, splitOutput, type PayoutAdapter, type PaymentTransaction } from "../lib/payout-execution";
+import { advancePayout, awaitingSignature, groupTransfers, resumeExecution, splitOutput, TRANSFERS_PER_TX, type PayoutAdapter, type PaymentTransaction } from "../lib/payout-execution";
 import { payoutStep, startExecution } from "../lib/payout-runner";
 import { verifySwapOrder } from "../lib/payout-adapter";
 
@@ -73,11 +73,11 @@ describe("wallet-approved payout execution (no real funds)", () => {
       await payoutStep(s.plan.id, false, undefined, s.adapter, s.store);
       expect(s.store.get(s.plan.id)!.batches[0]!.payments.map(p => p.amount)).toEqual(["50", "51"]);
       expect(s.store.paidUnits(s.plan.agpMint!)).toBe(0n);
-      for (let n = 0; n < 2; n++) {
-        step = await payoutStep(s.plan.id, true, undefined, s.adapter, s.store);
-        await payoutStep(s.plan.id, false, s.sign(step.transaction!.prepared), s.adapter, s.store);
-        await payoutStep(s.plan.id, false, undefined, s.adapter, s.store);
-      }
+      // Both winners in one transaction: one wallet approval.
+      step = await payoutStep(s.plan.id, true, undefined, s.adapter, s.store);
+      expect(s.adapter.prepareTransfer).toHaveBeenCalledWith(expect.anything(), [expect.objectContaining({ amount: "50" }), expect.objectContaining({ amount: "51" })]);
+      await payoutStep(s.plan.id, false, s.sign(step.transaction!.prepared), s.adapter, s.store);
+      await payoutStep(s.plan.id, false, undefined, s.adapter, s.store);
       expect(s.store.paidUnits(s.plan.agpMint!)).toBe(101n);
       await payoutStep(s.plan.id, false, undefined, s.adapter, s.store);
       const run = s.store.get(s.plan.id)!;
@@ -96,11 +96,12 @@ describe("wallet-approved payout execution (no real funds)", () => {
       await startExecution(s.plan.id, "admin", s.adapter, s.store);
       let run = s.store.get(s.plan.id)!;
       run.batches[0]!.output = "100"; run.batches[0]!.swap = { prepared: "p", signed: "saved-swap", signature: "swap", lastValidBlockHeight: 1 };
-      run.batches[0]!.payments = [{ wallet: s.plan.winners[0]!.wallet, amount: "100", confirmed: false, tx: { prepared: "p", signed: "saved-transfer", signature: "transfer", lastValidBlockHeight: 1 } }];
+      run.batches[0]!.payments = [{ wallet: s.plan.winners[0]!.wallet, amount: "100", confirmed: false }];
+      run.batches[0]!.transfers = [{ payments: [0], confirmed: false, tx: { prepared: "p", signed: "saved-transfer", signature: "transfer", lastValidBlockHeight: 1 } }];
       s.adapter.inspect = vi.fn(async () => ({ status: "expired" as const }));
       await advancePayout(s.plan, run, s.adapter, () => {});
       expect(run.status).toBe("paused"); resumeExecution(run);
-      expect(run.batches[0]!.swap?.signed).toBe("saved-swap"); expect(run.batches[0]!.payments[0]!.tx).toBeNull();
+      expect(run.batches[0]!.swap?.signed).toBe("saved-swap"); expect(run.batches[0]!.transfers[0]!.tx).toBeNull();
       await advancePayout(s.plan, run, s.adapter, () => {}, Date.now(), undefined, true);
       expect(s.adapter.prepareSwap).not.toHaveBeenCalled(); expect(s.adapter.prepareTransfer).toHaveBeenCalledOnce();
     } finally { s.launches.db.close(); }
@@ -145,17 +146,22 @@ describe("wallet-approved payout execution (no real funds)", () => {
       expect(run.batches).toHaveLength(1);
       expect(run.batches[0]!.payments.map((p) => p.amount)).toEqual(["50000000", "50000000"]);
       s.adapter.inspect = vi.fn(async () => ({ status: "confirmed" as const }));
-      for (let n = 0; n < 2; n++) {
-        const step = await payoutStep(held.id, true, undefined, s.adapter, s.store);
-        expect(step.transaction?.swap).toBe(false);
-        await payoutStep(held.id, false, s.sign(step.transaction!.prepared), s.adapter, s.store);
-        await payoutStep(held.id, false, undefined, s.adapter, s.store);
-      }
+      const step = await payoutStep(held.id, true, undefined, s.adapter, s.store);
+      expect(step.transaction?.swap).toBe(false);
+      await payoutStep(held.id, false, s.sign(step.transaction!.prepared), s.adapter, s.store);
+      await payoutStep(held.id, false, undefined, s.adapter, s.store);
       await payoutStep(held.id, false, undefined, s.adapter, s.store);
       expect(s.store.get(held.id)!.status).toBe("completed");
       expect(s.store.paidUnits(s.plan.agpMint!)).toBe(100_000_000n);
       expect(s.adapter.prepareSwap).not.toHaveBeenCalled();
-      expect(s.adapter.prepareTransfer).toHaveBeenCalledTimes(2);
+      expect(s.adapter.prepareTransfer).toHaveBeenCalledTimes(1);
     } finally { s.launches.db.close(); }
+  });
+  it("groups owed payments into transactions of eight, skipping zero amounts", () => {
+    const payments = Array.from({ length: 21 }, (_, i) => ({ wallet: `w${i}`, amount: i === 5 ? "0" : "1", confirmed: i === 5 }));
+    const transfers = groupTransfers(payments);
+    expect(TRANSFERS_PER_TX).toBe(8);
+    expect(transfers.map(t => t.payments.length)).toEqual([8, 8, 4]);
+    expect(transfers.flatMap(t => t.payments)).not.toContain(5);
   });
 });
