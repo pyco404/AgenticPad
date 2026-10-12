@@ -11,8 +11,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const apiUrl = () => process.env.LAUNCHPAD_AUTH_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
-async function adminRead(request: Request, path: string) {
-  const response = await fetch(`${apiUrl()}${path}`, { headers: { authorization: request.headers.get("authorization") ?? "" }, cache: "no-store", signal: AbortSignal.timeout(10_000) });
+async function adminRead(request: Request, path: string, timeoutMs = 10_000) {
+  let response: Response;
+  try { response = await fetch(`${apiUrl()}${path}`, { headers: { authorization: request.headers.get("authorization") ?? "" }, cache: "no-store", signal: AbortSignal.timeout(timeoutMs) }); }
+  catch { throw new LaunchError("The payout API did not answer in time. It reads every winner's wallet on chain; try again shortly.", 504); }
   if (!response.ok) {
     const message = response.status === 400 ? "Invalid payout date. Weekly seasons must start on a Monday (UTC)."
       : response.status === 409 ? "This payout needs frozen scores and valid receiving wallets."
@@ -69,7 +71,8 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       // The API checks every winner's holding now ($20 at payout) and re-shares among those left.
       const range = periodEnd ? `from=${input.period}&to=${periodEnd}` : `${input.kind === "daily" ? "day" : "season"}=${encodeURIComponent(input.period)}`;
       // The reward wallets hold $AGP, so they have agents; they never pay themselves.
-      const frozen = await adminRead(request, `/admin/payout-recipients?${range}&minScore=${minScore}&exclude=${DAILY_REWARDS_WALLET},${WEEKLY_REWARDS_WALLET}`) as { frozen: boolean; winners: PayoutWinner[]; dropped?: PayoutDropped[] };
+      // Every winner's wallet is read on chain: allow a minute rather than the usual ten seconds.
+      const frozen = await adminRead(request, `/admin/payout-recipients?${range}&minScore=${minScore}&exclude=${DAILY_REWARDS_WALLET},${WEEKLY_REWARDS_WALLET}`, 60_000) as { frozen: boolean; winners: PayoutWinner[]; dropped?: PayoutDropped[] };
       if (!frozen.frozen) throw new LaunchError("Only frozen scores can be paid.", 409);
       // An API from before the payout-time holding check returns no `dropped`: it would pay wallets that sold.
       if (!Array.isArray(frozen.dropped)) throw new LaunchError("The payout API does not check holdings at payout yet. Deploy the api, then preview again.", 503);
