@@ -6,8 +6,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.48,
-      "roof": "#6d3803",
-      "wall": "#f1d7ab"
+      "roof": "#bf770c",
+      "wall": "#886f3d"
     }
   },
   "/village/reference/cottage-red.png": {
@@ -17,8 +17,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.48,
-      "roof": "#6d220e",
-      "wall": "#fae0b7"
+      "roof": "#9b3f1e",
+      "wall": "#ab8e6d"
     }
   },
   "/village/reference/cottage-green.png": {
@@ -28,8 +28,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.5,
-      "roof": "#cc7a0b",
-      "wall": "#fbdcaa"
+      "roof": "#c1730b",
+      "wall": "#bf9c72"
     }
   },
   "/village/reference/rulebook-house.png": {
@@ -39,8 +39,8 @@
     "cap": {
       "eave": 0.32,
       "peak": 0.5,
-      "roof": "#dd9c35",
-      "wall": "#ddc09c"
+      "roof": "#ce8e28",
+      "wall": "#836346"
     }
   },
   "/village/reference/hall-of-fame.png": {
@@ -50,8 +50,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.46,
-      "roof": "#c34b2a",
-      "wall": "#dfbf9f"
+      "roof": "#aa3c23",
+      "wall": "#b09477"
     }
   },
   "/village/reference/treasury.png": {
@@ -61,8 +61,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.46,
-      "roof": "#d49125",
-      "wall": "#7b6862"
+      "roof": "#e9ad35",
+      "wall": "#6d5f58"
     }
   },
   "/village/reference/strategy-lab.png": {
@@ -72,8 +72,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.46,
-      "roof": "#b66e14",
-      "wall": "#f1d8b1"
+      "roof": "#e0a133",
+      "wall": "#ac8661"
     }
   },
   "/village/reference/hiring-hall.png": {
@@ -83,8 +83,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.46,
-      "roof": "#edae31",
-      "wall": "#e6c597"
+      "roof": "#da9d30",
+      "wall": "#916e4f"
     }
   },
   "/village/reference/game-hall.png": {
@@ -94,8 +94,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.46,
-      "roof": "#812914",
-      "wall": "#926d4c"
+      "roof": "#aa3b21",
+      "wall": "#927358"
     }
   },
   "/village/reference/lookout.png": {
@@ -110,8 +110,8 @@
     "cap": {
       "eave": 0.32,
       "peak": 0.32,
-      "roof": "#3c5074",
-      "wall": "#3c5074"
+      "roof": "#385682",
+      "wall": "#385682"
     }
   },
   "/village/reference/market-red.png": {
@@ -121,8 +121,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.3,
-      "roof": "#c02c1a",
-      "wall": "#c02c1a"
+      "roof": "#c8371c",
+      "wall": "#c8371c"
     }
   },
   "/village/agenticpad/bazaar.png": {
@@ -137,8 +137,8 @@
     "cap": {
       "eave": 0.3,
       "peak": 0.46,
-      "roof": "#656267",
-      "wall": "#ab7642"
+      "roof": "#474449",
+      "wall": "#583920"
     }
   },
   "/village/agenticpad/launch-pad.png": {
@@ -212,8 +212,8 @@
     "cap": {
       "eave": 0.5,
       "peak": 0.5,
-      "roof": "#e8b84b",
-      "wall": "#e8b84b"
+      "roof": "#a17d52",
+      "wall": "#a17d52"
     }
   },
   "/village/agenticpad/war-table.png": {
@@ -223,8 +223,8 @@
     "cap": {
       "eave": 0.6,
       "peak": 0.6,
-      "roof": "#2f6b5a",
-      "wall": "#2f6b5a"
+      "roof": "#66805a",
+      "wall": "#787957"
     }
   },
   "/village/agenticpad/bench.png": {
@@ -234,8 +234,8 @@
     "cap": {
       "eave": 0.45,
       "peak": 0.45,
-      "roof": "#b68357",
-      "wall": "#b68357"
+      "roof": "#85634b",
+      "wall": "#85634b"
     }
   },
   "/village/agenticpad/dummy.png": {
@@ -277,5 +277,71 @@
     "name": "log",
     "form": "body",
     "depth": 0.25
+  },
+  "/village/reference/modern-office.png": {
+    "name": "modern-office",
+    "form": "body",
+    "depth": 0.375,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.46,
+      "roof": "#474449",
+      "wall": "#583920"
+    }
+  },
+  "/village/reference/modern-house-a.png": {
+    "name": "modern-house-a",
+    "form": "body",
+    "depth": 0.5208,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.48,
+      "roof": "#bf770c",
+      "wall": "#886f3d"
+    }
+  },
+  "/village/reference/modern-house-b.png": {
+    "name": "modern-house-b",
+    "form": "body",
+    "depth": 0.5217,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.48,
+      "roof": "#9b3f1e",
+      "wall": "#ab8e6d"
+    }
+  },
+  "/village/reference/modern-shop.png": {
+    "name": "modern-shop",
+    "form": "body",
+    "depth": 0.2931,
+    "cap": {
+      "eave": 0.32,
+      "peak": 0.32,
+      "roof": "#385682",
+      "wall": "#385682"
+    }
+  },
+  "/village/reference/modern-apartments.png": {
+    "name": "modern-apartments",
+    "form": "body",
+    "depth": 0.35,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.5,
+      "roof": "#c1730b",
+      "wall": "#bf9c72"
+    }
+  },
+  "/village/reference/modern-kiosk.png": {
+    "name": "modern-kiosk",
+    "form": "body",
+    "depth": 0.2895,
+    "cap": {
+      "eave": 0.3,
+      "peak": 0.3,
+      "roof": "#c8371c",
+      "wall": "#c8371c"
+    }
   }
 }
