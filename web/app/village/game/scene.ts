@@ -31,6 +31,7 @@ import { canopy, NEW_TOWN, openPlots, overlaps, PIECE_ART, plotClearing, type Bo
 import { Roads, type Point } from "./roads";
 import { referenceArt } from "./reference-art";
 import { directionalSet, directionalSources } from "../../../lib/world/directional-art";
+import type { SolidKind } from "../../../lib/world/solid-models";
 import { byRiver, RIVER_BANKS } from "./river";
 import { drawRiver } from "./river-scenery";
 import { crispText, MONO } from "./text";
@@ -71,6 +72,22 @@ const HERO_SCALE = 0.55;
 /** Space between heroes waiting at a hall. */
 const GRID_X = 50;
 const GRID_Y = 42;
+/**
+ * The true-3D prototype (docs/world-solids.md): one of each family, drawn as a real model where
+ * WebGL2 allows. `?solid=0` shows their pictures instead, to compare.
+ */
+const SOLID_PROTOTYPES: { key: string; near?: Point; kind: SolidKind }[] = [
+  { key: "dress-house-yellow", near: { x: 230, y: 1090 }, kind: "cottage" },
+  { key: "building-library", kind: "hall" },
+  { key: "market-blue", near: { x: 1250, y: 1440 }, kind: "stall" },
+  { key: "building-board", kind: "board" },
+];
+const solidsOn = () => typeof window === "undefined" || new URLSearchParams(window.location.search).get("solid") !== "0";
+function solidPrototype(key: string, foot: Point): SolidKind | null {
+  if (!solidsOn()) return null;
+  return SOLID_PROTOTYPES.find((p) => p.key === key && (!p.near || Math.hypot(foot.x - p.near.x, foot.y - p.near.y) < 60))?.kind ?? null;
+}
+
 /** A match takes two spots facing each other, this far apart. */
 const PAIR_GAP = 72;
 /** The Arena's one match stands in the middle of the sand (town.ts); a replay's stand-ins come in by the south gate. */
@@ -129,6 +146,7 @@ export class VillageScene extends Phaser.Scene {
   private projectedForest: WorldObject[] = [];
   private forestQueue: { cx: number; cy: number }[] | null = null;
   private projectionRevision = 0;
+  private measuredRevision = -1;
   private projectionPopulation = -1;
   private projectionWorld: WorldModel | null = null;
   /** Top's own fixed pictures and ground, captured once its world is drawn (captureTop). */
@@ -236,7 +254,11 @@ export class VillageScene extends Phaser.Scene {
       const key = `growth-${image}`;
       const size: { src: string; width: number; height: number; frames?: number } = PIECE_ART[image];
       if (size.frames) this.load.spritesheet(key, warm(size.src), { frameWidth: size.width, frameHeight: size.height });
-      else this.load.image(key, referenceArt(warm(size.src)));
+      else {
+        const url = referenceArt(warm(size.src));
+        this.load.image(key, url);
+        for (const view of directionalSources(key, url)) this.load.image(view.key, view.url);
+      }
     }
     loadArena(this);
     loadWeapons(this);
@@ -370,11 +392,9 @@ export class VillageScene extends Phaser.Scene {
       const foot = { x: obj.x + obj.displayWidth * (0.5 - obj.originX), y: obj.y + obj.displayHeight * (1 - obj.originY) };
       const site = /^building-(.+)$/.exec(key)?.[1];
       const o = pictureObject(site ? `site:${site}` : `top:${i}:${key}`, { key, frame: obj.frame.name, flipX: obj.flipX }, foot, width, height, flatKey.test(key));
-      if (o.directionalAssets) {
-        const { assets, structure } = directionalSet(o.directionalAssets.front!, (k) => this.textures.exists(k));
-        o.directionalAssets = assets;
-        if (structure) o.structure = structure;
-      }
+      this.withViews(o);
+      const solid = solidPrototype(key, foot);
+      if (solid) o.solid = solid;
       if (site) { o.type = "building"; o.metadata!.label = labels.get(`site:${site}`) ?? site; }
       if (key === "wild-mountain") { o.metadata!.label = "Mountain"; o.metadata!.landmark = true; }
       this.topPictures.push(o);
@@ -436,11 +456,20 @@ export class VillageScene extends Phaser.Scene {
     return out;
   }
 
+  /** Gives a pictured structure its back, left and right views and how it stands, where they exist. */
+  private withViews(o: WorldObject): WorldObject {
+    if (!o.directionalAssets) return o;
+    const { assets, structure } = directionalSet(o.directionalAssets.front!, (k) => this.textures.exists(k));
+    o.directionalAssets = assets;
+    if (structure) o.structure = structure;
+    return o;
+  }
+
   /** Draws a live agent's own Top character onto another view's canvas; false if it has none. */
-  paintAgent(id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter): boolean {
+  paintAgent(id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter, yaw = 0): boolean {
     const hero = this.heroes.get(id.replace(/^agent:/, ""));
     if (!hero) return false;
-    return hero.paintTo(ctx, x, y, k, paint);
+    return hero.paintTo(ctx, x, y, k, paint, yaw);
   }
 
   private visibleAgents: ReadonlySet<string> | null = null;
@@ -483,7 +512,7 @@ export class VillageScene extends Phaser.Scene {
         const s = o.width / 192;
         return overlaps(canopy({ ...p, s }), b);
       }));
-      this.projectionWorld = { ...this.sharedWorld, objects: [...base, ...plots.flatMap(plotObjects), ...this.projectedForest] };
+      this.projectionWorld = { ...this.sharedWorld, objects: [...base, ...plots.flatMap(plotObjects).map((o) => this.withViews(o)), ...this.projectedForest] };
       this.projectionRevision++;
     }
     const agents = this.agentSnapshot();
@@ -509,6 +538,11 @@ export class VillageScene extends Phaser.Scene {
       this.frameArt.set(key, frame);
       return frame;
     };
+    // Measure every side's picture once per world, not the first time a rotation turns it into view.
+    if (this.measuredRevision !== this.projectionRevision) {
+      this.measuredRevision = this.projectionRevision;
+      for (const o of this.projectionWorld.objects) for (const ref of Object.values(o.directionalAssets ?? {})) if (ref) art(ref);
+    }
     return { world: this.projectionWorld, revision: this.projectionRevision, agents, night: this.isNight, forestPending: !!this.forestQueue?.length,
       ground: this.topGround, art };
   }
