@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildHeldPayoutPlan, buildPayoutPlan, percentBps, planDays, planPeriod, tokenUnits, type PayoutInput } from "../lib/payout-plan";
 import { PayoutStore } from "../lib/payout-store";
+import { ExecutionStore } from "../lib/payout-execution-store";
 import { LaunchStore } from "../lib/launchpad-store";
 
 const settings: PayoutInput = { kind: "daily", period: "2026-10-04", budgetSol: "10", rewardPercent: "90", batchSol: "0.25", delaySeconds: 60, slippageBps: 50 };
@@ -132,6 +133,22 @@ describe("daily catch-up payouts", () => {
     expect(store.approve(after.id, "operator").status).toBe("approved");
     const overlapping = daily("2026-10-11", "2026-10-13"); store.insert(overlapping);
     expect(() => store.approve(overlapping.id, "operator")).toThrow("overlaps");
+    launches.db.close();
+  });
+  it("cancels an approval that has not started, freeing its days; never one already paying", () => {
+    const launches = new LaunchStore(":memory:");
+    const store = new PayoutStore(launches.db);
+    const first = daily("2026-10-09", "2026-10-11"), replacement = daily("2026-10-09", "2026-10-11");
+    store.insert(first); store.insert(replacement);
+    store.approve(first.id, "operator");
+    expect(() => store.approve(replacement.id, "operator")).toThrow("already approved");
+    expect(store.cancel(first.id, "operator").status).toBe("cancelled");
+    expect(() => store.approve(first.id, "operator")).toThrow("cancelled");
+    expect(store.approve(replacement.id, "operator").status).toBe("approved");
+    // Once a payout has started, transfers may be on chain: it can only be paused.
+    new ExecutionStore(launches.db).insert({ planId: replacement.id, source: "daily", mint: "m", decimals: 6, status: "running", startedBy: "operator",
+      startedAt: "", completedAt: null, error: null, nextAt: 0, batch: 0, batches: [] });
+    expect(() => store.cancel(replacement.id, "operator")).toThrow("already started");
     launches.db.close();
   });
 });
