@@ -39,6 +39,10 @@ export function applySolidAppearance(o: WorldObject, enabled = true): WorldObjec
     o.solid = kind === 'tree' ? TREE_KINDS[appearanceSeed(o.id) % TREE_KINDS.length]! : 'shrub';
     return o;
   }
+  if (kind === 'mountain') {
+    o.solid = 'mountain'; o.solidVariant = { size: o.width / 280, mirror: false, tone: 0, plants: 0 };
+    return o;
+  }
   let family = SOLID_FAMILIES[key];
   // Retire remaining stock house/hut/mine fronts as well as future house keys. No complete
   // building picture is ever pasted on these meshes; only material/decorative crops are used.

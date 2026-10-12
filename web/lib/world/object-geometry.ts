@@ -24,7 +24,8 @@ function solidFaces(o: WorldObject): PhysicalFace[] {
   const colours: Partial<Record<SolidMaterial, string>> = { leaves: '#4e702c', leavesLight: '#73903d', leavesDark: '#344e20', bark: '#67431f',
     plaster: M.plaster, timber: M.timber, fieldstone: M.stone, stone: M.stoneLight,
     thatch: M.goldRoof, thatchOld: '#b8780c', thatchUnder: '#6c400c', tiles: M.redRoof, tilesBrown: '#8c4428',
-    slate: '#645a64', canopy: '#385682', canopyRed: '#c8371c', canvasGreen: '#657641', shadowWood: M.woodDark };
+    slate: '#645a64', canopy: '#385682', canopyRed: '#c8371c', canvasGreen: '#657641', shadowWood: M.woodDark,
+    mountainRock: '#848a8a', mountainCool: '#657887', mountainLight: '#a5aaa6', peakSnow: '#d5dedb' };
   const faces: PhysicalFace[] = [];
   for (let t = 0; t < mesh.positions.length; t += 9) {
     const p = mesh.positions, n = mesh.normals, material = SOLID_MATERIALS[mesh.materials[t / 3]!]!;
@@ -39,7 +40,7 @@ function solidFaces(o: WorldObject): PhysicalFace[] {
 /** Object-specific volumes on fixed local axes. No camera data enters mesh construction. */
 export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalFace[] {
   const known = meshes.get(o); if (known && known.frame === frame) return known.faces;
-  if (o.solid || physicalKind(o) === 'tree' || physicalKind(o) === 'shrub') {
+  if (o.solid || ['tree','shrub','mountain'].includes(physicalKind(o))) {
     const solid = o.solid ? o : applySolidAppearance({ ...o });
     const faces = solidFaces(solid); meshes.set(o, { frame, faces }); return faces;
   }
@@ -224,8 +225,8 @@ export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalF
     box(-w*.18,-d*.18,h*.15,w*.18,d*.18,h*.7,colour);
     cylinder(0,0,w*.22,d*.22,h*.7,h,colour,M.thatchLight);
     for(const side of ['front','back','left','right'] as const) facade(side,1);
-  } else if(kind==='rock' || kind==='mountain') {
-    const colour=kind==='mountain'?M.stone:/gold|coins/.test(key)?M.gold:/log|pumpkin/.test(key)?M.wood:M.stone;
+  } else if(kind==='rock') {
+    const colour=/gold|coins/.test(key)?M.gold:/log|pumpkin/.test(key)?M.wood:M.stone;
     for(let i=0;i<8;i++) { const a=i*Math.PI/4,b=(i+1)*Math.PI/4;
       face([[Math.cos(a)*w/2,Math.sin(a)*d/2,0],[Math.cos(b)*w/2,Math.sin(b)*d/2,0],[0,0,h]],darker(colour,i%3*.12),[Math.cos((a+b)/2),Math.sin((a+b)/2),.5]); }
   } else if (/stump/.test(key)) {

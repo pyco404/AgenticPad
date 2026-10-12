@@ -41,7 +41,7 @@ try {
   const ctx=canvas.getContext('2d');
   function draw(view,camera,structures=true) {
    const parts=[]; Edge.renderProjectedWorld(ctx,structures?world:{...world,objects:[]},view,camera,1600,1000,undefined,{ground,art:snapshot.art},p=>parts.push(p));
-   for(const p of parts) {ctx.save(); if(p.drawScreen) p.drawScreen(camera,1600,1000); else {ctx.translate(800,500);ctx.scale(camera.scale,camera.scale);ctx.translate(-camera.x,-camera.y);p.draw();}ctx.restore();}
+   for(const p of parts.sort((a,b)=>a.depth-b.depth)) {ctx.save(); if(p.drawScreen) p.drawScreen(camera,1600,1000); else {ctx.translate(800,500);ctx.scale(camera.scale,camera.scale);ctx.translate(-camera.x,-camera.y);p.draw();}ctx.restore();}
   }
   window.__edgeDraw=draw;
   const checks=[];

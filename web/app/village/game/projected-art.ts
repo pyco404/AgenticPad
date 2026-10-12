@@ -187,16 +187,16 @@ function arenaFloor(ctx: CanvasRenderingContext2D, view: Projection, top?: TopAr
   onGround(ctx, view, () => {
     ctx.save();
     // A worn, darker band round the wall's foot and raking rings across the sand.
-    ctx.strokeStyle = A.sandShade; ctx.globalAlpha = 0.55; ctx.lineWidth = 16;
+    ctx.strokeStyle = A.sandShade; ctx.globalAlpha = 0.35; ctx.lineWidth = 12;
     ctx.beginPath(); ctx.ellipse(x, y, rx - 8, ry - 8, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.globalAlpha = 0.35; ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.18; ctx.lineWidth = 2;
     for (const k of [0.78, 0.6]) { ctx.beginPath(); ctx.ellipse(x, y, rx * k, ry * k, 0, 0, Math.PI * 2); ctx.stroke(); }
     // The marking, faded into the sand, at the arena emblem's own 144 by 100.
     const f = top?.art?.({ key: "ac-arena-emblem", frame: "__BASE" });
-    if (f) { ctx.globalAlpha = 0.45; ctx.imageSmoothingEnabled = true; ctx.drawImage(floorMarking(f), x - 72, y - 50, 144, 100); }
+    if (f) { ctx.globalAlpha = 0.55; ctx.imageSmoothingEnabled = true; ctx.drawImage(floorMarking(f), x - 72, y - 50, 144, 100); }
     // Grain over everything on the floor, the marking included: worn in, not laid on top.
-    for (const g of GRAIN) {
-      ctx.globalAlpha = 0.35; ctx.fillStyle = g.light ? A.sandLight : A.sandShade;
+    for (const g of GRAIN.slice(0,320)) {
+      ctx.globalAlpha = 0.18; ctx.fillStyle = g.light ? A.sandLight : A.sandShade;
       ctx.fillRect(x + g.x * (rx - 14), y + g.y * (ry - 12), g.size, g.size);
     }
     ctx.restore();
@@ -248,7 +248,7 @@ function arenaDoor(b: Brush, view: Projection, o: WorldObject, angle: number, wi
     }
     for (let i = 0; i < 12; i++) {
       const a = i * Math.PI / 12, c = (i + 1) * Math.PI / 12;
-      face([archPoint(a, false, out), archPoint(c, false, out), archPoint(c, true, out), archPoint(a, true, out)], out === front ? A.stoneLight : A.stone);
+      face([archPoint(a, false, out), archPoint(c, false, out), archPoint(c, true, out), archPoint(a, true, out)], out === front ? i % 3 === 0 ? A.stone : A.stoneLight : A.stone);
       if (out === rear) {
         face([archPoint(a, true, rear), archPoint(c, true, rear), archPoint(c, true, front), archPoint(a, true, front)], A.stone);
         face([archPoint(a, false, rear), archPoint(c, false, rear), archPoint(c, false, front), archPoint(a, false, front)], A.stoneShade);
@@ -261,7 +261,7 @@ function arenaDoor(b: Brush, view: Projection, o: WorldObject, angle: number, wi
     const hinge = side * width / 2;
     const end = (z: number) => p(hinge - side * leaf * Math.cos(open), z, front + 2 + leaf * Math.sin(open));
     const top = spring - 4, h = (z: number) => p(hinge, z, front + 2);
-    face([h(0), end(0), end(top), h(top)], side < 0 ? A.wood[2] : A.wood[1], A.woodDark);
+    face([h(0), end(0), end(top), h(top)], side < 0 ? A.wood[1] : A.wood[0], A.woodDark);
     if (b.detail) {
       for (let k = 1 / 6; k < 1; k += 1 / 6) {
         const q = (z: number) => { const e = end(z), start = h(z); return { x: start.x + (e.x - start.x) * k, y: start.y + (e.y - start.y) * k, z }; };
@@ -313,7 +313,7 @@ function arena(b: Brush, view: Projection, o: WorldObject, floor?: () => void, c
   ] as const) {
     const rect = (left: number, top: number, right: number, bottom: number) => [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }];
     b.polygon(rect(x0, y0, x1, y1), A.sand);
-    if (b.detail) for (const [i, grain] of GRAIN.entries()) {
+    if (b.detail) for (const [i, grain] of GRAIN.slice(0,180).entries()) {
       const x = x0 + (grain.x + 1) / 2 * (x1 - x0), y = y0 + (grain.y + 1) / 2 * (y1 - y0);
       b.polygon(rect(x, y, Math.min(x + grain.size, x1), Math.min(y + 1, y1)), i % 3 ? `${A.sandLight}88` : `${A.sandShade}55`);
     }
@@ -325,27 +325,59 @@ function arena(b: Brush, view: Projection, o: WorldObject, floor?: () => void, c
   const architecture: { depth: number; draw: () => void }[] = [];
   const segments = outer.map((a, i) => ({ a, c: outer[(i + 1) % outer.length]!, ia: inner[i]!, ic: inner[(i + 1) % inner.length]! }))
     .filter((_, i) => !open((angles[i]! + (angles[i + 1] ?? Math.PI * 2)) / 2));
-  for (const { a, c, ia, ic } of segments) {
+  for (const [section, { a, c, ia, ic }] of segments.entries()) {
     architecture.push({ depth: (project(view, a).depth + project(view, c).depth) / 2, draw: () => {
       // Light from the south-west, as the village's art is shaded: walls turned away fall into shadow.
       const nx = (c.y - a.y), ny = -(c.x - a.x), lit = (-nx * 0.6 + ny * 0.8) / Math.hypot(nx, ny);
       const wall = lit > 0.2 ? A.stoneLight : lit > -0.3 ? A.stone : A.stoneShade;
       b.polygon([a, c, { ...c, z: o.height }, { ...a, z: o.height }], wall, A.joint);
       // Coursed stone: joint lines every course, plinth and cornice in shadow.
-      if (b.detail) for (const z of [10, 20, 30]) b.line([{ ...a, z }, { ...c, z }], darker(wall, 0.18), 1);
+      if (b.detail) for (const [course,z] of [10,20,30,40].entries()) {
+        b.line([{ ...a, z }, { ...c, z }], darker(wall, 0.13), 1);
+        const t = course % 2 ? .3 : .7;
+        const joint = { x:a.x+(c.x-a.x)*t,y:a.y+(c.y-a.y)*t };
+        b.line([{...joint,z:z-9},{...joint,z}],darker(wall,.16),1);
+        b.line([{...a,z:z+1},{...c,z:z+1}],`${A.stoneLight}66`,.6);
+      }
       b.line([{ ...a, z: 2 }, { ...c, z: 2 }], A.stoneShade, 4);
       const midpoint = { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 };
-      // Arched openings in deep shadow with a stone keystone.
-      b.line([{ ...midpoint, z: 6 }, { ...midpoint, z: o.height - 14 }], A.dark, 10);
-      if (b.detail) b.line([{ ...midpoint, z: o.height - 15 }, { ...midpoint, z: o.height - 11 }], A.stoneLight, 8);
-      // Timber seating: boards and risers alternating, the lowest row in AgenticPad green.
-      b.polygon([{ ...a, z: o.height }, { ...c, z: o.height }, { ...ic, z: 8 }, { ...ia, z: 8 }], A.wood[1], A.woodDark);
-      for (const [i, t] of [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6].entries()) b.line([{ x: a.x + (ia.x - a.x) * t, y: a.y + (ia.y - a.y) * t, z: o.height * (1 - t) },
-        { x: c.x + (ic.x - c.x) * t, y: c.y + (ic.y - c.y) * t, z: o.height * (1 - t) }], i === 4 ? A.green : i % 2 ? A.wood[3] : A.woodDark, i === 4 ? 4 : 3);
+      // Recessed arcade faces follow each wall's tangent, including their masonry arch rings.
+      const length=Math.hypot(c.x-a.x,c.y-a.y), tangent={x:(c.x-a.x)/length,y:(c.y-a.y)/length};
+      const ap=(u:number,z:number)=>({x:midpoint.x+tangent.x*u,y:midpoint.y+tangent.y*u,z});
+      const half=Math.min(7,length*.2),spring=o.height-21,rise=half*.8;
+      const curve=Array.from({length:7},(_,i)=>ap(Math.cos(Math.PI-i*Math.PI/6)*half,spring+Math.sin(i*Math.PI/6)*rise));
+      b.polygon([ap(-half,7),...curve,ap(half,7)],A.dark);
+      b.line([ap(-half+1,8),ap(-half+1,spring)],A.woodDark,2);
+      if(b.detail) for(let i=0;i<6;i++) {
+        const t=Math.PI-i*Math.PI/6,q=t-Math.PI/6;
+        const arch=(angle:number,outer:boolean)=>ap(Math.cos(angle)*(half+(outer?3:0)),spring+Math.sin(angle)*(rise+(outer?3:0)));
+        b.polygon([arch(t,false),arch(q,false),arch(q,true),arch(t,true)],i===2||i===3?A.stoneLight:wall,A.stoneShade);
+      }
+      // Six genuine horizontal treads and vertical risers replace the smooth seating ramp.
+      const seat=(p:Pt,q:Pt,t:number,z:number)=>({x:p.x+(q.x-p.x)*t,y:p.y+(q.y-p.y)*t,z});
+      for(let row=0;row<6;row++) {
+        const t0=row/6,t1=(row+1)/6,z=o.height-(o.height-8)*t0,next=o.height-(o.height-8)*t1;
+        const pa=seat(a,ia,t0,z),pc=seat(c,ic,t0,z),qa=seat(a,ia,t1,z),qc=seat(c,ic,t1,z);
+        const aisle=section%7===0;
+        b.polygon([pa,pc,qc,qa],aisle?A.stone:row%2?A.roofLight:A.roof);
+        b.polygon([qa,qc,{...qc,z:next},{...qa,z:next}],aisle?A.stoneShade:A.roofShade);
+        b.line([qa,qc],aisle?A.stoneLight:A.roofTile,1.2);
+        if(b.detail&&!aisle&&row%2===1) {
+          const left={x:qa.x+(qc.x-qa.x)*.16,y:qa.y+(qc.y-qa.y)*.16},right={x:qa.x+(qc.x-qa.x)*.84,y:qa.y+(qc.y-qa.y)*.84};
+          b.line([{...left,z:z+1},{...right,z:z+1}],A.woodDark,3);
+          b.line([{...left,z:z+3},{...right,z:z+3}],row===5?A.emerald:A.wood[2],3);
+        }
+      }
       // Trim: a green band under a thin brass rail.
       b.line([{ ...a, z: o.height - 6 }, { ...c, z: o.height - 6 }], A.emerald, 4);
       b.line([{ ...a, z: o.height - 2 }, { ...c, z: o.height - 2 }], A.goldLight, 2);
       b.line([{ ...a, z: o.height + 1 }, { ...c, z: o.height + 1 }], A.stoneShade, 3);
+      if(section%6===2) {
+        const n={x:nx/Math.hypot(nx,ny),y:ny/Math.hypot(nx,ny)},bp=(u:number,z:number)=>({x:midpoint.x+tangent.x*u+n.x*.3,y:midpoint.y+tangent.y*u+n.y*.3,z});
+        b.line([bp(-6,o.height-7),bp(6,o.height-7)],A.woodDark,2);
+        b.polygon([bp(-5,o.height-8),bp(5,o.height-8),bp(5,o.height-22),bp(0,o.height-27),bp(-5,o.height-22)],A.emerald,A.goldDark);
+        b.line([bp(-2,o.height-14),bp(2,o.height-14)],A.goldLight,1.5);
+      }
       // Exposed masonry at the ends of the stands frames each entrance from above too.
       for (const [p, q] of [[a, ia], [c, ic]] as const) if (edges.some((angle) => Math.hypot(p.x - o.x - Math.cos(angle) * rx, p.y - o.y - Math.sin(angle) * ry) < 0.01)) {
         b.polygon([p, q, { ...q, z: 8 }, { ...p, z: o.height }], A.stoneShade, A.joint);

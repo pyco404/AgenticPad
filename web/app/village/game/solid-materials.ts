@@ -130,6 +130,10 @@ const SPECS: Record<SolidMaterial, Spec> = {
   leavesDark: { paint: { size: [24, 24], draw: foliage('#3d5c25', '#2b401c', '#5d7a32') } },
   canvasGreen: { paint: { size: [16, 16], draw: boards(['#657641', '#5b6b39', '#6b7c48'], '#43502b', 8) } },
   mushroomCap: { paint: { size: [16, 16], draw: speckle('#aa4034', ['#efdab7', '#cc5d42'], .12) } },
+  mountainRock: { paint: { size: [24,24], draw: speckle('#848a8a',['#747d80','#969b98','#81898c'],.2) } },
+  mountainCool: { paint: { size: [24,24], draw: speckle('#657887',['#586c7e','#768996','#6c7c86'],.18) } },
+  mountainLight: { paint: { size: [24,24], draw: speckle('#a5aaa6',['#919c9c','#b9bdb4','#9da7a5'],.18) } },
+  peakSnow: { paint: { size: [16,16], draw: speckle('#d5dedb',['#becdd2','#e5e9df'],.12) } },
   // Decals, cut from the pictures as they are.
   door: { crop: ["cottage", 33, 97, 17, 35] },
   window: { crop: ["cottage", 85, 100, 13, 16] },

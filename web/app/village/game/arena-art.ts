@@ -15,10 +15,10 @@ const STEP = Math.PI * 2 / 96;
 export const ARENA_PALETTE = {
   emerald: "#1f5a3e", green: "#2e7d52", teal: "#2a6a5c", dark: "#2a2119", mint: "#8cc79c",
   gold: "#d0a24a", goldLight: "#ecd08e", goldDark: "#7d5a2c",
-  stone: "#a8987e", stoneLight: "#c9b896", stoneShade: "#7c6c57", joint: "#4b3f33",
+  stone: "#c1aa83", stoneLight: "#e0ccaa", stoneShade: "#927d61", joint: "#67543d",
   wood: ["#4d3222", "#64412b", "#7b5234", "#94673f"], woodDark: "#33251b",
-  roof: "#a24a30", roofLight: "#c2633f", roofShade: "#5f2b1d", roofTile: "#d98f62",
-  sand: "#cfb88e", sandLight: "#e0cca5", sandShade: "#ad966e", sandEdge: "#7a6446",
+  roof: "#ad543a", roofLight: "#ce7953", roofShade: "#753b2b", roofTile: "#e5a174",
+  sand: "#d6c39f", sandLight: "#ead9b7", sandShade: "#b6a17a", sandEdge: "#8c7452",
 } as const;
 const C = ARENA_PALETTE;
 type P = [number, number];

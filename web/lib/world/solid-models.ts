@@ -15,7 +15,7 @@
 export const TREE_KINDS = ['treeSmall', 'treeMedium', 'treeLarge', 'treeRound', 'treeTall', 'treeSparse', 'treeDense'] as const;
 export type TreeKind = typeof TREE_KINDS[number];
 export type SolidKind = "cottage" | "redCottage" | "townhouse" | "workshop" | "stall" | "redStall" | "hall" | "board"
-  | TreeKind | 'shrub' | 'tower' | 'shed' | 'tent' | 'bazaar' | 'hiringBoard' | 'strategyBoard' | 'scoreBoard' | 'waypost' | 'mushroom';
+  | TreeKind | 'shrub' | 'tower' | 'shed' | 'tent' | 'bazaar' | 'hiringBoard' | 'strategyBoard' | 'scoreBoard' | 'waypost' | 'mushroom' | 'mountain';
 /**
  * One build of a family: `size` scales it to its picture's footprint (its texture pixels stay the
  * village's size); `mirror` flips it left for right; `tone` and `plants` pick its roof shade and its
@@ -29,7 +29,7 @@ export const SOLID_MATERIALS = [
   // Surfaces, tiled (mirrored) across a face at the model's texel size.
   "plaster", "timber", "stone", "fieldstone", "thatch", "thatchUnder", "tiles", "tilesUnder", "planks", "darkPlanks",
   "canopy", "cloth", "crateWood", "boardBack", "boardRoof", "gold", "brass", "soil", "shadowWood", "clay",
-  "thatchOld", "tilesBrown", "slate", "slateUnder", "shutterGreen", "canopyRed", "clothRed", "iron", "bark", "leaves", "leavesLight", "leavesDark", "canvasGreen", "mushroomCap",
+  "thatchOld", "tilesBrown", "slate", "slateUnder", "shutterGreen", "canopyRed", "clothRed", "iron", "bark", "leaves", "leavesLight", "leavesDark", "canvasGreen", "mushroomCap", "mountainRock", "mountainCool", "mountainLight", "peakSnow",
   // Decals: one picture stretched once over its quad.
   "door", "window", "dormerWindow", "lantern", "flowerBox", "ivy",
   "hallDoor", "stainedWindow", "banner", "hallWindow", "trophy", "lamp",
@@ -783,6 +783,50 @@ function mushroom(v: SolidVariant): SolidMesh {
   return b.done('mushroom');
 }
 
+/** An asymmetric massif with an eastern shoulder and broad, broken scree footing. */
+function mountain(v: SolidVariant): SolidMesh {
+  const b = new Builder(1.4 / v.size), count = 16;
+  const rings: V[][] = [0, 1, 2, 3, 4].map(level => Array.from({ length: count }, (_, i): V => {
+    const a = i * Math.PI * 2 / count, wave = 1 + .08 * Math.sin(i * 1.7) + .045 * Math.cos(i * 2.3);
+    const radii = [1, .88, .61, .27, .13], radius = radii[level]! * wave;
+    const shoulder = Math.max(0, Math.cos(a)) * (level === 2 ? 26 : level === 3 ? 12 : 0);
+    const shiftX = [0, -6, -18, -31, -35][level]!, shiftY = [0, -3, -9, -14, -17][level]!;
+    const z = [0, 42, 113, 190, 250][level]! + (level ? Math.sin(i * .9 + level) * (level === 4 ? 7 : 17) + Math.cos(a) * (level === 2 ? 18 : 5) : 0);
+    return [shiftX + Math.cos(a) * 130 * radius + shoulder, shiftY + Math.sin(a) * 78 * radius, z];
+  }));
+  for (let level = 0; level < 4; level++) for (let i = 0; i < count; i++) {
+    const j = (i + 1) % count, a = rings[level]![i]!, c = rings[level]![j]!, d = rings[level + 1]![i]!, e = rings[level + 1]![j]!;
+    const direction: V = [(a[0]+c[0])/2 + 25,(a[1]+c[1])/2 + 10,35];
+    const material: SolidMaterial = i >= 1 && i <= 6 ? 'mountainCool' : i >= 8 && i <= 13 ? 'mountainLight' : 'mountainRock';
+    // Alternating triangulation avoids long uninterrupted planes and regular horizontal seams.
+    if (i % 2) { b.face([a,c,d],direction,material);b.face([c,e,d],direction,material); }
+    else { b.face([a,c,e],direction,material);b.face([a,e,d],direction,material); }
+  }
+  const peak: V = [-39,-16,287];
+  for (let i = 0; i < count; i++) {
+    const a = rings[4]![i]!, c = rings[4]![(i+1)%count]!;
+    b.face([a,c,peak],[a[0]-peak[0],a[1]-peak[1],30],i>=6&&i<=12?'peakSnow':'mountainLight');
+    b.face([rings[0]![(i+1)%count]!,rings[0]![i]!,[0,0,0]],[0,0,-1],'mountainRock');
+  }
+  // A lower crag joins the main footing and breaks the single triangular skyline.
+  const ridge: V[][] = [0,1,2].map(level=>Array.from({length:8},(_,i):V=>{
+    const a=i*Math.PI/4,wave=1+.1*Math.sin(i*1.9),scale=[1,.85,.4][level]!;
+    return [68+Math.cos(a)*62*scale*wave,14+Math.sin(a)*46*scale*wave,
+      [0,48,119][level]!+(level?Math.sin(i*1.3)*10:0)];
+  }));
+  for(let i=0;i<8;i++){
+    const j=(i+1)%8;
+    for(let level=0;level<2;level++){
+      const a=ridge[level]![i]!,c=ridge[level]![j]!,d=ridge[level+1]![i]!,e=ridge[level+1]![j]!;
+      const n:V=[a[0]-68,a[1]-14,25],material=i<4?'mountainCool':'mountainRock';
+      b.face([a,c,e],n,material);b.face([a,e,d],n,material);
+    }
+    b.face([ridge[2]![i]!,ridge[2]![j]!,[81,8,163]],[ridge[2]![i]![0]-81,ridge[2]![i]![1]-8,30],'mountainLight');
+    b.face([ridge[0]![j]!,ridge[0]![i]!,[68,14,0]],[0,0,-1],'mountainRock');
+  }
+  return b.done('mountain');
+}
+
 /** A finished build: scaled to its size and, for a mirrored variant, flipped left for right. */
 function finish(mesh: SolidMesh, v: SolidVariant, key: string): SolidMesh {
   const p = mesh.positions, n = mesh.normals, uv = mesh.uvs, m = mesh.materials;
@@ -807,7 +851,7 @@ export function solidMesh(kind: SolidKind, variant: SolidVariant = PLAIN): Solid
   if (!mesh) {
     const builders: Partial<Record<SolidKind, () => SolidMesh>> = { cottage: () => cottage(v), redCottage: () => cottage(v, true), townhouse: () => townhouse(v), workshop: () => workshop(v),
       stall: () => stall(v), redStall: () => stall(v, true), hall: () => hall(v), board: () => board(v),
-      tower: () => tower(v), shed: () => shed(v), tent: () => tent(v), bazaar: () => bazaar(v), waypost: () => waypost(v), mushroom: () => mushroom(v),
+      tower: () => tower(v), shed: () => shed(v), tent: () => tent(v), bazaar: () => bazaar(v), waypost: () => waypost(v), mushroom: () => mushroom(v), mountain: () => mountain(v),
       hiringBoard: () => board(v, 'hiringBoard', 'hiringDisplay'), strategyBoard: () => board(v, 'strategyBoard', 'strategyDisplay'), scoreBoard: () => board(v, 'scoreBoard', 'scoreDisplay'),
       ...Object.fromEntries([...TREE_KINDS, 'shrub' as const].map(k => [k, () => tree(k, v)])) };
     const build = builders[kind];
