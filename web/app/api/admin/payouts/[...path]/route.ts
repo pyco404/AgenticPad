@@ -126,6 +126,9 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       if (periodEnd) plan.periodEnd = periodEnd;
       store.insert(plan);
       result = plan;
+    } else if (request.method === "POST" && path.length === 2 && path[1] === "delete") {
+      try { store.remove(path[0]!); result = { deleted: path[0] }; }
+      catch (error) { throw new LaunchError((error as Error).message, 409); }
     } else if (request.method === "POST" && path.length === 2 && path[1] === "cancel") {
       try { result = store.cancel(path[0]!, owner); }
       catch (error) { throw new LaunchError((error as Error).message, 409); }
