@@ -11,7 +11,8 @@ import { ACTIVITY_DESTINATIONS } from "./activity-destinations";
 import { PIECE_ART, type Plot } from "./growth";
 import type { Tree } from "./forest";
 import type { ObjectSide, PhysicalKind } from "./object-appearance";
-import type { SolidKind } from "./solid-models";
+import type { SolidKind, SolidVariant } from "./solid-models";
+import { applySolidAppearance } from "./solid-appearance";
 
 export type WorldType = "arena" | "building" | "tree" | "road" | "water" | "bridge" | "mountain" | "stall" | "pond" | "plaza" | "prop" | "movement" | "agent";
 export type WorldObject = {
@@ -27,6 +28,8 @@ export type WorldObject = {
   structure?: Structure;
   /** Drawn as this true 3D model (solid-models.ts) where WebGL2 allows, in place of its pictures. */
   solid?: SolidKind;
+  /** Which build of its family (size, mirror, roof tone, planting); instances that share one share a mesh. */
+  solidVariant?: SolidVariant;
   category: "surface" | "structure" | "vegetation" | "prop" | "movement" | "agent";
   shape?: "ellipse";
   points?: readonly Pt[];
@@ -186,7 +189,7 @@ export function createWorldModel(map: VillageMap, size: ArtSize, labels: Readonl
   for (const p of RIVER_BRIDGES) objects.push({ ...worldObject(`bridge:${p.x},${p.y}`, "bridge", p.x, p.y, 64, 64, 10), elevation: 2 });
   for (const d of ACTIVITY_DESTINATIONS) objects.push({ ...worldObject(`movement:${d.id}`, "movement", d.x, d.y, 64, 64), metadata: { label: d.name } });
   objects.push(worldObject("movement:spawn", "movement", map.spawn.x, map.spawn.y, 64, 64));
-  return { bounds: { ...WORLD }, slabDepth: 120, map, sites: SITES, pieces, districtPieces, lots: taken, hiddenRoads: HIDDEN_ROADS, objects };
+  return { bounds: { ...WORLD }, slabDepth: 120, map, sites: SITES, pieces, districtPieces, lots: taken, hiddenRoads: HIDDEN_ROADS, objects: objects.map((o) => applySolidAppearance(o)) };
 }
 
 export function treeObject(tree: Tree): WorldObject {
@@ -194,7 +197,7 @@ export function treeObject(tree: Tree): WorldObject {
   o.metadata!.frame = tree.f;
   o.metadata!.art = { key: tree.k, frame: tree.f };
   o.height = 192 * tree.s;
-  return o;
+  return applySolidAppearance(o);
 }
 
 export function plotObjects(plot: Plot): WorldObject[] {
@@ -202,7 +205,7 @@ export function plotObjects(plot: Plot): WorldObject[] {
     const art = PIECE_ART[p.image];
     // Top anchors each piece at its own foot fraction (scene.ts build); the picture's bottom sits below it.
     const bottom = { x: p.x, y: p.y + art.height * p.scale * (1 - art.foot) };
-    return pictureObject(`growth:${plot.id}:${i}`, { key: `growth-${p.image}`, frame: 0, flipX: p.flip ?? false }, bottom,
-      art.width * p.scale, art.height * p.scale, ["Plot", "Yard", "planter"].includes(p.image));
+    return applySolidAppearance(pictureObject(`growth:${plot.id}:${i}`, { key: `growth-${p.image}`, frame: 0, flipX: p.flip ?? false }, bottom,
+      art.width * p.scale, art.height * p.scale, ["Plot", "Yard", "planter"].includes(p.image)));
   });
 }
