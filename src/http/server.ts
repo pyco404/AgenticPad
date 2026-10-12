@@ -727,10 +727,33 @@ export function createApp(options: AppOptions): Server {
     if (!adminWallets.has(ctx.requireOwner())) throw new HttpError(404, "not found");
     const minScore = Number(ctx.query.get("minScore") ?? 0);
     if (!Number.isFinite(minScore) || minScore < 0) throw new HttpError(400, "minScore must be a number, 0 or more");
-    const tables = await getScores(ctx);
-    const table = "day" in tables ? tables.day : tables.season;
-    if (!table || !table.frozen) throw new HttpError(409, "payouts require frozen scores");
-    const scored = table.rows.filter((row) => row.qualified && row.share > 0);
+    // A catch-up pays a run of frozen days at once (`from`..`to`): each agent's
+    // score is the sum of its scores on the days it qualified, and the checks
+    // below apply to that total.
+    let scored: { agentId: string; name: string; score: number }[];
+    if (ctx.query.get("from") || ctx.query.get("to")) {
+      let from: number, to: number;
+      try { from = dayFromDate(ctx.query.get("from") ?? ""); to = dayFromDate(ctx.query.get("to") ?? ""); }
+      catch { throw new HttpError(400, "from and to must be dates, as YYYY-MM-DD"); }
+      if (to < from || to - from > 30) throw new HttpError(400, "a catch-up covers 1 to 31 days, from before to");
+      const totals = new Map<string, { agentId: string; name: string; score: number }>();
+      for (let d = from; d <= to; d++) {
+        const table = await dayScores(db, d);
+        if (!table.frozen) throw new HttpError(409, "payouts require frozen scores");
+        for (const row of table.rows) {
+          if (!row.qualified || !(row.share > 0)) continue;
+          const total = totals.get(row.agentId) ?? { agentId: row.agentId, name: row.name, score: 0 };
+          total.score += row.score;
+          totals.set(row.agentId, total);
+        }
+      }
+      scored = [...totals.values()];
+    } else {
+      const tables = await getScores(ctx);
+      const table = "day" in tables ? tables.day : tables.season;
+      if (!table || !table.frozen) throw new HttpError(409, "payouts require frozen scores");
+      scored = table.rows.filter((row) => row.qualified && row.share > 0);
+    }
     const owners = scored.length ? await db.select({ id: agents.id, wallet: agents.ownerId, mint: agents.holderMint }).from(agents)
       .where(inArray(agents.id, scored.map((row) => row.agentId))) : [];
     const recipients = new Map(owners.map((row) => [row.id, row]));
