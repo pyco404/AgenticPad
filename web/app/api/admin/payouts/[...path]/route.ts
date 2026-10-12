@@ -1,7 +1,7 @@
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { LAUNCH_FEE_RECIPIENT, DAILY_REWARDS_WALLET, WEEKLY_REWARDS_WALLET } from "@/lib/launchpad-fees";
 import { fromThisSite, LaunchError, ownerOf, readLaunchBody } from "@/lib/launchpad-server";
-import { buildHeldPayoutPlan, buildPayoutPlan, type HeldPayoutInput, type PayoutDropped, type PayoutInput, type PayoutWinner } from "@/lib/payout-plan";
+import { buildHeldPayoutPlan, buildPayoutPlan, planDays, type HeldPayoutInput, type PayoutDropped, type PayoutInput, type PayoutPlan, type PayoutWinner } from "@/lib/payout-plan";
 import { PayoutStore } from "@/lib/payout-store";
 import { ExecutionStore } from "@/lib/payout-execution-store";
 import { agpDecimals, executionConfig } from "@/lib/payout-adapter";
@@ -30,6 +30,32 @@ function agpMint() {
   try { return new PublicKey(process.env.PAYOUT_AGP_MINT).toBase58(); }
   catch { throw new LaunchError("The payout mint is not configured correctly.", 503); }
 }
+/** Each reward wallet's SOL and $AGP, for choosing an amount; read at most every 30 seconds (the dashboard polls every 5). */
+type Balances = Record<"daily" | "weekly", { sol: number; agp: number | null } | null>;
+let balances: { at: number; value: Balances } | null = null;
+async function rewardBalances(mint: string | null): Promise<Balances> {
+  if (balances && Date.now() - balances.at < 30_000) return balances.value;
+  const value: Balances = { daily: null, weekly: null };
+  if (process.env.PUMP_RPC_URL) {
+    const rpc = new Connection(process.env.PUMP_RPC_URL, { commitment: "confirmed", disableRetryOnRateLimit: true });
+    await Promise.all((["daily", "weekly"] as const).map(async (kind) => {
+      try {
+        const owner = new PublicKey(kind === "daily" ? DAILY_REWARDS_WALLET : WEEKLY_REWARDS_WALLET);
+        const sol = await rpc.getBalance(owner) / 1e9;
+        const agp = mint ? (await rpc.getParsedTokenAccountsByOwner(owner, { mint: new PublicKey(mint) })).value
+          .reduce((sum, a) => sum + Number(a.account.data.parsed.info.tokenAmount.uiAmount ?? 0), 0) : null;
+        value[kind] = { sol, agp };
+      } catch { /* Shown as unavailable; never blocks a payout, which checks balances itself. */ }
+    }));
+  }
+  balances = { at: Date.now(), value };
+  return value;
+}
+/** The day after the last day an approved daily plan pays: the next one to pay. */
+function nextDaily(plans: PayoutPlan[]): string | null {
+  const paid = plans.filter((p) => p.kind === "daily" && p.status === "approved").flatMap(planDays).sort();
+  return paid.length ? new Date(Date.parse(`${paid.at(-1)}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10) : null;
+}
 async function handle(request: Request, context: { params: Promise<{ path: string[] }> }) {
   try {
     if (request.method === "POST" && !fromThisSite(request)) throw new LaunchError("Payout requests must come from this site.", 403);
@@ -41,7 +67,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
     startPayoutWorker();
     let result: unknown;
     if (request.method === "GET" && path.join("/") === "plans") result = {
-      plans: store.list(), agpMint: agpMint(), executionConnected: executionConfig().ready, swapsConnected: executionConfig().swaps,
+      plans: store.list(), agpMint: agpMint(), balances: await rewardBalances(agpMint()), nextDaily: nextDaily(store.list()), executionConnected: executionConfig().ready, swapsConnected: executionConfig().swaps,
       executionMissing: executionConfig().missing, executions: executions.views(),
       sourceWallets: { daily: DAILY_REWARDS_WALLET, weekly: WEEKLY_REWARDS_WALLET }, platform: LAUNCH_FEE_RECIPIENT,
     };
@@ -100,6 +126,9 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       if (periodEnd) plan.periodEnd = periodEnd;
       store.insert(plan);
       result = plan;
+    } else if (request.method === "POST" && path.length === 2 && path[1] === "cancel") {
+      try { result = store.cancel(path[0]!, owner); }
+      catch (error) { throw new LaunchError((error as Error).message, 409); }
     } else if (request.method === "POST" && path.length === 2 && path[1] === "approve") {
       const plan = store.get(path[0]!);
       if (!plan) throw new LaunchError("Payout plan not found.", 404);
