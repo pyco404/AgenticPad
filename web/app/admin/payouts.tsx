@@ -25,6 +25,7 @@ export function PayoutPanel({ token }: { token: string }) {
   const [budgetAgp, setBudgetAgp] = useState("");
   const [minScore, setMinScore] = useState("0");
   const [periodEnd, setPeriodEnd] = useState("");
+  const [capPercent, setCapPercent] = useState("10");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [plan, setPlan] = useState<PayoutPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +66,7 @@ export function PayoutPanel({ token }: { token: string }) {
     setBusy(true); setError(null);
     try {
       const held: HeldPayoutInput & { funding: "held" } = { funding: "held", kind: input.kind, period: input.period, budgetAgp, rewardPercent: input.rewardPercent };
-      const result = approve && plan ? await call<PayoutPlan>(`${plan.id}/approve`, {}) : await call<PayoutPlan>("preview", { ...(funding === "held" ? held : input), minScore, ...(input.kind === "daily" && periodEnd ? { periodEnd } : {}) });
+      const result = approve && plan ? await call<PayoutPlan>(`${plan.id}/approve`, {}) : await call<PayoutPlan>("preview", { ...(funding === "held" ? held : input), minScore, capPercent, ...(input.kind === "daily" && periodEnd ? { periodEnd } : {}) });
       setPlan(result); await load();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -88,6 +89,7 @@ export function PayoutPanel({ token }: { token: string }) {
         ? <label>$AGP to pay out<input className={control} inputMode="decimal" value={budgetAgp} onChange={(e) => { setBudgetAgp(e.target.value); setPlan(null); }} placeholder="1000000" /><span className="text-muted">At most what the reward wallet holds; checked again before any transfer.</span></label>
         : <label>SOL budget (excluding network fees)<input className={control} inputMode="decimal" value={input.budgetSol} onChange={(e) => change("budgetSol", e.target.value)} placeholder="10" /></label>}
       <label>Minimum score<input className={control} inputMode="decimal" value={minScore} onChange={(e) => { setMinScore(e.target.value); setPlan(null); }} /><span className="text-muted">Winners scoring less are not paid. Only agents still in play are paid (an agent ends when its wallet sells to zero), and each wallet must hold $20 of its token now. Dropped shares are re-shared among the rest.</span></label>
+      <label>Maximum share per winner (%)<input className={control} inputMode="decimal" value={capPercent} onChange={(e) => { setCapPercent(e.target.value); setPlan(null); }} /><span className="text-muted">No winner takes more than this; what it holds back goes to the others by score, so the whole amount is paid when there are enough winners (10 winners at 10%, 5 at 20%).</span></label>
       <label>Payout percentage<input className={control} inputMode="decimal" value={input.rewardPercent} onChange={(e) => change("rewardPercent", e.target.value)} /><span className="text-muted">The rest stays in this reward wallet for future payouts. The platform takes no cut.</span></label>
       {funding === "swap" ? <>
       <label>Maximum SOL per swap batch<input className={control} inputMode="decimal" value={input.batchSol} onChange={(e) => change("batchSol", e.target.value)} /></label>
@@ -103,7 +105,7 @@ export function PayoutPanel({ token }: { token: string }) {
       {plan.dropped?.length ? <details className="mt-2 text-muted"><summary>{plan.dropped.length} winning agents not paid ({(["agent ended", "holds under $20", "below minimum score", "reward wallet"] as const).map(reason => [reason, plan.dropped!.filter(d => d.reason === reason).length] as const).filter(([, n]) => n).map(([reason, n]) => `${n} ${reason}`).join(", ")}); their shares were re-shared.</summary>
         <ul className="mt-1">{plan.dropped.map(d => <li key={d.agentId} className="font-mono">{d.wallet.slice(0, 6)}…{d.wallet.slice(-4)} · score {Math.round(d.score)} · {d.reason}</li>)}</ul></details> : null}
       {BigInt(plan.platformLamports) > 0n ? <p className="mt-2 text-gold">This older plan includes a platform cut. Preview a new plan before approval.</p> : null}
-      <p className="mt-2 text-muted">{plan.funding === "held" ? `Paid from the $AGP in the reward wallet, up to 8 winners per wallet approval (${Math.ceil(plan.winners.length / 8)} approvals). ` : `${plan.batchLamports.length} batches, waiting at least ${plan.delaySeconds} seconds between them. Final $AGP amounts depend on each confirmed swap. `}Each winner keeps the existing 10% cap; unallocated rewards remain in the reward wallet.</p>
+      <p className="mt-2 text-muted">{plan.funding === "held" ? `Paid from the $AGP in the reward wallet, up to 8 winners per wallet approval (${Math.ceil(plan.winners.length / 8)} approvals). ` : `${plan.batchLamports.length} batches, waiting at least ${plan.delaySeconds} seconds between them. Final $AGP amounts depend on each confirmed swap. `}No winner takes more than {(plan.capBps ?? 1_000) / 100}%; anything not allocated remains in the reward wallet.</p>
       <div className="mt-3 overflow-x-auto"><table className="w-full text-left"><thead><tr><th>Winner</th><th>Token</th><th>Wallet</th><th>{plan.funding === "held" ? "$AGP" : "SOL allocation"}</th></tr></thead><tbody>{plan.winners.map((winner) => <tr key={winner.agentId} className="border-t border-line"><td className="py-2">{winner.name}</td><td className="font-mono">{winner.mint ? `${winner.mint.slice(0, 4)}…${winner.mint.slice(-4)}` : "-"}</td><td className="font-mono">{winner.wallet.slice(0, 6)}…{winner.wallet.slice(-4)} <CopyButton value={winner.wallet} label="Copy wallet" /></td><td>{amount(plan, winner.lamports)}</td></tr>)}</tbody></table></div>
       <button disabled={busy || !plan.agpMint || BigInt(plan.platformLamports) > 0n || plan.status === "approved"} onClick={() => void act(true)} className="mt-3 rounded border border-line px-4 py-2 text-accent disabled:opacity-50">{plan.status === "approved" ? "Plan approved" : "Approve plan"}</button>
       {plan.status === "approved" && !execution ? <button disabled={busy || !overview?.executionConnected || (plan.funding !== "held" && !overview?.swapsConnected)} onClick={() => void execute("start")} className="ml-3 mt-3 rounded border border-line px-4 py-2 text-accent disabled:opacity-50">Start wallet-approved payout</button> : null}
