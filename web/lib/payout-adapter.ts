@@ -83,14 +83,15 @@ export function walletPayoutAdapter(): PayoutAdapter & { connection: Connection 
     const account = await connection.getAccountInfo(getAssociatedTokenAddressSync(info.mint, new PublicKey(plan.source), false, info.program));
     return account ? AccountLayout.decode(account.data).amount : 0n;
   }
-  async function simulate(tx: VersionedTransaction, source: string, ata?: PublicKey, input?: bigint, output?: bigint) {
+  /** `recipients`: the SOL cost limit is per transfer, so a transaction paying eight may cost up to eight times one. */
+  async function simulate(tx: VersionedTransaction, source: string, ata?: PublicKey, input?: bigint, output?: bigint, recipients = 1) {
     if (tx.message.header.numRequiredSignatures !== 1 || tx.message.staticAccountKeys[0]!.toBase58() !== source) throw new Error("The payout requires exactly the reward wallet's signature.");
     const addresses = [source, ...(ata ? [ata.toBase58()] : [])];
     const before = await connection.getMultipleAccountsInfo(addresses.map(a => new PublicKey(a)));
     const result = await connection.simulateTransaction(tx, { sigVerify: false, commitment: "confirmed", accounts: { encoding: "base64", addresses } });
     if (result.value.err || !result.value.accounts?.[0]) throw new Error("The payout transaction failed simulation.");
     const cost = BigInt(before[0]?.lamports ?? 0) - BigInt(result.value.accounts[0].lamports);
-    if (cost < 0n || cost > (input ?? 0n) + maxFee) throw new Error("The transaction's SOL cost exceeds the payout limit.");
+    if (cost < 0n || cost > (input ?? 0n) + maxFee * BigInt(recipients)) throw new Error("The transaction's SOL cost exceeds the payout limit.");
     if (ata && output !== undefined) {
       const after = result.value.accounts[1];
       if (!after) throw new Error("The swap output account could not be verified.");
@@ -132,18 +133,21 @@ export function walletPayoutAdapter(): PayoutAdapter & { connection: Connection 
       await simulate(tx, plan.source, getAssociatedTokenAddressSync(info.mint, new PublicKey(plan.source), false, info.program), BigInt(lamports), BigInt(order.otherAmountThreshold as string));
       return { ...prepared(tx, Number(order.lastValidBlockHeight)), requestId: order.requestId as string, minimumOutput: order.otherAmountThreshold as string };
     },
-    async prepareTransfer(plan, wallet, amount) {
-      const info = await mintInfo(plan); const source = new PublicKey(plan.source); const recipient = new PublicKey(wallet);
+    async prepareTransfer(plan, payments) {
+      if (!payments.length) throw new Error("Payout transfer has no recipients.");
+      const info = await mintInfo(plan); const source = new PublicKey(plan.source);
       const from = getAssociatedTokenAddressSync(info.mint, source, false, info.program);
-      const to = getAssociatedTokenAddressSync(info.mint, recipient, false, info.program);
+      // Each recipient's token account is created only if missing (idempotent), then paid.
+      const instructions = payments.flatMap(({ wallet, amount }) => {
+        const recipient = new PublicKey(wallet); const to = getAssociatedTokenAddressSync(info.mint, recipient, false, info.program);
+        return [createAssociatedTokenAccountIdempotentInstruction(source, to, recipient, info.mint, info.program),
+          createTransferCheckedInstruction(from, info.mint, to, source, BigInt(amount), info.decimals, [], info.program)];
+      });
       const block = await connection.getLatestBlockhash("confirmed");
-      const tx = new VersionedTransaction(new TransactionMessage({ payerKey: source, recentBlockhash: block.blockhash, instructions: [
-        createAssociatedTokenAccountIdempotentInstruction(source, to, recipient, info.mint, info.program),
-        createTransferCheckedInstruction(from, info.mint, to, source, BigInt(amount), info.decimals, [], info.program),
-      ] }).compileToV0Message());
+      const tx = new VersionedTransaction(new TransactionMessage({ payerKey: source, recentBlockhash: block.blockhash, instructions }).compileToV0Message());
       // A held payout's carryover is $AGP, not SOL; the wallet needs only its fee reserve.
       await enough(plan.source, plan.funding === "held" ? 0n : BigInt(plan.carryoverLamports));
-      await simulate(tx, plan.source);
+      await simulate(tx, plan.source, undefined, undefined, undefined, payments.length);
       return prepared(tx, block.lastValidBlockHeight);
     },
     async inspect(plan, tx, swap): Promise<TransactionResult> {
