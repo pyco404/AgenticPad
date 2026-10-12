@@ -1,29 +1,17 @@
 import { groundDepth } from "./depth";
 import type * as Phaser from "phaser";
-import { MOUNTAINS, OCEAN, OCEAN_BOX, ROUGH_SEA, ROUGH_SEA_BOX, roughWavePosition, seaAnimalPosition } from "./landscape";
+import { MOUNTAINS, OCEAN, OCEAN_BOX, ROUGH_SEA, ROUGH_SEA_BOX, roughWavePosition, SEA_ANIMALS, SEA_KINDS, seaAnimalPosition } from "./landscape";
+import { paintSeaArt, SEA_ART } from "./sea-life";
 import { riverTerrain, RIVER_SHORES } from "./river";
 
 /** Code-drawn pixel art uses a handful of reusable textures, with no downloads. */
 function textures(scene: Phaser.Scene): void {
-  const animals: Record<string, string[]> = {
-    fish: ["...........aa.....", "..........abba....", ".aa...bbbbbbbbb...", ".aba.bccccccccbbb.", "..abccccccccccceb", ".aba.bccccccccbbb.", ".aa...bbbbbbbbb...", "..........abba....", "...........aa....."],
-    turtle: ["........aa.........", "...bb..acca..bb....", "..bccbbbbbbbbccb...", "...bbbcddddcbbb....", "...bbcdccccdcbbaaa.", "aaabbcdccccdcbbcea.", "...bbcdccccdcbb.aaa", "...bbbcddddcbbb....", "..bccbbbbbbbbccb...", "...bb........bb...."],
-    ray: [".........a.........", "........aba........", ".......abbba.......", ".....abbbbbba......", "...abbbccbbbba.....", ".abbbbccccbbbbaaa..", "abbbbbceccbbbbbbaaa", ".abbbbccccbbbbaaa..", "...abbbccbbbba.....", ".....abbbbbba......", ".......abbba.......", "........aba........", ".........a........."],
-  };
-  const palettes: Record<string, Record<string, string>> = {
-    fish: { a: "#94642b", b: "#e9a84b", c: "#f8d879", e: "#173b48" },
-    turtle: { a: "#305b48", b: "#43744c", c: "#85a85d", d: "#355d3a", e: "#142f32" },
-    ray: { a: "#23465d", b: "#386c81", c: "#72a6b0", e: "#142c3f" },
-  };
-  for (const [name, rows] of Object.entries(animals)) {
-    const key = `sea-${name}`;
+  for (const kind of SEA_KINDS) {
+    const key = `sea-${kind}`;
     if (scene.textures.exists(key)) continue;
+    const rows = SEA_ART[kind].rows;
     const canvas = scene.textures.createCanvas(key, Math.max(...rows.map((r) => r.length)), rows.length)!;
-    const c = canvas.getContext();
-    rows.forEach((row, y) => [...row].forEach((pixel, x) => {
-      const colour = palettes[name]![pixel];
-      if (colour) { c.fillStyle = colour; c.fillRect(x, y, 1, 1); }
-    }));
+    paintSeaArt(canvas.getContext(), kind);
     canvas.refresh();
   }
   if (!scene.textures.exists("sea-wave")) {
@@ -80,9 +68,11 @@ export function drawScenery(scene: Phaser.Scene, still: boolean): void {
     return scene.add.image(edge.x - edge.dx * 12, edge.y - edge.dy * 12, "sea-wave").setScale(1.3 + i % 3 * .2).setRotation(edge.dx ? Math.PI / 2 : 0).setAlpha(0.35).setDepth(groundDepth(-710)).setMask(seaMask);
   });
   for (const m of MOUNTAINS) scene.add.image(m.x, m.y, "wild-mountain").setOrigin(0.5, 1).setDisplaySize(m.width, m.height).setDepth(m.y);
-  const animals = Array.from({ length: 9 }, (_, i) => {
+  // The ray's art faces the other way (sea-life.ts), so it turns half round to swim head first.
+  const turn = (at: ReturnType<typeof seaAnimalPosition>) => at.heading + (at.kind === "ray" ? Math.PI : 0);
+  const animals = Array.from({ length: SEA_ANIMALS }, (_, i) => {
     const at = seaAnimalPosition(i, 0);
-    return scene.add.image(at.x, at.y, `sea-${["fish", "turtle", "ray"][i % 3]}`).setScale(i % 3 === 2 ? 3 : 2.5).setRotation(at.heading).setDepth(groundDepth(-700));
+    return scene.add.image(at.x, at.y, `sea-${at.kind}`).setScale(SEA_ART[at.kind].scale).setRotation(turn(at)).setDepth(groundDepth(-700));
   });
   const waves = Array.from({ length: 28 }, (_, i) => {
     const a = i * 2.4, radius = 0.2 + (i % 5) * 0.14;
@@ -98,7 +88,7 @@ export function drawScenery(scene: Phaser.Scene, still: boolean): void {
     seconds += Math.min(delta, 100) / 1000;
     if (oceanVisible) animals.forEach((animal, i) => {
       const at = seaAnimalPosition(i, seconds);
-      animal.setPosition(at.x, at.y).setRotation(at.heading);
+      animal.setPosition(at.x, at.y).setRotation(turn(at)).setAlpha(1 - at.submerged * 0.6);
     });
     if (oceanVisible) waves.forEach((wave, i) => wave.setAlpha(0.25 + (Math.sin(seconds * 0.8 + i) + 1) * 0.2));
     if (roughVisible) {
