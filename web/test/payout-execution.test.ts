@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Keypair, SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { LaunchStore } from "../lib/launchpad-store";
 import { PayoutStore } from "../lib/payout-store";
-import { buildPayoutPlan } from "../lib/payout-plan";
+import { buildHeldPayoutPlan, buildPayoutPlan } from "../lib/payout-plan";
 import { ExecutionStore } from "../lib/payout-execution-store";
 import { advancePayout, awaitingSignature, resumeExecution, splitOutput, type PayoutAdapter, type PaymentTransaction } from "../lib/payout-execution";
 import { payoutStep, startExecution } from "../lib/payout-runner";
@@ -131,6 +131,31 @@ describe("wallet-approved payout execution (no real funds)", () => {
       expect(() => verifySwapOrder(quote, s.plan, "80000000", 200)).not.toThrow();
       for (const patch of [{ outputMint: "other" }, { inAmount: "90000000" }, { taker: "other" }, { slippageBps: 500 }, { priceImpact: -3 }, { otherAmountThreshold: "994" }, { router: "jupiterz" }])
         expect(() => verifySwapOrder({ ...quote, ...patch }, s.plan, "80000000", 200)).toThrow("limits");
+    } finally { s.launches.db.close(); }
+  });
+  it("pays held $AGP to each winner without ever preparing a swap", async () => {
+    const s = setup();
+    try {
+      const held = buildHeldPayoutPlan({ kind: "weekly", period: "2026-10-05", budgetAgp: "1000", rewardPercent: "50" }, 6,
+        s.plan.winners.map(({ lamports: _, ...winner }) => winner), s.plan.source, "platform", "admin");
+      held.agpMint = s.plan.agpMint; s.plans.insert(held); s.plans.approve(held.id, "admin");
+      // The same reward wallet: let the earlier swap plan finish first.
+      s.launches.db.prepare("DELETE FROM payout_execution").run();
+      const run = await startExecution(held.id, "admin", s.adapter, s.store);
+      expect(run.batches).toHaveLength(1);
+      expect(run.batches[0]!.payments.map((p) => p.amount)).toEqual(["50000000", "50000000"]);
+      s.adapter.inspect = vi.fn(async () => ({ status: "confirmed" as const }));
+      for (let n = 0; n < 2; n++) {
+        const step = await payoutStep(held.id, true, undefined, s.adapter, s.store);
+        expect(step.transaction?.swap).toBe(false);
+        await payoutStep(held.id, false, s.sign(step.transaction!.prepared), s.adapter, s.store);
+        await payoutStep(held.id, false, undefined, s.adapter, s.store);
+      }
+      await payoutStep(held.id, false, undefined, s.adapter, s.store);
+      expect(s.store.get(held.id)!.status).toBe("completed");
+      expect(s.store.paidUnits(s.plan.agpMint!)).toBe(100_000_000n);
+      expect(s.adapter.prepareSwap).not.toHaveBeenCalled();
+      expect(s.adapter.prepareTransfer).toHaveBeenCalledTimes(2);
     } finally { s.launches.db.close(); }
   });
 });
