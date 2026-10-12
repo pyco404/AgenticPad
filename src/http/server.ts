@@ -39,7 +39,7 @@ import { LiveStream, resumeFrom, type LiveOptions } from "./live.js";
 import { rateOf, seasonRate, type Funding } from "../chips.js";
 import { faucetStatus, grantFaucet, FaucetError, type FaucetChain } from "../db/faucet.js";
 import { holdingMinimum, holdingOf, holdingView, keeps, readHolding, type Holding, type HoldingsChain } from "../db/holdings.js";
-import { conviction, CONVICTION_CAP_DAYS, position, power, shares, weight } from "../score.js";
+import { conviction, CONVICTION_CAP_DAYS, filledShares, position, power, weight } from "../score.js";
 import { chips as toChips } from "../chips.js";
 import { AuthError, isPublicKey, issueNonce, ownerForToken, revokeSession, verifySignIn } from "../auth/wallet.js";
 
@@ -721,7 +721,10 @@ export function createApp(options: AppOptions): Server {
    * sell collected agents). Its wallet must also hold the token worth $20 now
    * (docs/holder-agents.md, decision 3), read fresh on chain at the verified
    * price. `minScore` drops lower scores, and `exclude` the reward wallets
-   * themselves, which hold $AGP and so have agents but must not pay themselves. Shares are
+   * themselves, which hold $AGP and so have agents but must not pay themselves.
+   * `cap` is the most one wallet's agent may take (default 10%); what it holds
+   * back is handed on to the others by score, so the payout pays out in full
+   * whenever there are enough winners. Shares are
    * then worked out again over the winners left, the same way as when frozen -
    * proportional to score, none above 10% - so a dropped winner's share goes to
    * those still holding, and what the cap holds back stays in the wallet.
@@ -731,6 +734,8 @@ export function createApp(options: AppOptions): Server {
     if (!adminWallets.has(ctx.requireOwner())) throw new HttpError(404, "not found");
     const minScore = Number(ctx.query.get("minScore") ?? 0);
     if (!Number.isFinite(minScore) || minScore < 0) throw new HttpError(400, "minScore must be a number, 0 or more");
+    const cap = Number(ctx.query.get("cap") ?? 0.1);
+    if (!Number.isFinite(cap) || cap < 0.01 || cap > 1) throw new HttpError(400, "cap must be a fraction from 0.01 to 1");
     // A catch-up pays a run of frozen days at once (`from`..`to`): each agent's
     // score is the sum of its scores on the days it qualified, and the checks
     // below apply to that total.
@@ -793,7 +798,7 @@ export function createApp(options: AppOptions): Server {
       else if (!await holdsNow(row.wallet, row.scope)) dropped.push({ ...row, reason: "holds under $20" });
       else eligible.push(row);
     }
-    const fractions = shares(eligible);
+    const fractions = filledShares(eligible, cap);
     // The cap is per agent, and an agent is one wallet holding one token: a
     // wallet with agents for several tokens takes a capped share for each.
     // Only a replacement for the same token merges, so ending an agent and
@@ -804,11 +809,11 @@ export function createApp(options: AppOptions): Server {
       const key = `${winner.wallet}:${winner.mint}`;
       const previous = grouped.get(key);
       if (previous) {
-        previous.share = Math.min(0.1, previous.share + winner.share);
+        previous.share = Math.min(cap, previous.share + winner.share);
         previous.agentIds = [...(previous.agentIds ?? [previous.agentId]), winner.agentId];
       } else grouped.set(key, winner);
     });
-    return { frozen: true, minScore, winners: [...grouped.values()].filter((w) => w.share > 0),
+    return { frozen: true, minScore, cap, winners: [...grouped.values()].filter((w) => w.share > 0),
       dropped: dropped.map(({ agentId, name, wallet, mint, score, reason }) => ({ agentId, name, wallet, mint, score, reason })) };
   }
 
