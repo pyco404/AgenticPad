@@ -69,4 +69,11 @@ export class PayoutStore {
       return plan;
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
+  /** Removes a draft. Approved, cancelled and paid plans are the payout record and are never removed. */
+  remove(id: string): void {
+    const plan = this.get(id);
+    if (!plan) throw new Error("Payout plan not found.");
+    if (plan.status !== "draft") throw new Error("Only a draft can be deleted; approved and paid plans stay on record.");
+    this.db.prepare("DELETE FROM payout_plans WHERE id = ? AND status = 'draft'").run(id);
+  }
 }
