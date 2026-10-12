@@ -113,7 +113,7 @@ export function AdminPanel() {
   if (error) {
     return (
       <p className="text-[13px] text-loss">
-        {error.message} <button onClick={() => void load()} className="ml-2 underline">retry</button>
+        {error.message} <button type="button" onClick={() => void load()} className="ml-2 rounded-panel border border-line bg-panel-2 px-3 py-1 text-accent hover:border-accent">Try again</button>
       </p>
     );
   }
