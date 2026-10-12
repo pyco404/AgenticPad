@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPayoutPlan, percentBps, type PayoutInput } from "../lib/payout-plan";
+import { buildHeldPayoutPlan, buildPayoutPlan, percentBps, tokenUnits, type PayoutInput } from "../lib/payout-plan";
 import { PayoutStore } from "../lib/payout-store";
 import { LaunchStore } from "../lib/launchpad-store";
 
@@ -72,5 +72,37 @@ describe("SOL reward payout planning (no swaps or payments)", () => {
     expect(store.get(second.id)?.status).toBe("draft");
     expect(store.list()).toHaveLength(2);
     launches.db.close();
+  });
+});
+
+describe("held $AGP payout planning (no swap)", () => {
+  const held = (budgetAgp: string, recipients = winners, rewardPercent = "90") =>
+    buildHeldPayoutPlan({ kind: "daily", period: "2026-10-04", budgetAgp, rewardPercent }, 6, recipients, "daily", "platform", "admin");
+  it("pays $AGP base units from the wallet in one batch, retaining the rest as $AGP", () => {
+    const result = held("1,000,000");
+    expect(result.funding).toBe("held"); expect(result.decimals).toBe(6);
+    expect(result.budgetLamports).toBe("1000000000000");
+    expect(result.allocatedLamports).toBe("900000000000");
+    expect(result.carryoverLamports).toBe("100000000000");
+    expect(result.batchLamports).toEqual(["900000000000"]);
+    expect(result.winners.every((winner) => winner.lamports === "90000000000")).toBe(true);
+    expect(result.platformLamports).toBe("0");
+  });
+  it("keeps the 10% cap: one winner gets a tenth of the reward and the rest stays held", () => {
+    const result = held("1000", winners.slice(0, 1), "100");
+    expect(result.allocatedLamports).toBe("100000000");
+    expect(result.carryoverLamports).toBe("900000000");
+  });
+  it("reads amounts exactly in the mint's decimals", () => {
+    expect(tokenUnits("1.5", 6)).toBe(1_500_000n);
+    expect(tokenUnits("0.000001", 6)).toBe(1n);
+    expect(() => tokenUnits("0.0000001", 6)).toThrow("decimal places");
+    expect(() => tokenUnits("-1", 6)).toThrow();
+    expect(() => held("0")).toThrow("greater than zero");
+  });
+  it("older plans without a funding field remain swap plans", () => {
+    const { funding: _, ...old } = plan();
+    expect(old.batchLamports.length).toBeGreaterThan(1);
+    expect((old as { funding?: string }).funding).toBeUndefined();
   });
 });
