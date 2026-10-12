@@ -3,6 +3,8 @@ import { directionalArt, localSize, objectVertex, ORIENTATION_YAW, physicalKind,
 import { cameraAngle, type Projection } from './projection';
 import { buildingMaterial, VILLAGE_MATERIAL as M } from './object-materials';
 import { darker } from '../../app/village/game/palette';
+import { SOLID_MATERIALS, solidMesh, type SolidMaterial } from './solid-models';
+import { applySolidAppearance } from './solid-appearance';
 
 export const TREE_VARIATION_COUNT=7;
 
@@ -10,9 +12,37 @@ type Vertex = { x: number; y: number; z: number };
 export type PhysicalFace = { vertices: Vertex[]; colour: string; normal: Vertex; art?: ArtRef | undefined; side?: ObjectSide | undefined; crop?: ArtFrame["content"] | undefined };
 const meshes = new WeakMap<WorldObject, { frame: ArtFrame | undefined; faces: PhysicalFace[] }>();
 
+/** Canvas fallback uses the same closed meshes, never the retired front-only pictures. */
+function solidFaces(o: WorldObject): PhysicalFace[] {
+  const mesh = solidMesh(o.solid!, o.solidVariant), vegetation = o.solid!.startsWith('tree') || o.solid === 'shrub';
+  const scale = vegetation ? o.width / (o.solid === 'shrub' && !o.id.startsWith('forest:') ? 64 : 192) : 1;
+  const foot = o.metadata?.topAnchor ?? { x: o.x, y: o.y + o.depth / 2 };
+  const yaw = ORIENTATION_YAW[o.orientation], c = Math.cos(yaw), s = Math.sin(yaw);
+  const offset = vegetation ? 0 : mesh.max[1];
+  const at = (x: number, y: number, z: number): Vertex => ({ x: foot.x + (x * c + (y - offset) * s) * scale,
+    y: foot.y + (-x * s + (y - offset) * c) * scale, z: o.elevation + z * scale });
+  const colours: Partial<Record<SolidMaterial, string>> = { leaves: '#4e702c', leavesLight: '#73903d', leavesDark: '#344e20', bark: '#67431f',
+    plaster: M.plaster, timber: M.timber, fieldstone: M.stone, stone: M.stoneLight,
+    thatch: M.goldRoof, thatchOld: '#b8780c', thatchUnder: '#6c400c', tiles: M.redRoof, tilesBrown: '#8c4428',
+    slate: '#645a64', canopy: '#385682', canopyRed: '#c8371c', canvasGreen: '#657641', shadowWood: M.woodDark };
+  const faces: PhysicalFace[] = [];
+  for (let t = 0; t < mesh.positions.length; t += 9) {
+    const p = mesh.positions, n = mesh.normals, material = SOLID_MATERIALS[mesh.materials[t / 3]!]!;
+    const normal = { x: n[t]! * c + n[t + 1]! * s, y: -n[t]! * s + n[t + 1]! * c, z: n[t + 2]! };
+    const light = Math.max(0, normal.x * -.46 + normal.y * .52 + normal.z * .72);
+    faces.push({ vertices: [0, 3, 6].map(k => at(p[t + k]!, p[t + k + 1]!, p[t + k + 2]!)), normal,
+      colour: darker(colours[material] ?? M.wood, Math.max(0, .28 - light * .25)) });
+  }
+  return faces;
+}
+
 /** Object-specific volumes on fixed local axes. No camera data enters mesh construction. */
 export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalFace[] {
   const known = meshes.get(o); if (known && known.frame === frame) return known.faces;
+  if (o.solid || physicalKind(o) === 'tree' || physicalKind(o) === 'shrub') {
+    const solid = o.solid ? o : applySolidAppearance({ ...o });
+    const faces = solidFaces(solid); meshes.set(o, { frame, faces }); return faces;
+  }
   const kind = physicalKind(o), size = localSize(o), bounds = frame?.content;
   // The source canvas can have wide transparent borders. Match its own visible silhouette,
   // keeping the model footprint and south/front threshold in the original world location.
@@ -152,27 +182,6 @@ export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalF
     face([[0,-d/2,h],[w/2,-d/2,0],[w/2,d/2,0],[0,d/2,h]],M.crest,[h/(w/2),0,1]);
     face([[-w*.17,d/2+1,0],[w*.17,d/2+1,0],[0,d/2+1,h*.64]],M.woodDark,[0,1,0]);
     for(const side of ['front','back','left','right'] as const) facade(side,1);
-  } else if(kind==='tree' || kind==='shrub') {
-    // Vegetation is radially irregular rather than a building facade. Two fixed,
-    // double-sided planes use its own pixel foliage, with a crown surface for high
-    // camera tilts. Their local axes never follow camera yaw (no billboarding).
-    const seed=[...o.id].reduce((n,char)=>(n*31+char.charCodeAt(0))>>>0,0);
-    const source=directionalArt(o,'front');
-    const art:ArtRef=kind==='tree'
-      ? {key:'resources-trees-tree',frame:typeof source?.frame==='number' ? source.frame%4 : seed%2}
-      : source ?? {key:o.metadata?.texture ?? 'bush-1',frame:0};
-    const turn=((seed%7)-3)*Math.PI/90, ca=Math.cos(turn),sa=Math.sin(turn);
-    const plane=(x:number,y:number,z:number)=>[x*ca-y*sa,y*ca+x*sa,z];
-    const normal=(x:number,y:number,z:number)=>[x*ca-y*sa,y*ca+x*sa,z];
-    face([plane(-w/2,0,0),plane(w/2,0,0),plane(w/2,0,h),plane(-w/2,0,h)],M.crest,normal(0,1,0),'front',art);
-    face([plane(w/2,0,0),plane(-w/2,0,0),plane(-w/2,0,h),plane(w/2,0,h)],M.crest,normal(0,-1,0),'back',art);
-    face([plane(0,w/2,0),plane(0,-w/2,0),plane(0,-w/2,h),plane(0,w/2,h)],M.crest,normal(1,0,0),'right',art);
-    face([plane(0,-w/2,0),plane(0,w/2,0),plane(0,w/2,h),plane(0,-w/2,h)],M.crest,normal(-1,0,0),'left',art);
-    for(const f of faces) f.crop=bounds;
-    // Only foliage goes on the horizontal crown: the source trunk stays vertical.
-    const crown=w*.44;
-    face([plane(-crown,crown,h*.72),plane(crown,crown,h*.72),plane(crown,-crown,h*.72),plane(-crown,-crown,h*.72)],M.crest,[0,0,1],undefined,art);
-    faces[faces.length-1]!.crop={x:bounds?.x??0,y:bounds?.y??0,width:bounds?.width??frame?.width??192,height:Math.max(1,Math.round((bounds?.height??frame?.height??192)*.64))};
   } else if(kind==='bench') {
     box(-w/2,-d/2,h*.34,w/2,d/2,h*.44,M.wood,M.woodLight);
     box(-w/2,-d/2,h*.44,w/2,-d*.32,h,M.wood,M.woodLight);
@@ -216,13 +225,13 @@ export function fixedObjectGeometry(o: WorldObject, frame?: ArtFrame): PhysicalF
     cylinder(0,0,w*.22,d*.22,h*.7,h,colour,M.thatchLight);
     for(const side of ['front','back','left','right'] as const) facade(side,1);
   } else if(kind==='rock' || kind==='mountain') {
-    const colour=kind==='mountain'?M.stone:/gold|coins/.test(key)?M.gold:M.wood;
+    const colour=kind==='mountain'?M.stone:/gold|coins/.test(key)?M.gold:/log|pumpkin/.test(key)?M.wood:M.stone;
     for(let i=0;i<8;i++) { const a=i*Math.PI/4,b=(i+1)*Math.PI/4;
       face([[Math.cos(a)*w/2,Math.sin(a)*d/2,0],[Math.cos(b)*w/2,Math.sin(b)*d/2,0],[0,0,h]],darker(colour,i%3*.12),[Math.cos((a+b)/2),Math.sin((a+b)/2),.5]); }
   } else if (/stump/.test(key)) {
     cylinder(0,0,w*.43,d*.43,0,h*.85,M.woodDark,M.woodLight);
     cylinder(0,0,w*.29,d*.29,h*.85,h,M.wood,M.woodLight);
-  } else if (/dummy/.test(key)) {
+  } else if (/dummy|deco-18/.test(key)) {
     box(-w*.3,-d*.3,0,w*.3,d*.3,h*.08,M.woodDark);
     box(-2,-2,h*.08,2,2,h*.68,M.wood);
     box(-w*.42,-2,h*.55,w*.42,2,h*.61,M.woodDark);
@@ -248,7 +257,7 @@ export function projectedObjectFaces(view: Projection, o: WorldObject, frame?: A
   const depthScale=view==='isometric'?Math.SQRT2:1;
   const transform=(p:Vertex)=>{ const along=p.x*s+p.y*c;return {x:p.x*c-p.y*s,y:along*st-p.z*ct,depth:along*depthScale}; };
   let faces=fixedObjectGeometry(o,frame).filter(f=>f.normal.x*vector.x+f.normal.y*vector.y+f.normal.z*vector.z>1e-6);
-  if(o.structure?.form==='cross' && faces.length) {
+  if(!o.solid && o.structure?.form==='cross' && faces.length) {
     const facing=(f:PhysicalFace)=>f.normal.x*vector.x+f.normal.y*vector.y;
     const best=faces.reduce((a,b)=>facing(b)>facing(a)?b:a);
     faces=faces.filter(f=>f===best || !f.side);
