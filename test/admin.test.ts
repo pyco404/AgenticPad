@@ -260,4 +260,26 @@ describe("payout recipients are checked at payout", () => {
     expect(body.winners.map((w) => w.wallet)).toEqual([owners[0], owners[1]]);
     expect((await recipients("2026-06-03", "&minScore=-1")).status).toBe(400);
   });
+  it("pays a catch-up over several frozen days on each agent's summed score", async () => {
+    // Two days: A scores 100 then 0 (not qualified the second day), B 50 and 50.
+    const [a, b] = [someWallet(), someWallet()];
+    const agentA = await createAgent(db, { name: "A", presetName: "Anchor", ownerId: a });
+    const agentB = await createAgent(db, { name: "B", presetName: "Anchor", ownerId: b });
+    for (const [date, rows] of [["2026-06-10", [[agentA, 100], [agentB, 50]]], ["2026-06-11", [[agentB, 50]]]] as const) {
+      const d = Math.floor(Date.parse(`${date}T00:00:00Z`) / 86_400_000);
+      await freezeDay(db, d);
+      for (const [agent, score] of rows) await db.insert(dailyScores).values({ day: d, agentId: agent.id, rankedMatches: 3, points: score, qualified: true, convictionDays: 0, shareOfSupply: 0, power: 0, weight: 1, score });
+    }
+    const { status, body } = await recipients("2026-06-10", "&from=2026-06-10&to=2026-06-11");
+    expect(status).toBe(200);
+    // 100 against 100: an even split, each capped at 10%.
+    expect(body.winners.map((w) => [w.wallet, w.share])).toEqual([[a, 0.1], [b, 0.1]]);
+    const { body: low } = await recipients("2026-06-10", "&from=2026-06-10&to=2026-06-11&minScore=101");
+    expect(low.winners).toEqual([]);
+    expect(low.dropped).toHaveLength(2);
+  });
+  it("refuses a catch-up over a day not yet frozen, or a backwards range", async () => {
+    expect((await recipients("2026-06-20", "&from=2026-06-20&to=2026-06-21")).status).toBe(409);
+    expect((await recipients("2026-06-20", "&from=2026-06-21&to=2026-06-20")).status).toBe(400);
+  });
 });
