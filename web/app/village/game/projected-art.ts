@@ -9,7 +9,12 @@ import type { Pt } from "../../../lib/world/world";
 import { fixedObjectLayer } from "./fixed-world-art";
 
 export type ProjectionCamera = { x: number; y: number; scale: number };
-export type ProjectedLayer = { depth: number; draw: () => void; drawScreen?: (camera: ProjectionCamera, width: number, height: number) => void };
+/**
+ * One upright piece of scenery in painter order. `bounds` is where it can paint, in projected world
+ * units: WorldCamera redraws a layer over live actors only where those bounds meet one. A layer
+ * without bounds is redrawn every frame.
+ */
+export type ProjectedLayer = { depth: number; bounds?: { x0: number; y0: number; x1: number; y1: number }; draw: () => void; drawScreen?: (camera: ProjectionCamera, width: number, height: number) => void };
 type CaptureLayer = (layer: ProjectedLayer) => void;
 type Vertex = Pt & { z?: number };
 type Brush = {
@@ -369,7 +374,10 @@ function arena(b: Brush, view: Projection, o: WorldObject, floor?: () => void, c
     architecture.push({ depth: project(view, { x: o.x + Math.cos(gate.angle) * rx, y: o.y + Math.sin(gate.angle) * ry }).depth,
       draw: () => arenaDoor(b, view, o, gate.angle, gate.width, gate.height, gate.banner) });
   }
-  architecture.sort((a, c) => a.depth - c.depth).forEach((part) => capture ? capture(part) : part.draw());
+  // Every part paints inside the arena's own box, from below its floor to above its flags.
+  const box = [o.x - rx, o.x + rx].flatMap((x) => [o.y - ry, o.y + ry].flatMap((y) => [0, o.height + 70].map((z) => project(view, { x, y }, z))));
+  const bounds = { x0: Math.min(...box.map((p) => p.x)), y0: Math.min(...box.map((p) => p.y)), x1: Math.max(...box.map((p) => p.x)), y1: Math.max(...box.map((p) => p.y)) };
+  architecture.sort((a, c) => a.depth - c.depth).forEach((part) => capture ? capture({ ...part, bounds }) : part.draw());
 }
 
 function road(b: Brush, o: WorldObject): void {
@@ -476,7 +484,9 @@ export function renderProjectedWorld(ctx: CanvasRenderingContext2D, world: World
       return { image: sprite.image, x: frame % columns * sprite.width, y: Math.floor(frame / columns) * sprite.height, width: sprite.width, height: sprite.height };
     };
     if (o.type === "bridge") {
-      const part = { depth: project(view, o).depth, draw: () => prism(b, view, o, COLOUR.wall, M.woodLight) };
+      const corners = footprint(o).flatMap((p) => [0, o.elevation + o.height + 12].map((z) => project(view, p, z)));
+      const part = { depth: project(view, o).depth, draw: () => prism(b, view, o, COLOUR.wall, M.woodLight),
+        bounds: { x0: Math.min(...corners.map((p) => p.x)) - 4, y0: Math.min(...corners.map((p) => p.y)) - 4, x1: Math.max(...corners.map((p) => p.x)) + 4, y1: Math.max(...corners.map((p) => p.y)) + 4 } };
       if (capture) capture(part); else part.draw();
     } else {
       const part = fixedObjectLayer(ctx, view, o, camera.scale, resolve);
