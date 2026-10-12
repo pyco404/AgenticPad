@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conviction, points, position, power, shares, weight } from "../src/score.js";
+import { conviction, points, position, power, shares, filledShares, weight } from "../src/score.js";
 
 // The holder score's arithmetic (docs/holder-agents.md, Scoring), checked
 // against the figures the design doc quotes.
@@ -62,5 +62,24 @@ describe("shares", () => {
 
   it("pays nothing when nobody scored", () => {
     expect(shares([{ score: 0 }, { score: 0 }])).toEqual([0, 0]);
+  });
+});
+
+describe("filled payout shares", () => {
+  const rows = (...scores: number[]) => scores.map((score) => ({ score }));
+  it("pays out in full: what the cap holds back goes to the others by score", () => {
+    const out = filledShares(rows(415, 367, 351, 258, 247, 77, 71, 69, 67, 55, 20), 0.2);
+    expect(out.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    expect(out[0]).toBe(0.2);
+    expect(Math.max(...out)).toBeLessThanOrEqual(0.2);
+    // Below the cap, still proportional to score.
+    expect(out[5]! / out[10]!).toBeCloseTo(77 / 20, 9);
+  });
+  it("is proportional to score when nobody reaches the cap", () => {
+    expect(filledShares(rows(3, 1), 1)).toEqual([0.75, 0.25]);
+  });
+  it("leaves the rest in the wallet only when there are too few winners for the cap", () => {
+    expect(filledShares(rows(10, 1, 1), 0.1)).toEqual([0.1, 0.1, 0.1]);
+    expect(filledShares(rows(0, 5), 0.5)).toEqual([0, 0.5]);
   });
 });
