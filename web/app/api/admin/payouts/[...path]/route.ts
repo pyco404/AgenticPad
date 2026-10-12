@@ -1,10 +1,10 @@
 import { PublicKey } from "@solana/web3.js";
 import { LAUNCH_FEE_RECIPIENT, DAILY_REWARDS_WALLET, WEEKLY_REWARDS_WALLET } from "@/lib/launchpad-fees";
 import { fromThisSite, LaunchError, ownerOf, readLaunchBody } from "@/lib/launchpad-server";
-import { buildPayoutPlan, type PayoutInput, type PayoutWinner } from "@/lib/payout-plan";
+import { buildHeldPayoutPlan, buildPayoutPlan, type HeldPayoutInput, type PayoutInput, type PayoutWinner } from "@/lib/payout-plan";
 import { PayoutStore } from "@/lib/payout-store";
 import { ExecutionStore } from "@/lib/payout-execution-store";
-import { executionConfig } from "@/lib/payout-adapter";
+import { agpDecimals, executionConfig } from "@/lib/payout-adapter";
 import { payoutStep, startExecution, startPayoutWorker } from "@/lib/payout-runner";
 
 export const runtime = "nodejs";
@@ -39,17 +39,20 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
     startPayoutWorker();
     let result: unknown;
     if (request.method === "GET" && path.join("/") === "plans") result = {
-      plans: store.list(), agpMint: agpMint(), executionConnected: executionConfig().ready,
+      plans: store.list(), agpMint: agpMint(), executionConnected: executionConfig().ready, swapsConnected: executionConfig().swaps,
       executionMissing: executionConfig().missing, executions: executions.views(),
       sourceWallets: { daily: DAILY_REWARDS_WALLET, weekly: WEEKLY_REWARDS_WALLET }, platform: LAUNCH_FEE_RECIPIENT,
     };
     else if (request.method === "POST" && path.join("/") === "preview") {
       const body = await readLaunchBody(request);
+      // "held" pays $AGP the operator already bought into the reward wallet; otherwise SOL is swapped.
+      const held = body.funding === "held";
       if ((body.kind !== "daily" && body.kind !== "weekly") || typeof body.period !== "string" ||
         !/^\d{4}-\d{2}-\d{2}$/.test(body.period) ||
-        !["budgetSol", "rewardPercent", "batchSol"].every((key) => typeof body[key] === "string") ||
-        typeof body.delaySeconds !== "number" || typeof body.slippageBps !== "number") throw new LaunchError("Invalid payout settings.");
-      const input = body as unknown as PayoutInput;
+        (held ? !["budgetAgp", "rewardPercent"].every((key) => typeof body[key] === "string")
+          : !["budgetSol", "rewardPercent", "batchSol"].every((key) => typeof body[key] === "string") ||
+            typeof body.delaySeconds !== "number" || typeof body.slippageBps !== "number")) throw new LaunchError("Invalid payout settings.");
+      const input = body as unknown as PayoutInput | HeldPayoutInput;
       const date = new Date(`${input.period}T00:00:00Z`);
       if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== input.period) throw new LaunchError("Choose a valid calendar date.");
       if (input.kind === "weekly" && date.getUTCDay() !== 1) throw new LaunchError("Choose the Monday that started a completed weekly season.");
@@ -58,8 +61,17 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       for (const winner of frozen.winners) {
         if (new PublicKey(winner.wallet).toBase58() === LAUNCH_FEE_RECIPIENT) throw new LaunchError("The platform wallet cannot be a reward winner.");
       }
+      const source = input.kind === "daily" ? DAILY_REWARDS_WALLET : WEEKLY_REWARDS_WALLET;
+      let decimals = 0;
+      if (held) {
+        try { decimals = await agpDecimals(); }
+        catch { throw new LaunchError("The $AGP mint could not be read. Check PUMP_RPC_URL and PAYOUT_AGP_MINT.", 503); }
+      }
       let plan;
-      try { plan = buildPayoutPlan(input, frozen.winners, input.kind === "daily" ? DAILY_REWARDS_WALLET : WEEKLY_REWARDS_WALLET, LAUNCH_FEE_RECIPIENT, owner); }
+      try {
+        plan = held ? buildHeldPayoutPlan(input as HeldPayoutInput, decimals, frozen.winners, source, LAUNCH_FEE_RECIPIENT, owner)
+          : buildPayoutPlan(input as PayoutInput, frozen.winners, source, LAUNCH_FEE_RECIPIENT, owner);
+      }
       catch (error) { throw new LaunchError((error as Error).message); }
       plan.agpMint = agpMint();
       store.insert(plan);
@@ -73,7 +85,10 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
     } else if (request.method === "POST" && path.length === 2 && ["start", "prepare", "submit", "pause", "resume"].includes(path[1]!)) {
       if (!executionConfig().ready && path[1] !== "pause") throw new LaunchError("Configure payout execution before starting or resuming payments.", 503);
       const id = path[0]!; const action = path[1]!;
-      if (!store.get(id)) throw new LaunchError("Payout plan not found.", 404);
+      const target = store.get(id);
+      if (!target) throw new LaunchError("Payout plan not found.", 404);
+      if (target.funding !== "held" && !executionConfig().swaps && (action === "start" || action === "prepare"))
+        throw new LaunchError("This plan swaps SOL, which needs JUPITER_API_KEY. Buy $AGP into the reward wallet and preview a held-$AGP payout instead.", 503);
       try {
         if (action === "start") result = await startExecution(id, owner, undefined, executions);
         else if (action === "pause" || action === "resume") result = executions.control(id, action);
@@ -87,7 +102,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
         if (error instanceof LaunchError) throw error;
         // Local verification errors are useful; do not return external provider errors.
         const message = error instanceof Error ? error.message : "";
-        const known = ["Approve a payout", "This reward wallet", "A payout step", "A batch step", "Payout execution not found", "No payout transaction", "Only the reward wallet", "The signed launch", "The launch transaction"];
+        const known = ["Payout ", "Approve a payout", "This reward wallet", "A payout step", "A batch step", "Payout execution not found", "No payout transaction", "Only the reward wallet", "The signed launch", "The launch transaction"];
         throw new LaunchError(known.some(prefix => message.startsWith(prefix)) ? message.replaceAll("launch", "payout") : "Payout step could not be verified. Check progress and configuration before retrying.", 409);
       }
     } else throw new LaunchError("Not found.", 404);
