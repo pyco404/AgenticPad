@@ -364,7 +364,9 @@ export class VillageScene extends Phaser.Scene {
   private captureTop(): void {
     worldPerformance.count("phaserCaptures");
     // The arena keeps its own 3D form on the shared footprint; boats sail; glows and shadows are effects.
-    const skip = new Set(["building-arena", "ac-oval-front", "ac-oval-crowd", "ac-oval-cheer", "dress-ship", "dress-solar-glow", "world-pixel-shadow"]);
+    const skip = new Set(["building-arena", "ac-oval-front", "ac-oval-crowd", "ac-oval-cheer", "dress-ship", "dress-solar-glow", "world-pixel-shadow",
+      // The lake's animals swim: the world camera draws them live (sea-life.ts), not in the still ground.
+      "sea-fish", "sea-turtle", "sea-ray"]);
     const labels = new Map(this.sharedWorld!.objects.filter((o) => o.id.startsWith("site:")).map((o) => [o.id, o.metadata?.label]));
     const flatKey = /farm-bed|plot|yard|planter/i;
     this.topPictures = [];
