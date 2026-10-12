@@ -33,7 +33,8 @@ export type VillageHandle = {
   setViewCentre: (p: Point | null) => void;
   inspectAgent: (id: string) => ReturnType<VillageScene["inspectAgent"]>;
   /** Draws a live agent's own Top character onto another view's canvas; false if it has none. */
-  paintAgent: (id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter) => boolean;
+  /** `yaw` is the world camera's: an agent shows the side of itself that faces that camera. */
+  paintAgent: (id: string, ctx: CanvasRenderingContext2D, x: number, y: number, k: number, paint: (ctx: CanvasRenderingContext2D) => Painter, yaw?: number) => boolean;
   setWorldCamera: (camera: WorldCameraControls | null) => void;
   activateWorldTarget: (target: WorldTarget) => void;
   setResidents: (residents: Resident[]) => void;
@@ -134,7 +135,7 @@ export async function startVillage(
     matchTables: () => scene.matchTables(),
     setViewCentre: (p) => scene.setViewCentre(p),
     inspectAgent: (id) => scene.inspectAgent(id),
-    paintAgent: (id, ctx, x, y, k, paint) => scene.paintAgent(id, ctx, x, y, k, paint),
+    paintAgent: (id, ctx, x, y, k, paint, yaw) => scene.paintAgent(id, ctx, x, y, k, paint, yaw),
     setWorldCamera: (camera) => {
       if (Boolean(camera) !== Boolean(worldCamera)) scene.input?.resetPointers();
       worldCamera = camera;
