@@ -31,7 +31,7 @@ import { canopy, NEW_TOWN, openPlots, overlaps, PIECE_ART, plotClearing, type Bo
 import { Roads, type Point } from "./roads";
 import { referenceArt } from "./reference-art";
 import { directionalSet, directionalSources } from "../../../lib/world/directional-art";
-import type { SolidKind } from "../../../lib/world/solid-models";
+import { applySolidAppearance as asSolid } from "../../../lib/world/solid-appearance";
 import { byRiver, RIVER_BANKS } from "./river";
 import { drawRiver } from "./river-scenery";
 import { crispText, MONO } from "./text";
@@ -72,22 +72,6 @@ const HERO_SCALE = 0.55;
 /** Space between heroes waiting at a hall. */
 const GRID_X = 50;
 const GRID_Y = 42;
-/**
- * The true-3D prototype (docs/world-solids.md): one of each family, drawn as a real model where
- * WebGL2 allows. `?solid=0` shows their pictures instead, to compare.
- */
-const SOLID_PROTOTYPES: { key: string; near?: Point; kind: SolidKind }[] = [
-  { key: "dress-house-yellow", near: { x: 230, y: 1090 }, kind: "cottage" },
-  { key: "building-library", kind: "hall" },
-  { key: "market-blue", near: { x: 1250, y: 1440 }, kind: "stall" },
-  { key: "building-board", kind: "board" },
-];
-const solidsOn = () => typeof window === "undefined" || new URLSearchParams(window.location.search).get("solid") !== "0";
-function solidPrototype(key: string, foot: Point): SolidKind | null {
-  if (!solidsOn()) return null;
-  return SOLID_PROTOTYPES.find((p) => p.key === key && (!p.near || Math.hypot(foot.x - p.near.x, foot.y - p.near.y) < 60))?.kind ?? null;
-}
-
 /** A match takes two spots facing each other, this far apart. */
 const PAIR_GAP = 72;
 /** The Arena's one match stands in the middle of the sand (town.ts); a replay's stand-ins come in by the south gate. */
@@ -393,8 +377,7 @@ export class VillageScene extends Phaser.Scene {
       const site = /^building-(.+)$/.exec(key)?.[1];
       const o = pictureObject(site ? `site:${site}` : `top:${i}:${key}`, { key, frame: obj.frame.name, flipX: obj.flipX }, foot, width, height, flatKey.test(key));
       this.withViews(o);
-      const solid = solidPrototype(key, foot);
-      if (solid) o.solid = solid;
+      asSolid(o);
       if (site) { o.type = "building"; o.metadata!.label = labels.get(`site:${site}`) ?? site; }
       if (key === "wild-mountain") { o.metadata!.label = "Mountain"; o.metadata!.landmark = true; }
       this.topPictures.push(o);
@@ -507,12 +490,12 @@ export class VillageScene extends Phaser.Scene {
       const source = this.topPictures.length
         ? [...this.sharedWorld.objects.filter((o) => kept.has(o.type) || o.metadata?.texture === "fence"), ...this.topPictures]
         : this.sharedWorld.objects;
-      const base = source.filter((o) => o.type !== "tree" || !clearings.some((b) => {
+      const base = source.map((o) => asSolid(o)).filter((o) => o.type !== "tree" || !clearings.some((b) => {
         const p = o.metadata?.topAnchor ?? o;
         const s = o.width / 192;
         return overlaps(canopy({ ...p, s }), b);
       }));
-      this.projectionWorld = { ...this.sharedWorld, objects: [...base, ...plots.flatMap(plotObjects).map((o) => this.withViews(o)), ...this.projectedForest] };
+      this.projectionWorld = { ...this.sharedWorld, objects: [...base, ...plots.flatMap(plotObjects).map((o) => asSolid(this.withViews(o))), ...this.projectedForest] };
       this.projectionRevision++;
     }
     const agents = this.agentSnapshot();
