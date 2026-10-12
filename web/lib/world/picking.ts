@@ -2,6 +2,7 @@ import type { ArtFrame, ArtRef, WorldObject } from "./model";
 import { depthOrder, footprint, project, type Projection } from "./projection";
 import type { Pt } from "./world";
 import { projectedObjectFaces } from "./object-geometry";
+import { solidMesh } from './solid-models';
 type ProjectionCamera = { x: number; y: number; scale: number };
 
 export type WorldTarget = { kind: "agent" | "building"; id: string };
@@ -32,9 +33,35 @@ export function worldPicker(view: Projection, objects: readonly WorldObject[], c
     const at = screen(o, o.height / 2), reach = (o.width + o.depth + o.height) * camera.scale;
     return Math.abs(at.x - width / 2) <= width / 2 + reach && Math.abs(at.y - height / 2) <= height / 2 + reach;
   });
+  // Project each shared mesh once. Thousands of trees test points against the same native
+  // polygons after removing their translation and scale, rather than keeping faces per instance.
+  const shapes = new Map<string, { polygons: Pt[][]; bounds: { x0: number; y0: number; x1: number; y1: number } }>();
   const areas = depthOrder(view, visible).map((o) => {
     const target: WorldTarget | null = o.id.startsWith("site:") && (o.type === "building" || o.type === "arena")
       ? { kind: "building", id: o.id.slice(5) } : null;
+    if (o.solid) {
+      const vegetation = o.solid.startsWith('tree') || o.solid === 'shrub';
+      const factor = vegetation ? o.width / (o.solid === 'shrub' && !o.id.startsWith('forest:') ? 64 : 192) : 1;
+      const key = `${solidMesh(o.solid, o.solidVariant).key}:${o.orientation}`;
+      let shape = shapes.get(key);
+      if (!shape) {
+        const template = { ...o, id: `pick:${o.solid}`, x: 0, y: 0, elevation: 0,
+          width: vegetation ? o.solid === 'shrub' ? 64 : 192 : o.width, metadata: { topAnchor: { x: 0, y: 0 } } };
+        const polygons = projectedObjectFaces(view, template).map(f => f.points);
+        const points = polygons.flat();
+        shape = { polygons, bounds: { x0: Math.min(...points.map(p => p.x)), y0: Math.min(...points.map(p => p.y)),
+          x1: Math.max(...points.map(p => p.x)), y1: Math.max(...points.map(p => p.y)) } };
+        shapes.set(key, shape);
+      }
+      const origin = project(view, o.metadata?.topAnchor ?? { x: o.x, y: o.y + o.depth / 2 }, o.elevation);
+      const shared = shape;
+      return { target, hit: (p: Pt) => {
+        const local = { x: ((p.x - width / 2) / camera.scale + camera.x - origin.x) / factor,
+          y: ((p.y - height / 2) / camera.scale + camera.y - origin.y) / factor };
+        const b = shared.bounds;
+        return local.x >= b.x0 && local.x <= b.x1 && local.y >= b.y0 && local.y <= b.y1 && shared.polygons.some(poly => polygonContains(local, poly));
+      } };
+    }
     if (o.type !== "arena" && o.type !== "bridge" && o.type !== "agent") {
       const front = o.directionalAssets?.front ?? o.metadata?.art;
       const faces = projectedObjectFaces(view, o, front ? art?.(front) ?? undefined : undefined).map(({ face, points }) => ({ face, frame: face.art && art?.(face.art),
