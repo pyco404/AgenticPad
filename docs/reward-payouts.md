@@ -24,9 +24,11 @@ Jupiter API key is needed. The SOL-swap mode below remains available, and needs
    reserve (`PAYOUT_FEE_RESERVE_SOL`), which pays network fees and any winner's
    new token account.
 
-**Checked at payout, not at freeze.** At preview the API reads every winner's
-wallet on chain, at the verified price, and drops anyone holding under $20 of
-their agent's token, as well as anyone under the minimum score. Shares are then
+**Checked at payout, not at freeze.** At preview the API drops every winning agent
+that is no longer in play (its wallet sold to zero since: the agent ended, and its
+scores went with it), the reward wallets' own agents, and anyone under the minimum
+score. It reads every remaining winner's wallet on chain, at the verified price,
+and drops anyone holding under $20 of their agent's token. Shares are then
 worked out again over the winners left (proportional to score, capped at 10%), so
 the dropped shares go to the holders who stayed. The web refuses to preview
 against an API too old to make this check. A wallet that sells between preview
