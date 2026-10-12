@@ -715,9 +715,13 @@ export function createApp(options: AppOptions): Server {
 
   /**
    * Who a frozen period pays, checked at payout. Scores are frozen with the day,
-   * but a wallet is paid only if it still holds the agent's token worth $20 now
-   * (docs/holder-agents.md, decision 3): each winner's wallet is read fresh on
-   * chain at the verified price. `minScore` drops lower scores too. Shares are
+   * but only an agent still in play is paid: a wallet that sold to zero ended
+   * that agent, and a rebuy starts a new one that earns from then on, so its
+   * old scores are forfeit (decided 2026-10-12, after wallets cycling buy and
+   * sell collected agents). Its wallet must also hold the token worth $20 now
+   * (docs/holder-agents.md, decision 3), read fresh on chain at the verified
+   * price. `minScore` drops lower scores, and `exclude` the reward wallets
+   * themselves, which hold $AGP and so have agents but must not pay themselves. Shares are
    * then worked out again over the winners left, the same way as when frozen -
    * proportional to score, none above 10% - so a dropped winner's share goes to
    * those still holding, and what the cap holds back stays in the wallet.
@@ -754,15 +758,16 @@ export function createApp(options: AppOptions): Server {
       if (!table || !table.frozen) throw new HttpError(409, "payouts require frozen scores");
       scored = table.rows.filter((row) => row.qualified && row.share > 0);
     }
-    const owners = scored.length ? await db.select({ id: agents.id, wallet: agents.ownerId, mint: agents.holderMint }).from(agents)
+    const excluded = new Set((ctx.query.get("exclude") ?? "").split(",").filter(Boolean));
+    const owners = scored.length ? await db.select({ id: agents.id, wallet: agents.ownerId, mint: agents.holderMint, retiredAt: agents.retiredAt }).from(agents)
       .where(inArray(agents.id, scored.map((row) => row.agentId))) : [];
     const recipients = new Map(owners.map((row) => [row.id, row]));
     const rows = scored.map((row) => {
       const owner = recipients.get(row.agentId);
       if (!owner?.wallet || !isPublicKey(owner.wallet)) throw new HttpError(409, "a winner has no valid receiving wallet");
-      return { agentId: row.agentId, name: row.name, score: row.score, wallet: owner.wallet, mint: owner.mint || options.holder?.primaryMint || "", scope: owner.mint ?? "" };
+      return { agentId: row.agentId, name: row.name, score: row.score, wallet: owner.wallet, mint: owner.mint || options.holder?.primaryMint || "", scope: owner.mint ?? "", ended: owner.retiredAt !== null };
     });
-    const dropped: { agentId: string; name: string; wallet: string; mint: string; score: number; reason: "below minimum score" | "holds under $20" }[] = [];
+    const dropped: { agentId: string; name: string; wallet: string; mint: string; score: number; reason: "reward wallet" | "agent ended" | "below minimum score" | "holds under $20" }[] = [];
     const eligible: typeof rows = [];
     // One fresh read per wallet and token, however many of its agents won.
     const holds = new Map<string, Promise<boolean>>();
@@ -779,7 +784,9 @@ export function createApp(options: AppOptions): Server {
       return holds.get(key)!;
     };
     for (const row of rows) {
-      if (row.score < minScore) dropped.push({ ...row, reason: "below minimum score" });
+      if (excluded.has(row.wallet)) dropped.push({ ...row, reason: "reward wallet" });
+      else if (row.ended) dropped.push({ ...row, reason: "agent ended" });
+      else if (row.score < minScore) dropped.push({ ...row, reason: "below minimum score" });
       else if (!await holdsNow(row.wallet, row.scope)) dropped.push({ ...row, reason: "holds under $20" });
       else eligible.push(row);
     }
