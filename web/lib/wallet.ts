@@ -183,7 +183,15 @@ export async function signTransactionWith(session: Session, prepared: string): P
   const provider = providerFor(session.wallet);
   if (!provider?.signTransaction) throw new Error(`${session.wallet} can't sign transactions here`);
   if (!provider.publicKey) await provider.connect();
-  const connected = provider.publicKey?.toBase58?.() ?? provider.publicKey?.toString();
+  const account = () => provider.publicKey?.toBase58?.() ?? provider.publicKey?.toString();
+  if (account() !== session.ownerId) {
+    // The extension still reports the account this page first connected (the admin's sign-in, say)
+    // after its owner selects another: reconnecting hands the page the one now selected. The sign-in
+    // session is a token, so it is not touched.
+    await provider.disconnect?.().catch(() => undefined);
+    await provider.connect();
+  }
+  const connected = account();
   if (connected !== session.ownerId) {
     throw new Error(`${session.wallet} is on a different account: switch it to ${shortKey(session.ownerId)} and try again`);
   }
