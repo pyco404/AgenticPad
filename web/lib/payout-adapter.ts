@@ -10,12 +10,26 @@ const SOL = "So11111111111111111111111111111111111111112";
 const MAINNET = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 const JUPITER = "https://api.jup.ag/swap/v2";
 const integer = (value: unknown) => typeof value === "string" && /^\d+$/.test(value);
+/**
+ * Paying $AGP already held in a reward wallet needs only these; swapping SOL into $AGP during a
+ * payout also needs JUPITER_API_KEY (`swaps`).
+ */
 export function executionConfig() {
-  const missing = ["PUMP_RPC_URL", "PAYOUT_AGP_MINT", "JUPITER_API_KEY"].filter(name => !process.env[name]);
+  const missing = ["PUMP_RPC_URL", "PAYOUT_AGP_MINT"].filter(name => !process.env[name]);
   if (process.env.PAYOUT_EXECUTION_ENABLED !== "true") missing.push("PAYOUT_EXECUTION_ENABLED=true");
   if (process.env.NODE_ENV === "production" && (!process.env.PUMP_LAUNCH_DB_PATH || process.env.PUMP_LAUNCH_DB_PATH === ":memory:")) missing.push("persistent PUMP_LAUNCH_DB_PATH");
-  return { ready: !missing.length, missing };
+  return { ready: !missing.length, missing, swaps: !!process.env.JUPITER_API_KEY };
 }
+/** The $AGP mint's decimals, to plan a held payout in its base units. */
+export async function agpDecimals(): Promise<number> {
+  if (!process.env.PUMP_RPC_URL || !process.env.PAYOUT_AGP_MINT) throw new Error("Payout needs PUMP_RPC_URL and PAYOUT_AGP_MINT to plan held $AGP.");
+  const connection = new Connection(process.env.PUMP_RPC_URL, { commitment: "confirmed", disableRetryOnRateLimit: true,
+    fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(15_000) }) });
+  const mint = new PublicKey(process.env.PAYOUT_AGP_MINT); const account = await connection.getAccountInfo(mint);
+  if (!account || ![TOKEN_PROGRAM_ID.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58()].includes(account.owner.toBase58())) throw new Error("Payout mint is not a token mint.");
+  return unpackMint(mint, account, account.owner).decimals;
+}
+const SWAPS_OFF = "Payout swaps need JUPITER_API_KEY. Buy $AGP into the reward wallet and pay it as held $AGP instead.";
 
 export function verifySwapOrder(order: Record<string, unknown>, plan: PayoutPlan, amount: string, maxImpactBps: number) {
   const impact = typeof order.priceImpact === "number" ? order.priceImpact / 100
@@ -64,6 +78,11 @@ export function walletPayoutAdapter(): PayoutAdapter & { connection: Connection 
     const balance = BigInt(await connection.getBalance(new PublicKey(source)));
     if (balance < required + reserve) throw new Error("The reward wallet needs the remaining payout allocation, retained SOL and fee reserve.");
   }
+  /** The reward wallet's $AGP, in base units. */
+  async function held(plan: PayoutPlan, info: Awaited<ReturnType<typeof mintInfo>>) {
+    const account = await connection.getAccountInfo(getAssociatedTokenAddressSync(info.mint, new PublicKey(plan.source), false, info.program));
+    return account ? AccountLayout.decode(account.data).amount : 0n;
+  }
   async function simulate(tx: VersionedTransaction, source: string, ata?: PublicKey, input?: bigint, output?: bigint) {
     if (tx.message.header.numRequiredSignatures !== 1 || tx.message.staticAccountKeys[0]!.toBase58() !== source) throw new Error("The payout requires exactly the reward wallet's signature.");
     const addresses = [source, ...(ata ? [ata.toBase58()] : [])];
@@ -87,10 +106,19 @@ export function walletPayoutAdapter(): PayoutAdapter & { connection: Connection 
     connection,
     async validate(plan) {
       const info = await mintInfo(plan);
-      await enough(plan.source, BigInt(plan.budgetLamports));
+      if (plan.funding === "held") {
+        // Amounts were planned in this mint's units; network fees and recipients' token accounts take SOL.
+        if (plan.decimals !== info.decimals) throw new Error("Payout plan decimals no longer match the $AGP mint.");
+        if (await held(plan, info) < BigInt(plan.allocatedLamports)) throw new Error("Payout wallet holds less $AGP than this plan pays. Buy more into the reward wallet, or preview a smaller payout.");
+        await enough(plan.source, 0n);
+      } else {
+        if (!process.env.JUPITER_API_KEY) throw new Error(SWAPS_OFF);
+        await enough(plan.source, BigInt(plan.budgetLamports));
+      }
       return { decimals: info.decimals };
     },
     async prepareSwap(plan, lamports, remaining) {
+      if (plan.funding === "held" || !process.env.JUPITER_API_KEY) throw new Error(SWAPS_OFF);
       const info = await mintInfo(plan);
       // Preserve all carryover, including the selected unpaid percentage and capped shares.
       await enough(plan.source, BigInt(remaining) + BigInt(plan.carryoverLamports));
@@ -113,7 +141,8 @@ export function walletPayoutAdapter(): PayoutAdapter & { connection: Connection 
         createAssociatedTokenAccountIdempotentInstruction(source, to, recipient, info.mint, info.program),
         createTransferCheckedInstruction(from, info.mint, to, source, BigInt(amount), info.decimals, [], info.program),
       ] }).compileToV0Message());
-      await enough(plan.source, BigInt(plan.carryoverLamports));
+      // A held payout's carryover is $AGP, not SOL; the wallet needs only its fee reserve.
+      await enough(plan.source, plan.funding === "held" ? 0n : BigInt(plan.carryoverLamports));
       await simulate(tx, plan.source);
       return prepared(tx, block.lastValidBlockHeight);
     },
