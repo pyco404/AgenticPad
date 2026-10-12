@@ -13,16 +13,21 @@ export type PayoutExecution = {
   failedAttempts?: { signature: string | null; outcome: "failed" | "expired"; batch: number; wallet: string | null }[];
   batches: {
     swap: PaymentTransaction | null; output: string | null;
-    payments: { wallet: string; amount: string; tx: PaymentTransaction | null; confirmed: boolean }[];
+    payments: { wallet: string; amount: string; confirmed: boolean }[];
+    /** Winner payments sent together: each transaction carries up to TRANSFERS_PER_TX of them, one wallet approval. */
+    transfers: { payments: number[]; tx: PaymentTransaction | null; confirmed: boolean }[];
     completedAt: string | null;
   }[];
 };
+/** Winner transfers per transaction: 8 measure 1,024 bytes of Solana's 1,232, with each recipient's token account created if missing. */
+export const TRANSFERS_PER_TX = 8;
 
 export type TransactionResult = { status: "pending" | "confirmed" | "failed" | "expired"; output?: string };
 export interface PayoutAdapter {
   validate(plan: PayoutPlan): Promise<{ decimals: number }>;
   prepareSwap(plan: PayoutPlan, lamports: string, remaining: string): Promise<PaymentTransaction>;
-  prepareTransfer(plan: PayoutPlan, wallet: string, amount: string): Promise<PaymentTransaction>;
+  /** One transaction paying every listed winner. */
+  prepareTransfer(plan: PayoutPlan, payments: { wallet: string; amount: string }[]): Promise<PaymentTransaction>;
   inspect(plan: PayoutPlan, tx: PaymentTransaction, swap: boolean): Promise<TransactionResult>;
   submit(tx: PaymentTransaction, swap: boolean): Promise<void>;
 }
@@ -36,8 +41,16 @@ export function splitOutput(output: string, winners: PayoutPlan["winners"]) {
     cumulative += BigInt(winner.lamports);
     const end = BigInt(output) * cumulative / total;
     const amount = end - assigned; assigned = end;
-    return { wallet: winner.wallet, amount: amount.toString(), tx: null, confirmed: amount === 0n };
+    return { wallet: winner.wallet, amount: amount.toString(), confirmed: amount === 0n };
   });
+}
+
+/** The payments still owed, grouped into transactions of up to TRANSFERS_PER_TX. */
+export function groupTransfers(payments: PayoutExecution["batches"][number]["payments"]) {
+  const owed = payments.flatMap((payment, i) => payment.confirmed ? [] : [i]);
+  const transfers: PayoutExecution["batches"][number]["transfers"] = [];
+  for (let i = 0; i < owed.length; i += TRANSFERS_PER_TX) transfers.push({ payments: owed.slice(i, i + TRANSFERS_PER_TX), tx: null, confirmed: false });
+  return transfers;
 }
 
 /** One durable step. Always persist signed bytes BEFORE any external submission. */
@@ -65,25 +78,28 @@ export async function advancePayout(plan: PayoutPlan, run: PayoutExecution, adap
       save(run); return;
     }
     if (!result.output || BigInt(result.output) <= 0n) throw new Error("Confirmed swap output could not be verified.");
-    batch.output = result.output; batch.payments = splitOutput(result.output, plan.winners); save(run); return;
+    batch.output = result.output; batch.payments = splitOutput(result.output, plan.winners); batch.transfers = groupTransfers(batch.payments); save(run); return;
   }
-  const payment = batch.payments.find(p => !p.confirmed);
-  if (payment) {
-    if (!payment.tx) {
+  const transfer = batch.transfers.find(t => !t.confirmed);
+  if (transfer) {
+    const payments = transfer.payments.map(i => batch.payments[i]!);
+    if (!transfer.tx) {
       if (!allowPrepare) return;
-      payment.tx = await adapter.prepareTransfer(plan, payment.wallet, payment.amount);
+      transfer.tx = await adapter.prepareTransfer(plan, payments.map(({ wallet, amount }) => ({ wallet, amount })));
       save(run); return;
     }
-    if (!payment.tx.signed) return;
-    const result = await adapter.inspect(plan, payment.tx, false);
-    if (result.status === "pending") { await adapter.submit(payment.tx, false); return; }
+    if (!transfer.tx.signed) return;
+    const result = await adapter.inspect(plan, transfer.tx, false);
+    if (result.status === "pending") { await adapter.submit(transfer.tx, false); return; }
     if (result.status !== "confirmed") {
-      payment.tx.outcome = result.status;
-      (run.failedAttempts ??= []).push({ signature: payment.tx.signature, outcome: result.status, batch: run.batch, wallet: payment.wallet });
-      run.status = "paused"; run.error = "A transfer failed or expired. Review and resume; the confirmed swap will not be repeated.";
+      transfer.tx.outcome = result.status;
+      (run.failedAttempts ??= []).push({ signature: transfer.tx.signature, outcome: result.status, batch: run.batch, wallet: payments.map(p => p.wallet).join(", ") });
+      run.status = "paused"; run.error = "A transfer failed or expired. Review and resume; nothing it carried was paid, and the confirmed swap will not be repeated.";
       save(run); return;
     }
-    payment.confirmed = true; save(run); return;
+    // One transaction: its transfers all landed together, or none did.
+    transfer.confirmed = true; for (const payment of payments) payment.confirmed = true;
+    save(run); return;
   }
   batch.completedAt = new Date(now).toISOString();
   if (run.batch + 1 === run.batches.length) {
@@ -96,8 +112,8 @@ export function awaitingSignature(run: PayoutExecution) {
   const batch = run.batches[run.batch];
   if (!batch || run.status !== "running") return null;
   if (batch.output === null) return batch.swap && !batch.swap.signed ? { tx: batch.swap, swap: true } : null;
-  const payment = batch.payments.find(p => !p.confirmed);
-  return payment?.tx && !payment.tx.signed ? { tx: payment.tx, swap: false } : null;
+  const transfer = batch.transfers.find(t => !t.confirmed);
+  return transfer?.tx && !transfer.tx.signed ? { tx: transfer.tx, swap: false } : null;
 }
 
 /** Only proven on-chain failures/expiry may receive new transaction bytes. */
@@ -105,7 +121,7 @@ export function resumeExecution(run: PayoutExecution) {
   if (run.status === "completed") return;
   const batch = run.batches[run.batch]!;
   if (!batch.output && batch.swap?.outcome) batch.swap = null;
-  for (const payment of batch.payments) if (!payment.confirmed && payment.tx?.outcome) payment.tx = null;
+  for (const transfer of batch.transfers) if (!transfer.confirmed && transfer.tx?.outcome) transfer.tx = null;
   run.status = "running"; run.error = null;
 }
 
@@ -113,6 +129,6 @@ export function resumeExecution(run: PayoutExecution) {
 export function executionView(run: PayoutExecution) {
   const publicTx = (tx: PaymentTransaction | null) => tx ? { signature: tx.signature, outcome: tx.outcome ?? null } : null;
   return { ...run, batches: run.batches.map(batch => ({ ...batch, swap: publicTx(batch.swap),
-    payments: batch.payments.map(payment => ({ ...payment, tx: publicTx(payment.tx) })) })) };
+    transfers: batch.transfers.map(transfer => ({ ...transfer, tx: publicTx(transfer.tx) })) })) };
 }
 export type PayoutExecutionView = ReturnType<typeof executionView>;
