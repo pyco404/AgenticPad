@@ -100,6 +100,14 @@ describe("held $AGP payout planning (no swap)", () => {
     expect(() => tokenUnits("-1", 6)).toThrow();
     expect(() => held("0")).toThrow("greater than zero");
   });
+  it("takes the payout's cap: shares filled to the whole amount pay it out in full", () => {
+    const five = winners.slice(0, 5).map((winner) => ({ ...winner, share: 0.2 }));
+    const result = buildHeldPayoutPlan({ kind: "daily", period: "2026-10-04", budgetAgp: "2500000", rewardPercent: "100" }, 6, five, "daily", "platform", "admin", 2_000);
+    expect(result.capBps).toBe(2_000);
+    expect(result.winners.every((winner) => winner.lamports === "500000000000")).toBe(true);
+    expect(result.carryoverLamports).toBe("0");
+    expect(() => buildHeldPayoutPlan({ kind: "daily", period: "2026-10-04", budgetAgp: "1", rewardPercent: "100" }, 6, five, "daily", "platform", "admin")).toThrow("capped at 10%");
+  });
   it("older plans without a funding field remain swap plans", () => {
     const { funding: _, ...old } = plan();
     expect(old.batchLamports.length).toBeGreaterThan(1);
