@@ -87,7 +87,7 @@ describe("who may read /admin", () => {
     await freezeDay(db, day);
     const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-01`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ frozen: true, minScore: 0, winners: [], dropped: [] });
+    expect(await response.json()).toEqual({ frozen: true, minScore: 0, cap: 0.1, winners: [], dropped: [] });
   });
   it("resolves each frozen winner's actual receiving wallet and capped share", async () => {
     const owner = someWallet();
@@ -97,7 +97,7 @@ describe("who may read /admin", () => {
     await db.insert(dailyScores).values({ day, agentId: agent.id, rankedMatches: 3, points: 10, qualified: true, convictionDays: 0, shareOfSupply: 0, power: 0, weight: 1, score: 10 });
     const response = await fetch(`${url}/admin/payout-recipients?day=2026-05-02`, { headers: { authorization: `Bearer ${await signIn("the-operator")}` } });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ frozen: true, minScore: 0, winners: [{ agentId: agent.id, name: "Payout winner", wallet: owner, mint: "", share: 0.1 }], dropped: [] });
+    expect(await response.json()).toEqual({ frozen: true, minScore: 0, cap: 0.1, winners: [{ agentId: agent.id, name: "Payout winner", wallet: owner, mint: "", share: 0.1 }], dropped: [] });
   });
   it("pays only the agent still in play: an ended agent's scores are forfeit", async () => {
     // The wallet sold to zero (ending its first agent) and bought back (a replacement).
@@ -293,5 +293,13 @@ describe("payout recipients are checked at payout", () => {
   it("refuses a catch-up over a day not yet frozen, or a backwards range", async () => {
     expect((await recipients("2026-06-20", "&from=2026-06-20&to=2026-06-21")).status).toBe(409);
     expect((await recipients("2026-06-20", "&from=2026-06-21&to=2026-06-20")).status).toBe(400);
+  });
+  it("takes the cap from the payout and hands what it holds back to the others", async () => {
+    const owners = await winners("2026-06-12", [300, 100, 100, 100, 100, 100, 100, 100, 100, 100]);
+    const { body } = await recipients("2026-06-12", "&cap=0.2");
+    const share = new Map(body.winners.map((w) => [w.wallet, w.share]));
+    expect(share.get(owners[0]!)).toBe(0.2);
+    expect(body.winners.reduce((sum, w) => sum + w.share, 0)).toBeCloseTo(1, 12);
+    expect((await recipients("2026-06-12", "&cap=2")).status).toBe(400);
   });
 });
