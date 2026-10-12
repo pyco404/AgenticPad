@@ -22,6 +22,8 @@ export type WorldObject = {
   /** Physical shape and artwork on fixed faces; agents use their own character system. */
   appearance?: PhysicalKind;
   directionalAssets?: Partial<Record<ObjectSide, ArtRef>>;
+  /** How a structure with all four views stands (directional-art.ts); without one, its kind's own geometry. */
+  structure?: Structure;
   category: "surface" | "structure" | "vegetation" | "prop" | "movement" | "agent";
   shape?: "ellipse";
   points?: readonly Pt[];
@@ -35,6 +37,13 @@ export type WorldObject = {
     landmark?: boolean };
 };
 
+/**
+ * A body is a closed volume with a picture on each wall, `depth` its width; a board is a panel
+ * `thickness` thick; a cross is two crossed planes through its middle. A body's top is closed by a
+ * cap from `eave` to `peak` (fractions of its height) in its own roof and wall colours.
+ */
+export type Structure = { form: 'body' | 'board' | 'cross'; depth: number; thickness?: number;
+  cap?: { eave: number; peak: number; roof: string; wall: string } };
 /** A Top texture frame. */
 export type ArtRef = { key: string; frame: string | number; flipX?: boolean };
 /** Where a frame's pixels are, for a 2D canvas to draw. The image is a browser CanvasImageSource; the model stays DOM-free. */
