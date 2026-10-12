@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Keypair, SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+import { ComputeBudgetProgram, Keypair, SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { LaunchStore } from "../lib/launchpad-store";
 import { PayoutStore } from "../lib/payout-store";
 import { buildHeldPayoutPlan, buildPayoutPlan } from "../lib/payout-plan";
@@ -7,6 +7,7 @@ import { ExecutionStore } from "../lib/payout-execution-store";
 import { advancePayout, awaitingSignature, groupTransfers, resumeExecution, splitOutput, TRANSFERS_PER_TX, type PayoutAdapter, type PaymentTransaction } from "../lib/payout-execution";
 import { payoutStep, startExecution } from "../lib/payout-runner";
 import { verifySwapOrder } from "../lib/payout-adapter";
+import { verifySignedPayout } from "../lib/pump-verification";
 
 afterEach(() => vi.restoreAllMocks());
 function setup() {
@@ -163,5 +164,43 @@ describe("wallet-approved payout execution (no real funds)", () => {
     expect(TRANSFERS_PER_TX).toBe(8);
     expect(transfers.map(t => t.payments.length)).toEqual([8, 8, 4]);
     expect(transfers.flatMap(t => t.payments)).not.toContain(5);
+  });
+  it("accepts a transfer the wallet added a priority fee to, and proves it by simulation before sending", async () => {
+    const s = setup();
+    try {
+      const held = buildHeldPayoutPlan({ kind: "daily", period: "2026-10-06", budgetAgp: "1000", rewardPercent: "50" }, 6,
+        s.plan.winners.map(({ lamports: _, ...winner }) => winner), s.plan.source, "platform", "admin");
+      held.agpMint = s.plan.agpMint; s.plans.insert(held); s.plans.approve(held.id, "admin");
+      s.launches.db.prepare("DELETE FROM payout_execution").run();
+      await startExecution(held.id, "admin", s.adapter, s.store);
+      const step = await payoutStep(held.id, true, undefined, s.adapter, s.store);
+      // What Phantom does: decompile, put a compute-budget instruction first, recompile, sign.
+      const prepared = VersionedTransaction.deserialize(Buffer.from(step.transaction!.prepared, "base64"));
+      const message = TransactionMessage.decompile(prepared.message);
+      const added = new VersionedTransaction(new TransactionMessage({ payerKey: s.source.publicKey, recentBlockhash: message.recentBlockhash,
+        instructions: [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }), ...message.instructions] }).compileToV0Message());
+      added.sign([s.source]);
+      const signed = Buffer.from(added.serialize()).toString("base64");
+      s.adapter.verifyTransfer = vi.fn(async () => {});
+      await payoutStep(held.id, false, signed, s.adapter, s.store);
+      expect(s.adapter.verifyTransfer).toHaveBeenCalledWith(expect.anything(), expect.anything(), [expect.objectContaining({ amount: "50000000" }), expect.objectContaining({ amount: "50000000" })]);
+      expect(s.store.get(held.id)!.batches[0]!.transfers[0]!.tx!.signed).toBe(signed);
+      expect(s.adapter.submit).toHaveBeenCalledWith(expect.objectContaining({ signed }), false);
+    } finally { s.launches.db.close(); }
+  });
+  it("refuses a signed transfer with another blockhash, or one missing a prepared instruction", () => {
+    const payer = Keypair.generate(), to = Keypair.generate().publicKey, blockhash = Keypair.generate().publicKey.toBase58();
+    const build = (instructions: Parameters<typeof SystemProgram.transfer>[0][], hash = blockhash, extra = false) => {
+      const tx = new VersionedTransaction(new TransactionMessage({ payerKey: payer.publicKey, recentBlockhash: hash,
+        instructions: [...(extra ? [ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 })] : []), ...instructions.map((i) => SystemProgram.transfer(i))] }).compileToV0Message());
+      tx.sign([payer]); return Buffer.from(tx.serialize()).toString("base64");
+    };
+    const pay = (lamports: number) => ({ fromPubkey: payer.publicKey, toPubkey: to, lamports });
+    const prepared = build([pay(1), pay(2)]);
+    expect(() => verifySignedPayout(prepared, prepared)).not.toThrow();
+    expect(() => verifySignedPayout(prepared, build([pay(1), pay(2)], blockhash, true))).not.toThrow();
+    expect(() => verifySignedPayout(prepared, build([pay(1), pay(2)], Keypair.generate().publicKey.toBase58(), true))).toThrow("changed");
+    expect(() => verifySignedPayout(prepared, build([pay(1)], blockhash, true))).toThrow("changed");
+    expect(() => verifySignedPayout(prepared, build([pay(1), pay(3)], blockhash, true))).toThrow("changed");
   });
 });
