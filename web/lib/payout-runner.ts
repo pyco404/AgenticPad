@@ -3,7 +3,7 @@ import { PayoutStore } from "./payout-store";
 import { ExecutionStore } from "./payout-execution-store";
 import { advancePayout, awaitingSignature, executionView, groupTransfers, splitOutput, type PayoutAdapter, type PayoutExecution } from "./payout-execution";
 import { executionConfig, walletPayoutAdapter } from "./payout-adapter";
-import { verifySignedLaunch } from "./pump-verification";
+import { verifySignedLaunch, verifySignedPayout } from "./pump-verification";
 
 export async function startExecution(id: string, owner: string, adapter: PayoutAdapter = walletPayoutAdapter(), store = new ExecutionStore()) {
   const plan = new PayoutStore(store.db).get(id);
@@ -34,8 +34,10 @@ export async function payoutStep(id: string, allowPrepare = false, signed?: stri
     if (signed) {
       const pending = awaitingSignature(run);
       if (!pending) throw new Error("No payout transaction is waiting for a signature. Refresh progress.");
-      const tx = verifySignedLaunch(pending.tx.prepared, signed);
+      // A swap is submitted to Jupiter exactly as it built it; a transfer may carry what the wallet added, proved by simulation.
+      const tx = pending.swap ? verifySignedLaunch(pending.tx.prepared, signed) : verifySignedPayout(pending.tx.prepared, signed);
       if (tx.message.header.numRequiredSignatures !== 1 || tx.message.staticAccountKeys[0]!.toBase58() !== run.source) throw new Error("Only the reward wallet may sign this payout.");
+      if (!pending.swap && "payments" in pending && adapter.verifyTransfer) await adapter.verifyTransfer(plan, tx, pending.payments!);
       pending.tx.signed = signed; pending.tx.signature = bs58.encode(tx.signatures[0]!);
       store.save(run, lease);
       // No external submission can happen until the signature and bytes are durable.
