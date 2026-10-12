@@ -30,6 +30,11 @@ export interface PayoutAdapter {
   prepareTransfer(plan: PayoutPlan, payments: { wallet: string; amount: string }[]): Promise<PaymentTransaction>;
   inspect(plan: PayoutPlan, tx: PaymentTransaction, swap: boolean): Promise<TransactionResult>;
   submit(tx: PaymentTransaction, swap: boolean): Promise<void>;
+  /**
+   * Proves a signed transfer pays exactly these winners and nothing else, by simulating it: a wallet
+   * may have added instructions before signing (pump-verification.ts, verifySignedPayout).
+   */
+  verifyTransfer?(plan: PayoutPlan, tx: import("@solana/web3.js").VersionedTransaction, payments: { wallet: string; amount: string }[]): Promise<void>;
 }
 
 /** Cumulative integer allocation conserves every output unit, even for tiny batches. */
@@ -113,7 +118,7 @@ export function awaitingSignature(run: PayoutExecution) {
   if (!batch || run.status !== "running") return null;
   if (batch.output === null) return batch.swap && !batch.swap.signed ? { tx: batch.swap, swap: true } : null;
   const transfer = batch.transfers.find(t => !t.confirmed);
-  return transfer?.tx && !transfer.tx.signed ? { tx: transfer.tx, swap: false } : null;
+  return transfer?.tx && !transfer.tx.signed ? { tx: transfer.tx, swap: false, payments: transfer.payments.map(i => batch.payments[i]!) } : null;
 }
 
 /** Only proven on-chain failures/expiry may receive new transaction bytes. */
