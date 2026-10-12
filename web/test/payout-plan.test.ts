@@ -151,4 +151,16 @@ describe("daily catch-up payouts", () => {
     expect(() => store.cancel(replacement.id, "operator")).toThrow("already started");
     launches.db.close();
   });
+  it("deletes drafts only: approved and cancelled plans stay on record", () => {
+    const launches = new LaunchStore(":memory:");
+    const store = new PayoutStore(launches.db);
+    const kept = daily("2026-10-12"), dropped = daily("2026-10-12");
+    store.insert(kept); store.insert(dropped);
+    store.approve(kept.id, "operator");
+    store.remove(dropped.id);
+    expect(store.get(dropped.id)).toBeNull();
+    expect(() => store.remove(kept.id)).toThrow("Only a draft");
+    expect(store.get(kept.id)?.status).toBe("approved");
+    launches.db.close();
+  });
 });
