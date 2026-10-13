@@ -5,6 +5,9 @@ import { expressionOf, ngon, PALETTES, pts, type Anchors, type Ctx, type Express
 import { carnival, cracked, hooded, plague, porcelain, theatre } from "./masks.js";
 import { antenna, battleworn, screen, visor } from "./androids.js";
 import { boar, cat, fox, lynx, owl, raven, serpent, shark, wolf } from "./creatures.js";
+import { astronaut, bulb, clockwork, crt, cyclops, dish, dome, drone, mech } from "./more-androids.js";
+import { diver, gasmask, jester, knight, luchador, ninja, samurai, skull, tiki } from "./more-masks.js";
+import { axolotl, bat, bear, crocodile, frog, hedgehog, monkey, mouse, octopus, panda, penguin, rabbit, tiger } from "./more-creatures.js";
 import { drawFace, drawHat, drawNeck, FACES, HATS, NECKS, type Accessories } from "./accessories.js";
 
 /**
@@ -19,7 +22,8 @@ import { drawFace, drawHat, drawNeck, FACES, HATS, NECKS, type Accessories } fro
  * split. Presentation only: nothing that plays or pays reads this.
  */
 
-export const PORTRAIT_VERSION = 2;
+/** 3: fifty character types (thirty-one added 2026-10-13, so a crowd of agents rarely repeats a face). */
+export const PORTRAIT_VERSION = 3;
 
 type Draw = (ctx: Ctx, variant: number) => Anchors;
 /**
@@ -34,10 +38,28 @@ export const CHARACTER_TYPES: { name: string; family: "mask" | "android" | "crea
   { name: "cracked", family: "mask", draw: cracked, hat: true, face: false },
   { name: "plague", family: "mask", draw: plague, hat: false, face: false },
   { name: "hooded", family: "mask", draw: hooded, hat: false, face: false },
+  { name: "skull", family: "mask", draw: skull, hat: true, face: false },
+  { name: "jester", family: "mask", draw: jester, hat: false, face: false },
+  { name: "knight", family: "mask", draw: knight, hat: false, face: false },
+  { name: "samurai", family: "mask", draw: samurai, hat: false, face: false },
+  { name: "luchador", family: "mask", draw: luchador, hat: true, face: false },
+  { name: "tiki", family: "mask", draw: tiki, hat: false, face: false },
+  { name: "ninja", family: "mask", draw: ninja, hat: true, face: false },
+  { name: "gasmask", family: "mask", draw: gasmask, hat: true, face: false },
+  { name: "diver", family: "mask", draw: diver, hat: false, face: false },
   { name: "visor", family: "android", draw: visor, hat: true, face: false },
   { name: "antenna", family: "android", draw: antenna, hat: false, face: false },
   { name: "screen", family: "android", draw: screen, hat: true, face: false },
   { name: "battleworn", family: "android", draw: battleworn, hat: true, face: true },
+  { name: "dome", family: "android", draw: dome, hat: false, face: false },
+  { name: "cyclops", family: "android", draw: cyclops, hat: true, face: false },
+  { name: "crt", family: "android", draw: crt, hat: true, face: false },
+  { name: "drone", family: "android", draw: drone, hat: false, face: false },
+  { name: "mech", family: "android", draw: mech, hat: false, face: false },
+  { name: "clockwork", family: "android", draw: clockwork, hat: true, face: true },
+  { name: "dish", family: "android", draw: dish, hat: false, face: false },
+  { name: "bulb", family: "android", draw: bulb, hat: false, face: false },
+  { name: "astronaut", family: "android", draw: astronaut, hat: false, face: false },
   { name: "fox", family: "creature", draw: fox, hat: false, face: true },
   { name: "wolf", family: "creature", draw: wolf, hat: false, face: true },
   { name: "owl", family: "creature", draw: owl, hat: true, face: true },
@@ -47,6 +69,19 @@ export const CHARACTER_TYPES: { name: string; family: "mask" | "android" | "crea
   { name: "lynx", family: "creature", draw: lynx, hat: false, face: true },
   { name: "shark", family: "creature", draw: shark, hat: true, face: true },
   { name: "cat", family: "creature", draw: cat, hat: true, face: true },
+  { name: "bear", family: "creature", draw: bear, hat: false, face: true },
+  { name: "rabbit", family: "creature", draw: rabbit, hat: false, face: true },
+  { name: "frog", family: "creature", draw: frog, hat: false, face: false },
+  { name: "bat", family: "creature", draw: bat, hat: false, face: true },
+  { name: "panda", family: "creature", draw: panda, hat: false, face: false },
+  { name: "tiger", family: "creature", draw: tiger, hat: false, face: true },
+  { name: "octopus", family: "creature", draw: octopus, hat: true, face: true },
+  { name: "mouse", family: "creature", draw: mouse, hat: false, face: true },
+  { name: "crocodile", family: "creature", draw: crocodile, hat: true, face: false },
+  { name: "penguin", family: "creature", draw: penguin, hat: true, face: true },
+  { name: "monkey", family: "creature", draw: monkey, hat: true, face: true },
+  { name: "hedgehog", family: "creature", draw: hedgehog, hat: false, face: true },
+  { name: "axolotl", family: "creature", draw: axolotl, hat: true, face: false },
 ];
 
 /** The plate behind the character: its shape is one more thing that tells neighbours apart. */
@@ -149,7 +184,7 @@ export function portrait(agentId: string, policy: Policy, salt = 0): Portrait {
 /**
  * A portrait no other agent has. Neighbours should look nothing alike, so the
  * first thing kept distinct is the look - character type and colour scheme,
- * 342 of them - and only once those are hard to find does it settle for a
+ * 900 of them - and only once those are hard to find does it settle for a
  * face that differs in plate, shape or accessories. `taken` holds both kinds
  * of key: add a portrait's `lookKey` and `fingerprint` once it is used.
  */
