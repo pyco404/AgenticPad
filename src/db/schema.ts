@@ -19,6 +19,7 @@ import type { Policy } from "../agents/policy.js";
 import type { Deal, Stakes, TurnOrder } from "../round.js";
 import type { Funding } from "../chips.js";
 import type { WorldCheckpoint } from "../../web/lib/world/simulation.js";
+import type { NegotiationLog } from "../negotiation/engine.js";
 
 /** Cosmetic world state only; deliberately separate from match scores, holdings and payouts. */
 export const worldActivities = pgTable("world_activities", {
@@ -407,6 +408,33 @@ export const exits = pgTable("exits", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Negotiation matches (docs/negotiation.md), kept apart from Bluff & Fold's: nothing here touches the
+ * ledger, the ladder or the scores while the game is an exhibition. `scored` marks the matches that
+ * count once scoring is switched on. The log is the public transcript; the bottom lines in it are
+ * private only while a match is played, and it is stored once played.
+ */
+export const negotiationMatches = pgTable(
+  "negotiation_matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    playedAt: timestamp("played_at", { withTimezone: true }).notNull().defaultNow(),
+    agentA: uuid("agent_a").notNull().references(() => agents.id),
+    agentB: uuid("agent_b").notNull().references(() => agents.id),
+    presetA: text("preset_a").notNull(),
+    presetB: text("preset_b").notNull(),
+    /** uint32, as a Bluff & Fold match's. */
+    seed: bigint("seed", { mode: "number" }).notNull(),
+    netA: integer("net_a").notNull(),
+    netB: integer("net_b").notNull(),
+    scored: boolean("scored").notNull().default(false),
+    log: jsonb("log").$type<NegotiationLog>().notNull(),
+  },
+  (t) => [index("negotiation_matches_seq").on(t.seq), index("negotiation_matches_agent_a").on(t.agentA), index("negotiation_matches_agent_b").on(t.agentB)],
+);
+export type NegotiationMatchRow = typeof negotiationMatches.$inferSelect;
 
 export const matches = pgTable(
   "matches",
