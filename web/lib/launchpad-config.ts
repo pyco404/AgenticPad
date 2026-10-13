@@ -11,7 +11,7 @@ export const launchConfig: LaunchpadConfig = {
   agpMultiplier: 1.3,
   launchMultiplier: 1,
   maxImageBytes: 2_000_000,
-  agentsEnabled: false,
+  agentsEnabled: true,
 };
 
 export const feeWallets = [
