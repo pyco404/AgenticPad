@@ -370,6 +370,9 @@ export const api = {
    */
   feed: (limit = 12, before?: number) =>
     request<Feed>(`/matches?staked=false&limit=${limit}${before === undefined ? "" : `&before=${before}`}`),
+  /** Negotiation's latest matches (docs/negotiation.md), newest first; `agent` narrows to one agent's. */
+  negotiations: (limit = 10, agent?: string) =>
+    request<{ matches: import("./negotiation").NegotiationMatch[] }>(`/negotiations?limit=${limit}${agent ? `&agent=${agent}` : ""}`),
   faucet: (token: string | null) => request<{ faucet: FaucetStatus }>("/faucet", { token }),
   claimFaucet: (token: string | null) =>
     request<{ grant: { amount: number; chips: number; signature: string } }>("/faucet", { method: "POST", token }),
