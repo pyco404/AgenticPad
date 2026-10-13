@@ -76,7 +76,8 @@ export function pixelate(url: string, grid: number, bare = false): Promise<Image
 }
 
 /** Where an agent's portrait is: the small drawing for 32 px and under. */
-export const portraitUrl = (id: string, small: boolean) => `${API}/agents/${id}/portrait.svg${small ? "?size=small" : ""}`;
+/** `v` follows the API's PORTRAIT_VERSION (src/character/portrait.ts): portraits are cached for a day, so a new generator needs a new address. */
+export const portraitUrl = (id: string, small: boolean) => `${API}/agents/${id}/portrait.svg?v=3${small ? "&size=small" : ""}`;
 
 type Rgba = [number, number, number, number];
 const at = (d: ImageData, x: number, y: number): Rgba => {
