@@ -161,3 +161,17 @@ npm run pump:distribute -- --keypair /path/to/wallet.json --send
 
 It defaults to $AGP; `--mint <address>` pays out another launch. The first payout,
 1.495 SOL, was sent on 2026-10-09.
+
+To pay out every launch except $AGP in one run:
+
+```sh
+npm run pump:claim-all                                     # report and simulate
+npm run pump:claim-all -- --keypair /path/to/wallet.json --send
+```
+
+It fetches the site's confirmed-launch list (`/api/launchpad/holder-tokens`) and keeps
+it in `web/.data/launched-tokens.json`, adding launches as they appear and never
+dropping one, so an archived token is still swept (if the site cannot be reached, the
+saved list is used). Each token is simulated first; one failing never stops the rest.
+A token with less than `--min-sol` waiting (default 0.001 SOL) is left to accumulate.
+`--site <url>` points it at another deployment.
