@@ -8,7 +8,8 @@
     "start": "next start -p ${PORT:-3000}",
     "typecheck": "tsc --noEmit",
     "pump:setup": "node --env-file-if-exists=.env.local --import tsx scripts/setup-pump-lookup-table.ts",
-    "pump:distribute": "node --env-file-if-exists=.env.local --import tsx scripts/distribute-creator-fees.ts"
+    "pump:distribute": "node --env-file-if-exists=.env.local --import tsx scripts/distribute-creator-fees.ts",
+    "pump:claim-all": "node --env-file-if-exists=.env.local --import tsx scripts/claim-all-fees.ts"
   },
   "keywords": [],
   "author": "",
