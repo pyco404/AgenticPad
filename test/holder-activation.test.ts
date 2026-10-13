@@ -44,6 +44,32 @@ describe("automatic holder activation", () => {
     expect(result.failed).toEqual([]);
     expect((await db.select().from(agents).where(eq(agents.ownerId, discovered))).length).toBe(1);
   });
+  it("reads the whole holder base from one listing, not a request per wallet", async () => {
+    // A known holder who sold everything, a new holder above the minimum, and one below it.
+    const sold = Keypair.generate().publicKey.toBase58(), newcomer = Keypair.generate().publicKey.toBase58(), small = Keypair.generate().publicKey.toBase58();
+    await readHolding(db, chain, sold); await activateHolder(db, sold);
+    let perWallet = 0, listings = 0;
+    const result = await refreshHolders(db, { ...chain,
+      balanceOf: async () => { perWallet++; return 0; },
+      balances: async () => { listings++; return new Map([[newcomer, holdingMinimum()], [small, holdingMinimum() - 1]]); } });
+    expect(result.failed).toEqual([]);
+    expect(listings).toBe(1);
+    // Only wallets the listing leaves out are read directly, to confirm a zero before it ends an agent.
+    const known = (await db.selectDistinct({ w: agents.ownerId }).from(agents).where(eq(agents.funding, "holder"))).length;
+    expect(perWallet).toBeLessThan(known);
+    // Missing from the listing and confirmed empty: the agent ends. The newcomer gets one; the small holder does not.
+    expect((await db.select().from(agents).where(eq(agents.ownerId, sold)))[0]!.retiredAt).not.toBeNull();
+    expect((await db.select().from(agents).where(eq(agents.ownerId, newcomer))).length).toBe(1);
+    expect((await db.select().from(agents).where(eq(agents.ownerId, small))).length).toBe(0);
+  });
+  it("falls back to a read per wallet when the listing fails", async () => {
+    let perWallet = 0;
+    const result = await refreshHolders(db, { ...chain,
+      balanceOf: async () => { perWallet++; return holdingMinimum(); },
+      balances: async () => { throw new Error("listing down"); } });
+    expect(perWallet).toBeGreaterThan(0);
+    expect(result.failed).toEqual([expect.objectContaining({ wallet: "discovery" })]);
+  });
   it("never creates an agent below the threshold", async () => {
     await readHolding(db, { ...chain, balanceOf: async () => holdingMinimum() - 1 }, below);
     expect(await activateHolder(db, below)).toBeNull();
