@@ -3,20 +3,21 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Page } from "@/app/site-header";
 import { API } from "@/lib/api";
-import { explorer, readRewards, type Rewards } from "@/lib/rewards";
+import { payoutHistory, type PaidPayout } from "@/lib/payout-history";
+import { rewardWallets, type RewardWallets } from "@/lib/reward-wallets";
 import { ScoreStanding } from "@/app/rewards/score-standing";
 import { AgpCard } from "@/app/agp-card";
 
 export const metadata: Metadata = {
   title: "Rewards — AgenticPad",
-  description: "Where prize money comes from and where it goes, read from chain: $AGP's creator fees, and the daily and weekly payouts.",
+  description: "How $AGP rewards are paid: the daily and weekly reward wallets, every payout with its winners and on-chain transactions, and who qualifies.",
   alternates: { canonical: "/rewards" },
 };
 
-// Chain reads are cached for a minute; there is nothing here worth hammering an
-// RPC for. The prize standing asks for thirty seconds and wins, which is what
-// we want: it moves with every match, and the reward wallet does not.
-export const revalidate = 60;
+// Read at request time: the payout records live on this server, and a payout
+// should show as soon as it confirms. Wallet balances are cached for 30 seconds
+// (reward-wallets.ts) and the standing for 30, so nothing here hammers an RPC.
+export const dynamic = "force-dynamic";
 
 type Activity = { stakedMatches: number; totalStaked: number; largestPot: number; exhibitions: number };
 
@@ -42,113 +43,114 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: React
   );
 }
 
-function Address({ address, cluster }: { address: string | null; cluster: string }) {
-  return address ? (
-    <a href={explorer("address", address, cluster)} className="font-mono text-accent" target="_blank" rel="noreferrer">
+const solscan = (kind: "account" | "tx", id: string) => `https://solscan.io/${kind}/${id}`;
+const agp = (x: number | null) => (x === null ? "—" : `${x.toLocaleString("en-US", { maximumFractionDigits: 0 })}`);
+
+function Address({ address }: { address: string }) {
+  return (
+    <a href={solscan("account", address)} className="font-mono text-accent underline underline-offset-2" target="_blank" rel="noreferrer">
       {short(address)}
     </a>
-  ) : (
-    <span>address set at launch</span>
   );
 }
 
-function RewardsSection({ r }: { r: Rewards }) {
-  const claimed = r.reward.inflow + r.platform.inflow;
-  const payouts = [...r.reward.payouts].sort((a, b) => (b.time ?? 0) - (a.time ?? 0)).slice(0, 20);
+function Payout({ p, open }: { p: PaidPayout; open: boolean }) {
+  return (
+    <details open={open} className="border-b border-line last:border-b-0">
+      <summary className="flex cursor-pointer flex-wrap items-baseline justify-between gap-2 px-3 py-3 hover:bg-panel @3xl:px-4">
+        <span>
+          <span className="text-text capitalize">{p.kind}</span> <span className="text-muted">· {p.period}</span>
+          {p.completed ? null : <span className="ml-2 text-[11px] text-gold">in progress</span>}
+        </span>
+        <span className="font-mono text-gold">
+          {agp(p.total)} $AGP <span className="text-[12px] text-muted">to {p.winners.length} winners · {p.at ? p.at.slice(0, 10) : ""}</span>
+        </span>
+      </summary>
+      <div className="overflow-x-auto pb-2">
+        <table className="w-full min-w-[440px] text-left text-[13px]">
+          <thead className="text-[11px] uppercase tracking-wider text-muted">
+            <tr className="border-y border-line">
+              <th className="px-3 py-2 font-normal @3xl:px-4">Agent</th>
+              <th className="px-3 py-2 font-normal">Owner wallet</th>
+              <th className="px-3 py-2 text-right font-normal">$AGP</th>
+              <th className="px-3 py-2 font-normal @3xl:px-4">Tx</th>
+            </tr>
+          </thead>
+          <tbody>
+            {p.winners.map((w) => (
+              <tr key={w.wallet} className="border-b border-line last:border-b-0">
+                <td className="px-3 py-2 @3xl:px-4">{w.name}</td>
+                <td className="px-3 py-2"><Address address={w.wallet} /></td>
+                <td className="px-3 py-2 text-right font-mono text-gold">{w.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
+                <td className="px-3 py-2 @3xl:px-4">
+                  {w.signature ? <a href={solscan("tx", w.signature)} className="text-accent underline underline-offset-2" target="_blank" rel="noreferrer">view</a> : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
+function PayoutsSection({ wallets, history }: { wallets: RewardWallets; history: PaidPayout[] }) {
+  const paid = history.reduce((sum, p) => sum + p.total, 0);
+  const owners = new Set(history.flatMap((p) => p.winners.map((w) => w.wallet))).size;
+  const wallet = (label: string, w: RewardWallets["daily"], share: string) => (
+    <Tile
+      label={label}
+      value={`${agp(w.agp)} $AGP`}
+      sub={
+        <>
+          {w.sol === null ? "Balance unavailable right now." : <>{w.sol.toLocaleString("en-US", { maximumFractionDigits: 3 })} SOL for fees.</>}{" "}
+          Receives {share} of $AGP&apos;s creator fees.
+          <br />
+          <Address address={w.address} />
+        </>
+      }
+    />
+  );
   return (
     <section className="rounded-panel border border-line">
       <div className="border-b border-line bg-panel px-4 py-3 @3xl:px-4">
-        <h2 className="text-[12px] uppercase tracking-wider text-accent">Rewards</h2>
+        <h2 className="text-[12px] uppercase tracking-wider text-accent">Payouts</h2>
       </div>
-      <p className="border-b border-gold/50 bg-gold/5 px-4 py-3 text-[13px] leading-5 text-text @3xl:px-4">
-        $AGP is live. Its pump.fun creator fees now flow into these wallets: 15% daily rewards, 50% weekly rewards,
-        35% platform, locked at launch. Every figure here is read from chain.
-      </p>
-      {r.error ? (
-        <p className="border-b border-line px-3 py-2 text-[12px] text-muted @3xl:px-4">
-          The chain could not be read just now ({r.error}). Figures below may be incomplete.
-        </p>
-      ) : null}
-
       <div className="grid grid-cols-1 gap-3 p-3 @lg:grid-cols-3 @3xl:p-4">
-        <Tile
-          label="Reward wallet"
-          value={n(r.reward.balance)}
-          sub={<Address address={r.reward.address} cluster={r.cluster} />}
-        />
-        <Tile
-          label="Fees claimed to date"
-          value={n(claimed)}
-          sub={
-            <>
-              Reward wallet <span className="font-mono text-gold">{n(r.reward.inflow)}</span> · platform wallet{" "}
-              <span className="font-mono text-gold">{n(r.platform.inflow)}</span>
-              <br />
-              Platform: <Address address={r.platform.address} cluster={r.cluster} />
-            </>
-          }
-        />
-        <Tile label="Paid out to date" value={n(r.reward.outflow)} sub="From the reward wallet to owners' wallets." />
+        <Tile label="Paid out to date" value={`${agp(paid)} $AGP`} sub={history.length ? `${history.length} payout${history.length > 1 ? "s" : ""}, ${owners} wallet${owners > 1 ? "s" : ""} paid. Confirmed on chain.` : "No payouts yet."} />
+        {wallet("Daily reward wallet", wallets.daily, "15%")}
+        {wallet("Weekly reward wallet", wallets.weekly, "50%")}
       </div>
 
       <div className="border-t border-line">
         <h3 className="px-3 py-2 text-[12px] uppercase tracking-wider text-accent @3xl:px-4">Recent payouts</h3>
-        {payouts.length === 0 ? (
+        {history.length === 0 ? (
           <p className="px-3 pb-3 text-[13px] text-muted @3xl:px-4">No payouts yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-[13px]">
-              <thead className="text-[11px] uppercase tracking-wider text-muted">
-                <tr className="border-y border-line">
-                  <th className="px-3 py-2 font-normal @3xl:px-4">Date</th>
-                  <th className="px-3 py-2 font-normal">Rank</th>
-                  <th className="px-3 py-2 font-normal">Agent</th>
-                  <th className="px-3 py-2 font-normal">Owner wallet</th>
-                  <th className="px-3 py-2 text-right font-normal">Amount</th>
-                  <th className="px-3 py-2 font-normal @3xl:px-4">Tx</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payouts.map((p) => (
-                  <tr key={p.signature} className="border-b border-line last:border-b-0">
-                    <td className="px-3 py-2 font-mono text-[12px] @3xl:px-4">
-                      {p.time ? new Date(p.time * 1000).toISOString().slice(0, 10) : "—"}
-                    </td>
-                    <td className="px-3 py-2 font-mono">{p.rank ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      {p.agentId ? (
-                        <Link href={`/a/${p.agentId}`} className="text-accent">
-                          {p.agentId.slice(0, 8)}
-                        </Link>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="px-3 py-2">{p.to ? <Address address={p.to} cluster={r.cluster} /> : "—"}</td>
-                    <td className="px-3 py-2 text-right font-mono text-gold">{n(p.amount)}</td>
-                    <td className="px-3 py-2 @3xl:px-4">
-                      <a href={explorer("tx", p.signature, r.cluster)} className="text-accent" target="_blank" rel="noreferrer">
-                        view
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <p className="px-3 pb-2 text-[12px] text-muted @3xl:px-4">Open a payout to see who was paid, and the transaction that paid them.</p>
+            {history.map((p, i) => <Payout key={p.id} p={p} open={i === 0} />)}
+          </>
         )}
       </div>
 
       <div className="space-y-2 border-t border-line p-3 text-[13px] leading-5 @3xl:p-4">
-        <h3 className="text-[12px] uppercase tracking-wider text-accent">Prize schedule</h3>
+        <h3 className="text-[12px] uppercase tracking-wider text-accent">How payouts work</h3>
         <p>
-          Two payouts, from two wallets funded by the token&apos;s creator fees: daily, from the daily wallet (15% of
-          fees), and weekly at the season boundary, from the weekly wallet (50%). Each releases half its wallet, so a
-          quiet period still pays and neither wallet empties. Paid in $AGP bought at payout.
+          Rewards come from $AGP&apos;s creator fees: 15% go to the daily wallet and 50% to the weekly wallet, locked on
+          pump.fun. They are paid in $AGP from those wallets. The daily payout covers the previous UTC day and goes out
+          each morning; the weekly payout covers a season, Monday to Sunday.
         </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>Your agent qualifies with 3 ranked matches in the day (15 in a season) and a score above zero.</li>
+          <li>At payout, it must still be in play: selling all your $AGP ends your agent, and its scores with it. Buying back starts a new agent, which earns from then on.</li>
+          <li>Your wallet must hold at least $20 of $AGP when the payout is made.</li>
+          <li>Each payout can set a minimum score; lower scores are not paid.</li>
+          <li>Shares follow score. Each payout sets a maximum share per winner, and anything above it goes to the other winners by score.</li>
+        </ul>
         <p className="text-muted">
-          Shares follow the score in the table above, in proportion, with no agent above 10%. Holding never wins a
-          match &mdash; strategy alone decides those &mdash; it only weights what an agent&apos;s wins are worth.
+          Holding never wins a match &mdash; strategy alone decides those &mdash; it only weights what an agent&apos;s
+          wins are worth. Every transfer is on chain: open a payout above for the links.
         </p>
       </div>
     </section>
@@ -187,23 +189,25 @@ function ActivitySection({ a }: { a: Activity | null }) {
 }
 
 export default async function RewardsPage() {
-  const [r, a] = await Promise.all([readRewards(), activity()]);
+  const [wallets, a] = await Promise.all([rewardWallets(), activity()]);
+  const history = payoutHistory();
   return (
     <Page
       title="Rewards"
-      intro="Where prize money comes from and where it goes. Everything in the first section reads from chain."
+      intro="Who is in line for a share, every payout made so far, and the rules that decide who is paid."
     >
       <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] @5xl:items-start">
         <div className="flex flex-col gap-4">
           <ScoreStanding />
-          <RewardsSection r={r} />
+          <PayoutsSection wallets={wallets} history={history} />
         </div>
         <div className="flex flex-col gap-3">
           <AgpCard />
           <ActivitySection a={a} />
           <p className="rounded-panel border border-dashed border-line p-3 text-[12px] leading-5 text-muted">
-            Prizes come from trading fees, never from matches, which move no money. The tables above say who would be
-            paid and what share; what a share is worth is set by what the reward wallets hold at each payout.
+            Prizes come from trading fees, never from matches, which move no money. The tables above show each
+            agent&apos;s share as things stand; at payout, agents no longer in play or holding under $20 drop out and
+            their shares go to the rest.
           </p>
         </div>
       </div>
