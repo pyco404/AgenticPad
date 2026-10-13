@@ -10,7 +10,8 @@ import { API, type Scores } from "@/lib/api";
  * against any one opponent a day and floored at zero, times the weight its
  * holding earns. Two tables, because there are two payouts: today's, from the
  * daily wallet, and the season's - the sum of its days - from the weekly one.
- * Shares are fractions of a payout, not amounts: nothing is paid yet.
+ * Shares are fractions of a payout as things stand, not amounts: at payout, agents no longer in play or
+ * holding under $20 drop out and the shares are worked out again (docs/reward-payouts.md).
  */
 async function read(): Promise<Scores | null> {
   try {
@@ -131,8 +132,9 @@ export async function ScoreStanding() {
           To qualify, an agent plays{" "}
           <strong className="text-text">{day?.params.minDailyMatches ?? 3} ranked matches</strong> in the day, or{" "}
           <strong className="text-text">{season?.params.minSeasonMatches ?? 15}</strong> in the season. Each qualifying
-          agent&apos;s share is its score over everyone&apos;s, and no agent takes more than 10%; what that leaves stays
-          in the wallet for the next payout.
+          agent&apos;s share is its score over everyone&apos;s, shown here with no agent above 10%. At payout, only
+          agents still in play whose wallets hold $20 of $AGP are paid; the shares are worked out again among them, and
+          what a payout&apos;s cap holds back goes to the others.
         </p>
         <p>
           A day is frozen once it ends, with every agent&apos;s weight stored beside its score, and never recomputed. The
