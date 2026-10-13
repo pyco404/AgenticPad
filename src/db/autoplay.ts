@@ -1,3 +1,4 @@
+import { negotiationAfter, playNegotiationMatch } from "./negotiation.js";
 import { and, desc, eq, gt, gte, isNull, isNotNull, lte, or, sql } from "drizzle-orm";
 import { randomInt } from "node:crypto";
 import { liveHolderPricing } from "../holder-policy.js";
@@ -151,6 +152,8 @@ export async function tick(
      * it starts - not on every retry.
      */
     onLog?: ((line: string) => void) | undefined;
+    /** Play Negotiation's exhibition alongside (default on). */
+    negotiation?: boolean;
   } = {},
 ): Promise<TickResult> {
   const intervalMs = options.intervalMs ?? AUTOPLAY_INTERVAL_MS;
@@ -169,6 +172,10 @@ export async function tick(
       }
       const pick = await pickOpponent(db, row.id, { spread: true });
       const { match, settled } = await runMatch(db, row.id, pick.opponentId);
+      // Negotiation's exhibition (docs/negotiation.md): the same pair, about one match in three, on
+      // top of the Bluff & Fold match. It must never cost the Bluff & Fold match, so a failure is reported, not thrown.
+      const negotiation = options.negotiation !== false ? negotiationAfter(match.seed) : null;
+      if (negotiation !== null) await playNegotiationMatch(db, row.id, pick.opponentId, negotiation).catch((e) => options.onError?.(e));
       const playedAt = new Date();
       await clearStop(db, row.id, playedAt);
       if (row.autoplayWaitingSince) {
