@@ -26,6 +26,37 @@ function amountOf(raw: string, what: string): number {
 export function rpcHoldings(connection: Connection, mint: PublicKey, options: { discoveryRpc?: string; livePricing?: boolean; tokenScoped?: boolean } = {}): HoldingsChain {
   let priceReadAt = 0;
   let quote: { minimum: number; priceUsd: number; decimals: number; at: number } | null = null;
+  /**
+   * Every wallet holding the mint and what it holds, summed over its accounts, from the discovery
+   * RPC's paged token-account listing: a thousand accounts a request, so the whole holder base costs a
+   * few requests rather than one per wallet. A wallet absent from it holds none. Program-owned
+   * (off-curve) accounts are left out: no agent belongs to a program.
+   */
+  async function allBalances(): Promise<Map<string, bigint>> {
+    const balances = new Map<string, bigint>();
+    const seen = new Set<string>();
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 1000; page++) {
+      if (page > 0) await new Promise((resolve) => setTimeout(resolve, 125));
+      const response = await fetch(options.discoveryRpc!, { method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(15_000), body: JSON.stringify({ jsonrpc: "2.0", id: "holders", method: "getTokenAccounts", params: { mint: mint.toBase58(), limit: 1000, ...(cursor ? { cursor } : {}) } }) });
+      if (!response.ok) throw new Error("Holder discovery unavailable");
+      const body = await response.json() as { error?: unknown; result?: { cursor?: string; token_accounts: { address: string; mint: string; owner: string; amount: number }[] } };
+      if (body.error || !body.result || !Array.isArray(body.result.token_accounts)) throw new Error("Invalid holder discovery response");
+      for (const account of body.result.token_accounts) {
+        if (seen.has(account.address)) continue;
+        if (account.mint !== mint.toBase58() || !Number.isSafeInteger(account.amount) || account.amount < 0) throw new Error("Invalid token account");
+        seen.add(account.address);
+        if (!PublicKey.isOnCurve(new PublicKey(account.owner).toBytes())) continue;
+        balances.set(account.owner, (balances.get(account.owner) ?? 0n) + BigInt(account.amount));
+      }
+      if (!body.result.token_accounts.length || !body.result.cursor) return balances;
+      cursor = body.result.cursor;
+      if (cursors.has(cursor)) throw new Error("Holder discovery cursor repeated");
+      cursors.add(cursor);
+    }
+    throw new Error("Holder discovery exceeded page limit");
+  }
   return {
     mint: options.tokenScoped ? mint.toBase58() : "",
     quote: () => quote,
@@ -44,31 +75,15 @@ export function rpcHoldings(connection: Connection, mint: PublicKey, options: { 
       if (!options.tokenScoped) adoptHolderPrice(priceUsd, value.decimals);
       priceReadAt = Date.now();
     } } : {}),
-    ...(options.discoveryRpc ? { async discoverWallets() {
-      const balances = new Map<string, bigint>();
-      const seen = new Set<string>();
-      const cursors = new Set<string>();
-      let cursor: string | undefined;
-      for (let page = 0; page < 1000; page++) {
-        if (page > 0) await new Promise((resolve) => setTimeout(resolve, 125));
-        const response = await fetch(options.discoveryRpc!, { method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(15_000), body: JSON.stringify({ jsonrpc: "2.0", id: "holders", method: "getTokenAccounts", params: { mint: mint.toBase58(), limit: 1000, ...(cursor ? { cursor } : {}) } }) });
-        if (!response.ok) throw new Error("Holder discovery unavailable");
-        const body = await response.json() as { error?: unknown; result?: { cursor?: string; token_accounts: { address: string; mint: string; owner: string; amount: number }[] } };
-        if (body.error || !body.result || !Array.isArray(body.result.token_accounts)) throw new Error("Invalid holder discovery response");
-        for (const account of body.result.token_accounts) {
-          if (seen.has(account.address)) continue;
-          if (account.mint !== mint.toBase58() || !Number.isSafeInteger(account.amount) || account.amount < 0) throw new Error("Invalid token account");
-          seen.add(account.address);
-          if (!PublicKey.isOnCurve(new PublicKey(account.owner).toBytes())) continue;
-          balances.set(account.owner, (balances.get(account.owner) ?? 0n) + BigInt(account.amount));
-        }
-        if (!body.result.token_accounts.length || !body.result.cursor) return [...balances].filter(([, amount]) => amount >= BigInt(options.tokenScoped ? quote?.minimum ?? Number.MAX_SAFE_INTEGER : holdingMinimum())).map(([wallet]) => wallet);
-        cursor = body.result.cursor;
-        if (cursors.has(cursor)) throw new Error("Holder discovery cursor repeated");
-        cursors.add(cursor);
-      }
-      throw new Error("Holder discovery exceeded page limit");
-    } } : {}),
+    ...(options.discoveryRpc ? {
+      async discoverWallets() {
+        const minimum = BigInt(options.tokenScoped ? quote?.minimum ?? Number.MAX_SAFE_INTEGER : holdingMinimum());
+        return [...await allBalances()].filter(([, amount]) => amount >= minimum).map(([wallet]) => wallet);
+      },
+      async balances() {
+        return new Map([...await allBalances()].map(([wallet, amount]) => [wallet, amountOf(amount.toString(), `${wallet}'s holding`)]));
+      },
+    } : {}),
     async balanceOf(wallet: string): Promise<number> {
       const { value } = await connection.getParsedTokenAccountsByOwner(new PublicKey(wallet), { mint }, "confirmed");
       let total = 0n;
