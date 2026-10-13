@@ -26,6 +26,7 @@ import {
 } from "../db/runner.js";
 import { autoplayStatus, markSeen, setAutoplay, sinceYouLeft } from "../db/autoplay.js";
 import { dayFromDate, dayOf, dayScores, seasonScores } from "../db/scores.js";
+import { negotiationById, negotiationFeed, negotiationsBefore } from "../db/negotiation.js";
 import { seasonStatement } from "../db/statement.js";
 import { characterOf, createCharacter, isDefaultName, NO_MODEL, ownerCharacter, portraitSvg, publicCharacter, type CharacterDeps } from "../character/store.js";
 import { moderate, type Verdict } from "../character/moderation.js";
@@ -248,6 +249,8 @@ export function createApp(options: AppOptions): Server {
     ["GET", /^\/agents\/([^/]+)\/portrait\.svg$/, getPortrait],
     ["GET", /^\/matches$/, getFeed],
     ["GET", /^\/matches\/([^/]+)$/, getMatch],
+    ["GET", /^\/negotiations$/, getNegotiations],
+    ["GET", /^\/negotiations\/([^/]+)$/, getNegotiation],
     ["GET", /^\/agents\/([^/]+)\/matches$/, getAgentMatches],
     ["GET", /^\/ladder$/, getLadder],
     ["GET", /^\/stats$/, getStats],
@@ -518,6 +521,25 @@ export function createApp(options: AppOptions): Server {
    * is stored once and does not change, but one drawn for an agent that has no
    * character yet will be replaced by the stored one after the backfill.
    */
+  /** Recent Negotiation matches (docs/negotiation.md), newest first: `agent` narrows to one agent's, `before` pages by seq. */
+  async function getNegotiations(ctx: Ctx) {
+    const limit = Number(ctx.query.get("limit") ?? 20);
+    const agent = ctx.query.get("agent");
+    const before = ctx.query.get("before");
+    if (before !== null) {
+      const seq = Number(before);
+      if (!Number.isSafeInteger(seq) || seq <= 0) throw new HttpError(400, "before must be a positive whole number");
+      return { matches: await negotiationsBefore(db, seq, limit) };
+    }
+    return { matches: await negotiationFeed(db, { limit: Number.isFinite(limit) ? limit : 20, ...(agent ? { agentId: requireUuid(agent) } : {}) }) };
+  }
+
+  async function getNegotiation(ctx: Ctx) {
+    const match = await negotiationById(db, requireUuid(ctx.params[0]));
+    if (!match) throw new HttpError(404, "no such negotiation");
+    return { match };
+  }
+
   async function getPortrait(ctx: Ctx) {
     const id = requireUuid(ctx.params[0]);
     const [agent] = await db.select({ id: agents.id, policyTable: agents.policyTable }).from(agents).where(eq(agents.id, id)).limit(1);
