@@ -35,6 +35,12 @@ export type HoldingsChain = {
   /** Mainnet pricing and mint-wide discovery are read-only provider operations. */
   refreshMinimum?(): Promise<void>;
   discoverWallets?(): Promise<string[]>;
+  /**
+   * Every holder's balance in base units, from one paged listing of the mint's accounts. Where
+   * present, a refresh reads the whole holder base this way in a few requests instead of one per
+   * wallet (refreshHolders); a known wallet missing from it is checked directly before it reads zero.
+   */
+  balances?(): Promise<Map<string, number>>;
 };
 
 /** One wallet's reading off chain. */
@@ -208,10 +214,17 @@ export async function refreshHolders(
   if (chain.mint) minimum = chain.quote?.()?.minimum ?? Number.MAX_SAFE_INTEGER;
   else if (chain.refreshMinimum) minimum = holdingMinimum();
   let discoveryFailed = false;
-  const discovered = chain.discoverWallets ? await chain.discoverWallets().catch(() => {
-    discoveryFailed = true;
-    return [] as string[];
-  }) : [];
+  // The whole holder base in a few requests where the chain can list it; otherwise discovery, then a read per wallet.
+  let balances: Map<string, number> | null = null;
+  if (chain.balances) {
+    try { balances = await chain.balances(); }
+    catch { discoveryFailed = true; }
+  }
+  const discovered = balances ? [...balances].filter(([, amount]) => amount >= minimum).map(([wallet]) => wallet)
+    : chain.discoverWallets && !chain.balances ? await chain.discoverWallets().catch(() => {
+      discoveryFailed = true;
+      return [] as string[];
+    }) : [];
   const wallets = (
     await db
       .selectDistinct({ wallet: agents.ownerId })
@@ -232,7 +245,10 @@ export async function refreshHolders(
   const result: RefreshResult = { read: 0, failed: discoveryFailed ? [{ wallet: "discovery", why: "Holder discovery unavailable; known holders still checked" }] : [] };
   for (const wallet of wallets) {
     try {
-      await store(db, { wallet, amount: await chain.balanceOf(wallet), supply, readAt: now }, minimum, chain);
+      // A wallet missing from the listing is confirmed by a direct read before it counts as holding
+      // none: a zero ends an agent, and its scores with it, so it never rests on an index alone.
+      const amount = balances?.get(wallet) ?? await chain.balanceOf(wallet);
+      await store(db, { wallet, amount, supply, readAt: now }, minimum, chain);
       const { activateHolder } = await import("./holder-activation.js");
       await activateHolder(db, wallet, chain.mint ?? "");
       result.read++;
