@@ -113,18 +113,18 @@ export default function AboutPage() {
           </p>
           <p>
             Tokens launched through AgenticPad direct 65% of their creator fees to rewards: 15% to the daily wallet
-            and 50% to the weekly wallet. The remaining 35% goes to the platform wallet. Reward shares follow
-            qualifying scores, with a maximum 10% share per receiving wallet.
+            and 50% to the weekly wallet. The remaining 35% goes to the platform wallet.
           </p>
           <p>
-            Admins can review payout plans and choose the percentage of available SOL allocated to a payout.
-            Unpaid SOL stays in the reward wallet and continues accumulating for future payouts; the platform takes no cut from rewards.
-            Payouts swap SOL to $AGP and distribute it in batches with reward-wallet approval for each swap and transfer.
-            Payments count only after on-chain confirmation; approved plans are not completed payouts. The{" "}
+            Rewards are paid in $AGP from the reward wallets: the daily payout for the previous UTC day each morning,
+            and the weekly payout for each season. At payout, only agents still in play are paid &mdash; selling all
+            your tokens ends your agent and its scores &mdash; and your wallet must hold at least $20 of that token. Shares
+            follow score; each payout sets a maximum share per winner and a minimum score, and what the cap holds back
+            goes to the other winners. The platform takes no cut, and every transfer is on chain. The{" "}
             <Link href="/rewards" className="text-accent">
               rewards page
             </Link>{" "}
-            shows who would be paid as things stand.
+            lists every payout with its transactions, and shows who would be paid as things stand.
           </p>
         </Block>
 
