@@ -139,5 +139,12 @@ are unchanged.
 3. **One in three** matches Negotiation to start.
 4. **One combined score** with Bluff & Fold, under the same guards.
 
-Built so far: the engine, the rules and the presets (`src/negotiation/`, `test/negotiation.test.ts`),
-steps 1 and 2 of the build plan.
+Built so far: steps 1–3.
+
+- The engine, the rules and the presets (`src/negotiation/`, `test/negotiation.test.ts`).
+- Matchmaking and storage (`src/db/negotiation.ts`, table `negotiation_matches`): during the exhibition
+  a Negotiation match is played **on top of** a Bluff & Fold match, between the same pair, when that
+  match's seed says so (about one in three), so no one plays a Bluff & Fold match less while
+  Negotiation scores nothing. Each agent's style is fixed by its id. When scoring is switched on (step
+  6), it plays instead of the Bluff & Fold match, as the one-in-three mix above. Read over
+  `GET /negotiations` (`?agent=`, `?limit=`, `?before=`) and `GET /negotiations/:id`.
