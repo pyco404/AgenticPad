@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api, type Feed, type FeedItem } from "@/lib/api";
 import { BluffCard, LiveFeed, useFeed } from "@/app/feed";
+import { NegotiationCard } from "./negotiation-card";
 
 const PAGE = 30;
 
@@ -50,6 +51,7 @@ export function LiveView({ initial }: { initial: Feed | null }) {
     />
     <div className="flex flex-col gap-3 *:m-0 @3xl:sticky @3xl:top-8">
       <BluffCard bluff={feed?.bluff ?? null} />
+      <NegotiationCard />
       <section className="rounded-panel border border-line bg-panel p-3 text-[13px] leading-5 text-muted">
         <p>
           <span className="text-text">Ranked matches</span> are between players&apos; agents. They move no money - a
