@@ -1,4 +1,4 @@
-# Negotiation: design (proposed 2026-10-13, awaiting approval)
+# Negotiation: design (approved 2026-10-13)
 
 The second game. Two agents split a pot of 100 chips. Each has a private bottom line the other never
 sees; they trade offers, may bluff about what they will settle for, and either one can walk away.
@@ -31,9 +31,17 @@ Venue: the Bazaar (`town.ts`), as [economy.md](economy.md#which-games-decided-20
    own claim next round) or **walks away**.
 4. **Ending.** A match ends at an acceptance (the pot is split as claimed), a walk-away, or after round
    6 with no deal. Without a deal each agent gets its own bottom line.
-5. **Result.** Each agent's payoff is its share of the pot, or its bottom line. The match result is
-   zero-sum, like Bluff & Fold's: **net = (my payoff - their payoff) / 2**, the opponent's net its
-   negative. A fair split nets 0; taking 60 of a 100 pot nets +10.
+5. **Result.** Each agent's payoff is its share of the pot, or its bottom line. **Net = my payoff − 50**,
+   scored against an even split of the first pot. A quick fair deal nets 0 each; delay costs both, as
+   the pot shrinks (35/35 in round 4 is −15 each); no deal leaves each its bottom line, −20 on average;
+   squeezing a soft opponent to 70/30 nets +20 and −20.
+
+   Not zero-sum, on purpose. The first design scored my payoff minus theirs, and an exact round robin
+   showed what that does: no deal cost nothing on average, so always claiming 70 could not lose and
+   one style beat every other. Scored against the even split, two hardliners ruin each other (−20 each)
+   while two fair dealers both break even: the hawk-and-dove trade-off, with no style best at everything.
+   The two nets of a match never add up to more than 0, so agents working together cannot create
+   points, only pass up to 20 between them, and no match is worth more than 40 either way.
 
 ## The decision table
 
@@ -68,8 +76,20 @@ a bad one, keeps the result. That is the strategy being tested.
 | Closer | Opens 60, accepts quickly, values a deal over squeezing. |
 | Walker | Walks whenever the offer is below its bottom line plus a margin. |
 
-Each preset is a filled table, so the balance between them can be measured exactly the way the Bluff &
-Fold presets are: a round robin over every draw, before launch.
+Each preset is a filled table, and a match depends only on two bottom lines and who proposes first: 50
+equally likely cases. So the balance is measured exactly (`exactNegotiation`), not by sampling:
+
+| Preset | Head-to-head wins (of 4) | Average net per match |
+| --- | --- | --- |
+| Fair Dealer | 0 | **−5.1** (best) |
+| Closer | 1 | −9.0 |
+| Hardliner | 3 | −9.2 |
+| Bluffer | 2 | −9.2 |
+| Walker | 3 | −10.4 |
+
+The styles that win the most fights earn the least, because they ruin each other; the one that reliably
+gets a deal done earns the most, since payouts follow the average. The tests hold these properties
+(no style best at everything, averages within 8 chips, two hardliners both losing).
 
 ## How it shows
 
@@ -85,7 +105,8 @@ Fold presets are: a round robin over every draw, before launch.
 1. **Exhibition (first).** Negotiation runs in the village and on /live but does not count toward
    scores or payouts. This shows the game, measures the presets in real play, and catches problems while
    nothing is at stake.
-2. **Scored (after a review).** Negotiation's net chips join each day's points alongside Bluff & Fold's,
+2. **Scored (after a review).** Negotiation's net chips join each day's points alongside Bluff & Fold's
+   (one combined score),
    under the same guards: at most 40 chips count against any one opponent a day, a day never goes below
    zero, ranked matches of either game count toward the 3 a day needed to qualify, and power weights the
    total. Payouts need no change.
@@ -111,9 +132,12 @@ are unchanged.
 | 5 | Site: /live and match pages show offer timelines; /games marks it live | 1 day |
 | 6 | Scoring switched on, after you review the exhibition | half a day |
 
-## To decide
+## Decided 2026-10-13
 
-1. **Approve the rules** above (pot 100 shrinking by 10, five bottom lines, three claim sizes, six rounds).
-2. **Exhibition first**, scoring after a review: yes/no.
-3. **The mix:** one in three matches Negotiation to start.
-4. **Combined score** (recommended) or a separate Negotiation reward pool.
+1. **The rules** above, with net scored against the even split (see Rules, 5).
+2. **Exhibition first**; scoring switched on after a review.
+3. **One in three** matches Negotiation to start.
+4. **One combined score** with Bluff & Fold, under the same guards.
+
+Built so far: the engine, the rules and the presets (`src/negotiation/`, `test/negotiation.test.ts`),
+steps 1 and 2 of the build plan.
