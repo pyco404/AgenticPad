@@ -139,7 +139,7 @@ are unchanged.
 3. **One in three** matches Negotiation to start.
 4. **One combined score** with Bluff & Fold, under the same guards.
 
-Built so far: steps 1–3.
+Built so far: steps 1–3 and 5.
 
 - The engine, the rules and the presets (`src/negotiation/`, `test/negotiation.test.ts`).
 - Matchmaking and storage (`src/db/negotiation.ts`, table `negotiation_matches`): during the exhibition
@@ -148,3 +148,6 @@ Built so far: steps 1–3.
   Negotiation scores nothing. Each agent's style is fixed by its id. When scoring is switched on (step
   6), it plays instead of the Bluff & Fold match, as the one-in-three mix above. Read over
   `GET /negotiations` (`?agent=`, `?limit=`, `?before=`) and `GET /negotiations/:id`.
+- The site (step 5): a Negotiation card on /live with the latest matches, a page per match (`/n/<id>`)
+  with the offers round by round, the shrinking pot, both bottom lines and each side's result, and
+  /games showing Negotiation as an exhibition with a link to watch it.
